@@ -22,15 +22,6 @@ export const DEMO_MATERIALS: MaterialCatalogEntry[] = [
   { id: "m10", code: "GLV-BND", name: "Гагнуурын баллон (CO2)", unit: "ш", warehouseBalance: 2, defaultPrice: 185000 },
 ];
 
-export const DEMO_KPIS = {
-  totalRequests: 128,
-  pendingApproval: 14,
-  warehouseCheck: 6,
-  needsProcurement: 9,
-  completed: 92,
-  overdue: 3,
-};
-
 export const DEMO_REQUESTS: MaterialRequestView[] = [
   {
     id: "r1371",

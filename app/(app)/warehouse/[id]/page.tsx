@@ -8,14 +8,17 @@ import { Button } from "@/components/ui/Button";
 import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { AllocationBar } from "@/components/workflow/AllocationBar";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
+import { DEMO_APPROVERS } from "@/lib/mock-session";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 
 export default function WarehouseCheckPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { push } = useToast();
-  const request = DEMO_REQUESTS.find((r) => r.id === params.id);
+  const requests = useRequestStore((s) => s.requests);
+  const submitWarehouseCheck = useRequestStore((s) => s.submitWarehouseCheck);
+  const request = requests.find((r) => r.id === params.id);
   const [available, setAvailable] = useState<Record<string, number>>(() =>
     Object.fromEntries((request?.items ?? []).map((i) => [i.id, i.warehouseBalance ?? 0]))
   );
@@ -23,12 +26,19 @@ export default function WarehouseCheckPage() {
 
   if (!request) return null;
 
+  const hasMissing = request.items.some(
+    (item) => Math.min(available[item.id] ?? 0, item.requestedQuantity) < item.requestedQuantity
+  );
+
   function confirmCheck() {
+    submitWarehouseCheck(request!.id, available, DEMO_APPROVERS.WAREHOUSE_CLERK);
     setConfirmed(true);
     push({
       kind: "success",
       title: "Агуулахын шалгалт баталгаажлаа",
-      description: "Дутуу материал худалдан авалтын дараагийн шатанд шилжлээ",
+      description: hasMissing
+        ? "Дутуу материал худалдан авалтын баталгаажуулах дараагийн шатанд шилжлээ"
+        : "Бүх материал бэлэн байгаа тул захиалга дуусгавар боллоо",
     });
   }
 
@@ -42,7 +52,9 @@ export default function WarehouseCheckPage() {
       <Card>
         <CardHeader>
           <CardTitle>Тоо хэмжээ баталгаажуулах</CardTitle>
-          <span className="text-xs text-text-muted">Шалгаж буй: Г.Сарнай · {formatDateTime(new Date())}</span>
+          <span className="text-xs text-text-muted">
+            Шалгаж буй: {DEMO_APPROVERS.WAREHOUSE_CLERK} · {formatDateTime(new Date())}
+          </span>
         </CardHeader>
         <CardBody className="space-y-5">
           {request.items.map((item) => {

@@ -17,12 +17,8 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge, DemoDataBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import {
-  DEMO_ACTIVITY,
-  DEMO_KPIS,
-  DEMO_REQUESTS,
-  DEMO_URGENT_ALERTS,
-} from "@/lib/mock-data";
+import { DEMO_URGENT_ALERTS } from "@/lib/mock-data";
+import { selectKpis, useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 
@@ -73,7 +69,10 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 ];
 
 export default function DashboardPage() {
-  const pendingApproval = DEMO_REQUESTS.filter((r) =>
+  const requests = useRequestStore((s) => s.requests);
+  const activity = useRequestStore((s) => s.activity);
+  const kpis = selectKpis(requests);
+  const pendingApproval = requests.filter((r) =>
     ["PENDING_DEPARTMENT_APPROVAL", "PENDING_ROUTE_APPROVAL", "PENDING_DIRECTOR_APPROVAL"].includes(r.status)
   );
 
@@ -98,12 +97,12 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
-        <KpiCard label="Нийт захиалга" value={DEMO_KPIS.totalRequests} icon={ListChecks} tone="neutral" />
-        <KpiCard label="Батлах хүлээлттэй" value={DEMO_KPIS.pendingApproval} icon={Clock} tone="accent" />
-        <KpiCard label="Агуулахын шалгалт" value={DEMO_KPIS.warehouseCheck} icon={Boxes} tone="accent" />
-        <KpiCard label="Худалдан авах шаардлагатай" value={DEMO_KPIS.needsProcurement} icon={ShoppingCart} tone="warning" />
-        <KpiCard label="Дууссан захиалга" value={DEMO_KPIS.completed} icon={CheckCircle2} tone="success" />
-        <KpiCard label="Хугацаа хэтэрсэн" value={DEMO_KPIS.overdue} icon={AlertTriangle} tone="danger" />
+        <KpiCard label="Нийт захиалга" value={kpis.totalRequests} icon={ListChecks} tone="neutral" />
+        <KpiCard label="Батлах хүлээлттэй" value={kpis.pendingApproval} icon={Clock} tone="accent" />
+        <KpiCard label="Агуулахын шалгалт" value={kpis.warehouseCheck} icon={Boxes} tone="accent" />
+        <KpiCard label="Худалдан авах шаардлагатай" value={kpis.needsProcurement} icon={ShoppingCart} tone="warning" />
+        <KpiCard label="Дууссан захиалга" value={kpis.completed} icon={CheckCircle2} tone="success" />
+        <KpiCard label="Хугацаа хэтэрсэн" value={kpis.overdue} icon={AlertTriangle} tone="danger" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -115,7 +114,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <DataTable
-            data={DEMO_REQUESTS}
+            data={requests}
             columns={columns}
             getRowId={(r) => r.id}
             searchPlaceholder="Захиалга хайх..."
@@ -154,7 +153,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardBody>
             <ol className="space-y-4">
-              {DEMO_ACTIVITY.map((a) => (
+              {activity.map((a) => (
                 <li key={a.id} className="flex gap-3 text-sm">
                   <span className="w-10 shrink-0 text-xs text-text-muted">{a.time}</span>
                   <span

@@ -4,11 +4,9 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
-
-const queue = DEMO_REQUESTS.filter((r) => r.status === "PENDING_WAREHOUSE_CHECK");
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
@@ -58,6 +56,8 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 
 export default function WarehousePage() {
   const router = useRouter();
+  const requests = useRequestStore((s) => s.requests);
+  const queue = requests.filter((r) => r.status === "PENDING_WAREHOUSE_CHECK");
 
   return (
     <div className="space-y-4">

@@ -4,11 +4,9 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
-
-const archived = DEMO_REQUESTS.filter((r) => ["COMPLETED", "CANCELLED", "PARTIALLY_COMPLETED"].includes(r.status));
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
@@ -51,6 +49,8 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 
 export default function ArchivePage() {
   const router = useRouter();
+  const requests = useRequestStore((s) => s.requests);
+  const archived = requests.filter((r) => ["COMPLETED", "CANCELLED", "PARTIALLY_COMPLETED"].includes(r.status));
 
   return (
     <div className="space-y-4">

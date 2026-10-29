@@ -7,12 +7,10 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 import { DEMO_CURRENT_USER } from "@/lib/mock-session";
-
-const myRequests = DEMO_REQUESTS.filter((r) => r.requestedBy === DEMO_CURRENT_USER.name);
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
@@ -55,6 +53,8 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 
 export default function MyRequestsPage() {
   const router = useRouter();
+  const requests = useRequestStore((s) => s.requests);
+  const myRequests = requests.filter((r) => r.requestedBy === DEMO_CURRENT_USER.name);
 
   return (
     <div className="space-y-4">
@@ -73,7 +73,7 @@ export default function MyRequestsPage() {
 
       <Card>
         <DataTable
-          data={myRequests.length > 0 ? myRequests : DEMO_REQUESTS}
+          data={myRequests}
           columns={columns}
           getRowId={(r) => r.id}
           onRowClick={(r) => router.push(`/requests/${r.id}`)}

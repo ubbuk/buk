@@ -5,13 +5,13 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
-import { DEMO_DEPARTMENTS } from "@/lib/mock-session";
+import { DEMO_DEPARTMENTS, DEMO_APPROVERS } from "@/lib/mock-session";
 import { Save, ShieldCheck } from "lucide-react";
 
 const APPROVAL_ROLES = [
-  { role: "OFFICE_APPROVER", label: "Оффисын чиглэлийн баталгаажуулагч", current: "Н.Хүнцэнгэл" },
-  { role: "FACTORY_APPROVER", label: "Үйлдвэрийн чиглэлийн баталгаажуулагч", current: "Б.Нармандах" },
-  { role: "DIRECTOR", label: "Эцсийн баталгаажуулагч (Захирал)", current: "Хамхоев Магомед" },
+  { role: "OFFICE_APPROVER", label: "Оффисын чиглэлийн баталгаажуулагч", current: DEMO_APPROVERS.OFFICE_APPROVER },
+  { role: "FACTORY_APPROVER", label: "Үйлдвэрийн чиглэлийн баталгаажуулагч", current: DEMO_APPROVERS.FACTORY_APPROVER },
+  { role: "DIRECTOR", label: "Эцсийн баталгаажуулагч (Захирал)", current: DEMO_APPROVERS.DIRECTOR },
 ] as const;
 
 export default function SettingsPage() {

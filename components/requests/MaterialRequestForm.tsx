@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -18,6 +19,7 @@ import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { DEMO_DEPARTMENTS, DEMO_CURRENT_USER } from "@/lib/mock-session";
 import { DEMO_MATERIALS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { validateItem, type FieldErrors } from "@/lib/validation";
 import type { MaterialCatalogEntry } from "@/lib/types";
@@ -62,7 +64,10 @@ export function MaterialRequestForm() {
   const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
   const [dirty, setDirty] = useState(false);
-  const [submitted, setSubmitted] = useState<{ requestNumber: string } | null>(null);
+  const [submitted, setSubmitted] = useState<{ id: string; requestNumber: string; nextApprover: string } | null>(
+    null
+  );
+  const createRequest = useRequestStore((s) => s.createRequest);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const restoredRef = useRef(false);
 
@@ -200,11 +205,26 @@ export function MaterialRequestForm() {
       push({ kind: "error", title: "Маягтад алдаа байна", description: "Улаанаар тэмдэглэгдсэн талбаруудыг засна уу" });
       return;
     }
-    // DEMO: no backend yet — simulates server-assigned request number.
-    const requestNumber = `2026-${1372 + Math.floor(Math.random() * 50)}`;
+    const newRequest = createRequest({
+      departmentId,
+      route,
+      requestedBy: DEMO_CURRENT_USER.name,
+      items: rows.map((r) => ({
+        materialName: r.materialName,
+        unit: r.unit,
+        requestedQuantity: typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0,
+        unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : 0,
+        warehouseBalance: r.warehouseBalance,
+        note: r.note || undefined,
+      })),
+    });
     localStorage.removeItem(DRAFT_KEY);
     setDirty(false);
-    setSubmitted({ requestNumber });
+    setSubmitted({
+      id: newRequest.id,
+      requestNumber: newRequest.requestNumber,
+      nextApprover: newRequest.approvalSteps[0].assignedUserName,
+    });
   }
 
   function resetForm() {
@@ -233,12 +253,15 @@ export function MaterialRequestForm() {
           </div>
           <div className="w-full rounded-lg border border-border bg-bg-elevated/50 p-3 text-sm">
             <p className="text-text-muted">Дараагийн баталгаажуулагч</p>
-            <p className="mt-0.5 font-medium text-text">Цехийн дарга</p>
+            <p className="mt-0.5 font-medium text-text">{submitted.nextApprover}</p>
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={resetForm}>
               Шинэ захиалга үүсгэх
             </Button>
+            <Link href={`/requests/${submitted.id}`}>
+              <Button>Захиалгыг харах</Button>
+            </Link>
           </div>
         </CardBody>
       </Card>

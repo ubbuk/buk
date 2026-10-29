@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { notFound, useParams } from "next/navigation";
-import { CheckCircle2, Paperclip, Undo2 } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Paperclip, Undo2, Warehouse } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -10,16 +11,18 @@ import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { ApprovalTimeline } from "@/components/workflow/ApprovalTimeline";
 import { AllocationBar } from "@/components/workflow/AllocationBar";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/utils";
 
 export default function RequestDetailPage() {
   const params = useParams<{ id: string }>();
   const { push } = useToast();
-  const request = DEMO_REQUESTS.find((r) => r.id === params.id);
+  const requests = useRequestStore((s) => s.requests);
+  const approveStep = useRequestStore((s) => s.approveStep);
+  const returnStep = useRequestStore((s) => s.returnStep);
+  const request = requests.find((r) => r.id === params.id);
   const [returnOpen, setReturnOpen] = useState(false);
   const [reason, setReason] = useState("");
-  const [decided, setDecided] = useState<"approved" | "returned" | null>(null);
 
   if (!request) notFound();
 
@@ -27,7 +30,8 @@ export default function RequestDetailPage() {
   const hasAllocation = request.items.some((i) => i.allocatedQuantity !== undefined);
 
   function approve() {
-    setDecided("approved");
+    if (!pendingStep) return;
+    approveStep(request!.id, pendingStep.assignedUserName);
     push({ kind: "success", title: "Хүсэлтийг баталлаа", description: `№${request!.requestNumber}` });
   }
 
@@ -36,7 +40,8 @@ export default function RequestDetailPage() {
       push({ kind: "error", title: "Буцаах шалтгаанаа бичнэ үү" });
       return;
     }
-    setDecided("returned");
+    if (!pendingStep) return;
+    returnStep(request!.id, pendingStep.assignedUserName, reason);
     setReturnOpen(false);
     push({ kind: "warning", title: "Хүсэлтийг буцаалаа", description: reason });
   }
@@ -54,7 +59,15 @@ export default function RequestDetailPage() {
             {request.department} · {request.requestedBy} · {formatDateTime(request.createdAt)}
           </p>
         </div>
-        {pendingStep && !decided && (
+        {pendingStep && pendingStep.type === "WAREHOUSE_CHECK" && (
+          <Link href={`/warehouse/${request.id}`}>
+            <Button>
+              <Warehouse className="size-4" />
+              Агуулахад шалгах
+            </Button>
+          </Link>
+        )}
+        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && (
           <div className="flex gap-2">
             <Button variant="danger" onClick={() => setReturnOpen(true)}>
               <Undo2 className="size-4" />

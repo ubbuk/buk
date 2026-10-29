@@ -4,16 +4,11 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { DEMO_REQUESTS } from "@/lib/mock-data";
-import { APPROVAL_STEP_LABEL } from "@/lib/types";
+import { useRequestStore } from "@/lib/store";
+import { APPROVAL_STEP_LABEL, type ApprovalStepView, type MaterialRequestView } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-const queue = DEMO_REQUESTS.filter((r) => r.approvalSteps.some((s) => s.status === "PENDING")).map((r) => ({
-  ...r,
-  pendingStep: r.approvalSteps.find((s) => s.status === "PENDING")!,
-}));
-
-type Row = (typeof queue)[number];
+type Row = MaterialRequestView & { pendingStep: ApprovalStepView };
 
 const columns: DataTableColumn<Row>[] = [
   {
@@ -70,6 +65,11 @@ const columns: DataTableColumn<Row>[] = [
 
 export default function ApprovalsPage() {
   const router = useRouter();
+  const requests = useRequestStore((s) => s.requests);
+
+  const queue: Row[] = requests
+    .map((r) => ({ ...r, pendingStep: r.approvalSteps.find((s) => s.status === "PENDING") }))
+    .filter((r): r is Row => r.pendingStep !== undefined && r.pendingStep.type !== "WAREHOUSE_CHECK");
 
   return (
     <div className="space-y-4">

@@ -4,8 +4,25 @@ import { Card } from "@/components/ui/Card";
 import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { DEMO_PURCHASE_QUEUE, type PurchaseQueueEntry } from "@/lib/mock-data";
+import { useRequestStore } from "@/lib/store";
 import { PURCHASE_STATUS_LABEL, RECEIVING_STATUS_LABEL } from "@/lib/types";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+
+const STATUS_BY_REQUEST_STATUS: Record<string, PurchaseQueueEntry["status"]> = {
+  PENDING_ROUTE_APPROVAL: "PENDING_ROUTE_APPROVAL",
+  PENDING_DIRECTOR_APPROVAL: "PENDING_DIRECTOR_APPROVAL",
+  FULFILLMENT_IN_PROGRESS: "IN_PROCUREMENT",
+  COMPLETED: "FULFILLED",
+  PARTIALLY_COMPLETED: "FULFILLED",
+};
+
+const RECEIVING_BY_REQUEST_STATUS: Record<string, PurchaseQueueEntry["receivingStatus"]> = {
+  PENDING_ROUTE_APPROVAL: "NOT_ORDERED",
+  PENDING_DIRECTOR_APPROVAL: "NOT_ORDERED",
+  FULFILLMENT_IN_PROGRESS: "ORDERED",
+  COMPLETED: "RECEIVED",
+  PARTIALLY_COMPLETED: "PARTIALLY_RECEIVED",
+};
 
 const statusTone: Record<string, string> = {
   PENDING_ROUTE_APPROVAL: "text-accent",
@@ -82,6 +99,30 @@ const columns: DataTableColumn<PurchaseQueueEntry>[] = [
 ];
 
 export default function ProcurementPage() {
+  const requests = useRequestStore((s) => s.requests);
+
+  const liveEntries: PurchaseQueueEntry[] = requests
+    .filter((r) => r.id.startsWith("live-") && r.status in STATUS_BY_REQUEST_STATUS)
+    .flatMap((r) =>
+      r.items
+        .filter((item) => (item.missingQuantity ?? 0) > 0)
+        .map((item) => ({
+          id: `${r.id}-${item.id}`,
+          requestNumber: r.requestNumber,
+          materialName: item.materialName,
+          quantity: item.missingQuantity ?? 0,
+          unit: item.unit,
+          supplier: null,
+          estimatedPrice: item.unitPrice,
+          actualPrice: null,
+          status: STATUS_BY_REQUEST_STATUS[r.status],
+          expectedDelivery: null,
+          receivingStatus: RECEIVING_BY_REQUEST_STATUS[r.status],
+        }))
+    );
+
+  const data = [...liveEntries, ...DEMO_PURCHASE_QUEUE];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -91,7 +132,7 @@ export default function ProcurementPage() {
 
       <Card>
         <DataTable
-          data={DEMO_PURCHASE_QUEUE}
+          data={data}
           columns={columns}
           getRowId={(r) => r.id}
           emptyTitle="Худалдан авах материал алга"

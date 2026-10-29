@@ -93,6 +93,7 @@ export interface MaterialRequestView {
   id: string;
   requestNumber: string;
   createdAt: string;
+  completedAt?: string;
   department: string;
   requestedBy: string;
   route: RequestRoute;
