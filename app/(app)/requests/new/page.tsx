@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { MaterialRequestForm } from "@/components/requests/MaterialRequestForm";
 
 export default function NewRequestPage() {
-  return <MaterialRequestForm />;
+  return (
+    <Suspense>
+      <MaterialRequestForm />
+    </Suspense>
+  );
 }

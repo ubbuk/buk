@@ -11,11 +11,13 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { DEMO_DEPARTMENTS, DEMO_CURRENT_USER } from "@/lib/mock-session";
+import { DEMO_MATERIALS } from "@/lib/mock-data";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { validateItem, type FieldErrors } from "@/lib/validation";
 import type { MaterialCatalogEntry } from "@/lib/types";
@@ -49,12 +51,14 @@ function emptyRow(): Row {
 
 export function MaterialRequestForm() {
   const { push } = useToast();
+  const searchParams = useSearchParams();
   const [departmentId, setDepartmentId] = useState(DEMO_CURRENT_USER.departmentId);
   const [route, setRoute] = useState<"OFFICE" | "FACTORY">(
     DEMO_DEPARTMENTS.find((d) => d.id === DEMO_CURRENT_USER.departmentId)?.type ?? "FACTORY"
   );
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
+  const [urgent, setUrgent] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
   const [dirty, setDirty] = useState(false);
@@ -74,9 +78,32 @@ export function MaterialRequestForm() {
         if (draft.route) setRoute(draft.route);
         if (draft.note) setNote(draft.note);
         push({ kind: "info", title: "Хадгалсан ноорог сэргээгдлээ" });
+        return;
       }
     } catch {
       // corrupted draft — ignore and start fresh
+    }
+
+    const materialId = searchParams.get("material");
+    const isUrgent = searchParams.get("urgent") === "1";
+    if (materialId) {
+      const material = DEMO_MATERIALS.find((m) => m.id === materialId);
+      if (material) {
+        setRows([
+          {
+            ...emptyRow(),
+            materialId: material.id,
+            materialName: material.name,
+            warehouseBalance: material.warehouseBalance,
+            unit: material.unit,
+            unitPrice: material.defaultPrice,
+          },
+        ]);
+      }
+    }
+    if (isUrgent) {
+      setUrgent(true);
+      setNote((prev) => prev || "Яаралтай шаардлагатай — агуулахын нөөц хүрэлцэхгүй байна");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -184,6 +211,7 @@ export function MaterialRequestForm() {
     setRows([emptyRow()]);
     setDepartmentId(DEMO_CURRENT_USER.departmentId);
     setNote("");
+    setUrgent(false);
     setAttachments([]);
     setErrors({});
     setSubmitted(null);
@@ -223,6 +251,11 @@ export function MaterialRequestForm() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <CardTitle>Маягт №1 — Материалын захиалгын хуудас</CardTitle>
+            {urgent && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger">
+                Яаралтай
+              </span>
+            )}
             <DemoDataBadge />
           </div>
           <span className="text-xs text-text-muted">Огноо: {formatDate(new Date())}</span>

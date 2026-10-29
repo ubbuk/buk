@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   Boxes,
   ArrowUpRight,
+  Zap,
 } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -19,11 +20,10 @@ import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import {
   DEMO_ACTIVITY,
   DEMO_KPIS,
-  DEMO_MATERIALS,
   DEMO_REQUESTS,
   DEMO_URGENT_ALERTS,
 } from "@/lib/mock-data";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
@@ -147,29 +147,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Агуулахын нөөцийн тойм</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-3">
-            {DEMO_MATERIALS.slice(0, 6).map((m) => {
-              const low = m.warehouseBalance < 10;
-              return (
-                <div key={m.id} className="flex items-center justify-between text-sm">
-                  <div className="min-w-0">
-                    <p className="truncate text-text">{m.name}</p>
-                    <p className="text-[11px] text-text-muted">{m.code}</p>
-                  </div>
-                  <span className={low ? "font-medium text-danger" : "text-text-muted"}>
-                    {formatNumber(m.warehouseBalance)} {m.unit}
-                  </span>
-                </div>
-              );
-            })}
-          </CardBody>
-        </Card>
-
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Үйл ажиллагааны лог</CardTitle>
@@ -205,13 +183,19 @@ export default function DashboardPage() {
             {DEMO_URGENT_ALERTS.map((a) => (
               <div
                 key={a.id}
-                className={`rounded-lg border p-3 text-xs ${
+                className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-xs ${
                   a.severity === "danger"
                     ? "border-danger/30 bg-danger/10 text-danger"
                     : "border-warning/30 bg-warning/10 text-warning"
                 }`}
               >
-                {a.text}
+                <span>{a.text}</span>
+                <Link href={`/requests/new?material=${a.materialId}&urgent=1`} className="shrink-0">
+                  <Button size="sm" variant={a.severity === "danger" ? "danger" : "secondary"}>
+                    <Zap className="size-3.5" />
+                    Яаралтай захиалга
+                  </Button>
+                </Link>
               </div>
             ))}
           </CardBody>

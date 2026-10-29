@@ -199,6 +199,16 @@ export const DEMO_PURCHASE_QUEUE: PurchaseQueueEntry[] = [
 ];
 
 export const DEMO_URGENT_ALERTS = [
-  { id: "al1", text: "Ган хуудас 4мм — агуулахад 9ш үлдсэн, 2 захиалга хүлээгдэж байна", severity: "warning" as const },
-  { id: "al2", text: "Гагнуурын баллон (CO2) — нөөц 2ш, доод хязгаараас доогуур", severity: "danger" as const },
+  {
+    id: "al1",
+    text: "Ган хуудас 4мм — агуулахад 9ш үлдсэн, 2 захиалга хүлээгдэж байна",
+    severity: "warning" as const,
+    materialId: "m8",
+  },
+  {
+    id: "al2",
+    text: "Гагнуурын баллон (CO2) — нөөц 2ш, доод хязгаараас доогуур",
+    severity: "danger" as const,
+    materialId: "m10",
+  },
 ];
