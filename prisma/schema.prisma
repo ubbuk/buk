@@ -1,0 +1,503 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  EMPLOYEE
+  DEPARTMENT_HEAD
+  WAREHOUSE_CLERK
+  PROCUREMENT_OFFICER
+  OFFICE_APPROVER
+  FACTORY_APPROVER
+  DIRECTOR
+  ADMIN
+}
+
+enum DepartmentType {
+  OFFICE
+  FACTORY
+}
+
+enum ApprovalRole {
+  OFFICE_APPROVER
+  FACTORY_APPROVER
+  DIRECTOR
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  role          UserRole @default(EMPLOYEE)
+  departmentId  String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  department          Department?          @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  headOfDepartments    Department[]        @relation("DepartmentHead")
+  requestsCreated      MaterialRequest[]   @relation("RequestedBy")
+  approvalActions       ApprovalAction[]
+  warehouseChecks       WarehouseCheck[]
+  stockIssues            StockIssue[]
+  goodsReceipts          GoodsReceipt[]
+  purchaseOrdersCreated  PurchaseOrder[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  approvalAssignments     ApprovalRoleAssignment[]
+  attachments             Attachment[]
+
+  @@index([departmentId])
+}
+
+model Department {
+  id       String         @id @default(cuid())
+  name     String
+  type     DepartmentType
+  headId   String?
+
+  head     User?             @relation("DepartmentHead", fields: [headId], references: [id])
+  members  User[]            @relation("DepartmentMembers")
+  requests MaterialRequest[]
+
+  @@index([headId])
+}
+
+// Maps a singleton approval role to the currently assigned user. Only one
+// active assignment per role should exist at a time; history is kept for audit.
+model ApprovalRoleAssignment {
+  id        String       @id @default(cuid())
+  role      ApprovalRole
+  userId    String
+  isActive  Boolean      @default(true)
+  startedAt DateTime     @default(now())
+  endedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([role, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Catalog & inventory
+// ---------------------------------------------------------------------------
+
+model Material {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  unit         String
+  category     String?
+  defaultPrice Decimal  @db.Decimal(14, 2)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  inventoryBalances  InventoryBalance[]
+  requestItems        MaterialRequestItem[]
+
+  @@index([name])
+}
+
+model Warehouse {
+  id       String @id @default(cuid())
+  name     String
+  location String?
+
+  inventoryBalances  InventoryBalance[]
+  reservations        StockReservation[]
+
+}
+
+// Available-for-allocation = quantityOnHand - quantityReserved. Updated with
+// row-level locking (`SELECT ... FOR UPDATE` inside a transaction) whenever
+// a reservation is created, so concurrent requests can't over-allocate.
+model InventoryBalance {
+  id              String   @id @default(cuid())
+  materialId      String
+  warehouseId     String
+  quantityOnHand  Decimal  @db.Decimal(14, 3)
+  quantityReserved Decimal @default(0) @db.Decimal(14, 3)
+  updatedAt       DateTime @updatedAt
+
+  material  Material  @relation(fields: [materialId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([materialId, warehouseId])
+}
+
+// ---------------------------------------------------------------------------
+// Material request (Маягт №1) & workflow
+// ---------------------------------------------------------------------------
+
+enum RequestRoute {
+  OFFICE
+  FACTORY
+}
+
+// Coarse pipeline stage only. Item-level fulfillment (warehouse issuance vs.
+// purchasing) is tracked independently in StockReservation/StockIssue and
+// PurchaseRequirement/PurchaseOrder, and can progress concurrently once the
+// approval pipeline below reaches FULFILLMENT_IN_PROGRESS.
+enum RequestStatus {
+  DRAFT
+  PENDING_DEPARTMENT_APPROVAL
+  RETURNED_BY_DEPARTMENT
+  PENDING_WAREHOUSE_CHECK
+  PENDING_ROUTE_APPROVAL
+  RETURNED_BY_ROUTE_APPROVER
+  PENDING_DIRECTOR_APPROVAL
+  RETURNED_BY_DIRECTOR
+  FULFILLMENT_IN_PROGRESS
+  PARTIALLY_COMPLETED
+  COMPLETED
+  CANCELLED
+}
+
+model MaterialRequest {
+  id            String        @id @default(cuid())
+  requestNumber String        @unique // e.g. "2026-1371"
+  year          Int
+  sequence      Int
+  departmentId  String
+  requestedById String
+  route         RequestRoute
+  status        RequestStatus @default(DRAFT)
+  note          String?
+
+  // Optimistic concurrency + tamper-evidence. version increments on every
+  // content-changing write; documentHash is a SHA-256 of the canonical
+  // (header + items) payload at last submit/approval, so a change after
+  // signing is detectable instead of silently overwritten.
+  version      Int      @default(1)
+  documentHash String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  submittedAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  cancelReason String?
+
+  department      Department             @relation(fields: [departmentId], references: [id])
+  requestedBy     User                   @relation("RequestedBy", fields: [requestedById], references: [id])
+  items           MaterialRequestItem[]
+  approvalSteps    ApprovalStep[]
+  warehouseChecks  WarehouseCheck[]
+  attachments      Attachment[]
+  notifications    Notification[]
+
+  @@index([departmentId])
+  @@index([requestedById])
+  @@index([status])
+}
+
+model MaterialRequestItem {
+  id                String  @id @default(cuid())
+  requestId         String
+  lineNo            Int
+  materialId        String?
+  manualMaterialName String? // free-text entry when not in catalog
+  unit              String
+  requestedQuantity Decimal @db.Decimal(14, 3)
+  warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3) // snapshot shown on the form
+  unitPrice         Decimal @db.Decimal(14, 2)
+  totalPrice        Decimal @db.Decimal(14, 2)
+  note              String?
+
+  request            MaterialRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  material           Material?            @relation(fields: [materialId], references: [id])
+  warehouseCheckItems WarehouseCheckItem[]
+  reservations        StockReservation[]
+  purchaseRequirement  PurchaseRequirement?
+
+  @@unique([requestId, lineNo])
+  @@index([materialId])
+}
+
+// ---------------------------------------------------------------------------
+// Warehouse verification
+// ---------------------------------------------------------------------------
+
+model WarehouseCheck {
+  id          String   @id @default(cuid())
+  requestId   String
+  checkedById String
+  checkedAt   DateTime @default(now())
+  note        String?
+
+  request MaterialRequest       @relation(fields: [requestId], references: [id])
+  checkedBy User                @relation(fields: [checkedById], references: [id])
+  items     WarehouseCheckItem[]
+
+  @@index([requestId])
+}
+
+model WarehouseCheckItem {
+  id                 String  @id @default(cuid())
+  warehouseCheckId   String
+  requestItemId      String
+  availableQuantity  Decimal @db.Decimal(14, 3)
+  allocatedQuantity  Decimal @db.Decimal(14, 3) // = min(requested, available), computed server-side
+  missingQuantity    Decimal @db.Decimal(14, 3) // = requested - allocated
+
+  warehouseCheck WarehouseCheck       @relation(fields: [warehouseCheckId], references: [id], onDelete: Cascade)
+  requestItem    MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
+
+  @@unique([warehouseCheckId, requestItemId])
+}
+
+enum ReservationStatus {
+  RESERVED
+  RELEASED
+  ISSUED
+}
+
+model StockReservation {
+  id            String            @id @default(cuid())
+  requestItemId String
+  warehouseId   String
+  quantity      Decimal           @db.Decimal(14, 3)
+  status        ReservationStatus @default(RESERVED)
+  createdAt     DateTime          @default(now())
+  releasedAt    DateTime?
+
+  requestItem MaterialRequestItem @relation(fields: [requestItemId], references: [id])
+  warehouse   Warehouse           @relation(fields: [warehouseId], references: [id])
+  issue       StockIssue?
+
+  @@index([requestItemId])
+  @@index([warehouseId])
+}
+
+model StockIssue {
+  id             String   @id @default(cuid())
+  reservationId  String   @unique
+  issuedById     String
+  quantity       Decimal  @db.Decimal(14, 3)
+  issuedAt       DateTime @default(now())
+
+  reservation StockReservation @relation(fields: [reservationId], references: [id])
+  issuedBy    User             @relation(fields: [issuedById], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Purchasing (missing-quantity path)
+// ---------------------------------------------------------------------------
+
+enum PurchaseRequirementStatus {
+  PENDING_ROUTE_APPROVAL
+  PENDING_DIRECTOR_APPROVAL
+  APPROVED
+  REJECTED
+  IN_PROCUREMENT
+  FULFILLED
+  CANCELLED
+}
+
+model PurchaseRequirement {
+  id            String                    @id @default(cuid())
+  requestItemId String                    @unique
+  quantity      Decimal                   @db.Decimal(14, 3)
+  status        PurchaseRequirementStatus @default(PENDING_ROUTE_APPROVAL)
+
+  routeApprovedById String?
+  routeApprovedAt   DateTime?
+  directorApprovedById String?
+  directorApprovedAt   DateTime?
+  rejectionReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requestItem        MaterialRequestItem @relation(fields: [requestItemId], references: [id])
+  purchaseOrderItems  PurchaseOrderItem[]
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(cuid())
+  orderNumber          String              @unique
+  supplierName         String
+  status               PurchaseOrderStatus @default(DRAFT)
+  createdById          String
+  createdAt            DateTime            @default(now())
+  expectedDeliveryDate DateTime?
+
+  createdBy User                @relation(fields: [createdById], references: [id])
+  items     PurchaseOrderItem[]
+}
+
+model PurchaseOrderItem {
+  id                    String  @id @default(cuid())
+  purchaseOrderId       String
+  purchaseRequirementId String
+  quantity              Decimal @db.Decimal(14, 3)
+  estimatedPrice        Decimal @db.Decimal(14, 2)
+  actualPrice           Decimal? @db.Decimal(14, 2)
+
+  purchaseOrder       PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  purchaseRequirement PurchaseRequirement  @relation(fields: [purchaseRequirementId], references: [id])
+  goodsReceipts        GoodsReceipt[]
+
+  @@index([purchaseOrderId])
+}
+
+model GoodsReceipt {
+  id                  String   @id @default(cuid())
+  purchaseOrderItemId String
+  receivedQuantity    Decimal  @db.Decimal(14, 3)
+  receivedById         String
+  receivedAt           DateTime @default(now())
+  note                 String?
+
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  receivedBy         User              @relation(fields: [receivedById], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Approvals, attachments, notifications, audit
+// ---------------------------------------------------------------------------
+
+enum ApprovalStepType {
+  DEPARTMENT_HEAD
+  WAREHOUSE_CHECK
+  ROUTE_APPROVAL
+  DIRECTOR_APPROVAL
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+model ApprovalStep {
+  id         String             @id @default(cuid())
+  requestId  String
+  type       ApprovalStepType
+  sequence   Int
+  status     ApprovalStepStatus @default(PENDING)
+  assignedUserId String?        // resolved at creation time from Department.headId or ApprovalRoleAssignment
+  decidedById    String?
+  decidedAt      DateTime?
+  comment        String?
+
+  request MaterialRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actions ApprovalAction[]
+
+  @@unique([requestId, sequence])
+  @@index([assignedUserId, status])
+}
+
+enum ApprovalActionType {
+  APPROVE
+  REJECT
+  RETURN
+}
+
+// Immutable record of each decision: who, what, when, against which document
+// version/hash. This is the source of truth for the approval timeline UI.
+model ApprovalAction {
+  id             String             @id @default(cuid())
+  approvalStepId String
+  actorId        String
+  action         ApprovalActionType
+  reason         String?
+  documentHash   String?
+  createdAt      DateTime           @default(now())
+
+  approvalStep ApprovalStep @relation(fields: [approvalStepId], references: [id])
+  actor        User         @relation(fields: [actorId], references: [id])
+
+  @@index([approvalStepId])
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  requestId    String
+  fileName     String
+  fileUrl      String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  request    MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploadedBy User            @relation(fields: [uploadedById], references: [id])
+
+  @@index([requestId])
+}
+
+enum NotificationType {
+  APPROVAL_REQUIRED
+  REQUEST_RETURNED
+  REQUEST_APPROVED
+  WAREHOUSE_CHECK_NEEDED
+  PURCHASE_REQUIREMENT_READY
+  GOODS_RECEIVED
+  REQUEST_COMPLETED
+  GENERIC
+}
+
+model Notification {
+  id               String           @id @default(cuid())
+  userId           String
+  type             NotificationType
+  title            String
+  body             String
+  relatedRequestId String?
+  isRead           Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+
+  user           User             @relation(fields: [userId], references: [id])
+  relatedRequest MaterialRequest? @relation(fields: [relatedRequestId], references: [id])
+
+  @@index([userId, isRead])
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  SUBMIT
+  APPROVE
+  REJECT
+  RETURN
+  RESERVE_STOCK
+  ISSUE_STOCK
+  CREATE_PURCHASE_ORDER
+  RECEIVE_GOODS
+  CANCEL
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  entityType String
+  entityId   String
+  action     AuditAction
+  actorId    String
+  beforeJson String?
+  afterJson  String?
+  createdAt  DateTime    @default(now())
+  ipAddress  String?
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
