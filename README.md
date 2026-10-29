@@ -59,15 +59,22 @@ The app runs today **without a database** — every page currently reads from
 client wiring) lands:
 
 ```bash
-docker compose up -d        # starts local Postgres on :5432
+docker compose up -d        # starts local Postgres on :5433 (see note below)
 npm run prisma:migrate      # creates tables from prisma/schema.prisma
 ```
 
-`prisma generate` / `prisma validate` have been run against the schema to
-confirm it's syntactically correct; `prisma migrate dev` has **not** been
-run against a live database in this environment (Docker Desktop wasn't
-running), so the first migration should be verified once you have Postgres
-reachable.
+The initial migration has been applied and verified against a real local
+Postgres container (`prisma/migrations/20261029085322_init`).
+
+**Why port 5433, not the default 5432:** on this machine, Docker Desktop's
+port-forwarding mishandles connections to `5432` specifically — Prisma
+(and presumably any client) gets a SCRAM authentication failure connecting
+from the Windows host, even though the exact same credentials authenticate
+fine for a connection made from inside the Docker network. Publishing the
+container on `5433:5432` instead sidesteps it entirely. If you hit the
+same thing on a different port, try containerizing the app itself so DB
+traffic stays inside the Docker network rather than going through the
+host port-forward.
 
 ## Project layout
 

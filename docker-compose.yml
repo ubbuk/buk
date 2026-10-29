@@ -7,7 +7,11 @@ services:
       POSTGRES_PASSWORD: ubbuk
       POSTGRES_DB: ubbuk_procurement
     ports:
-      - "5432:5432"
+      # 5433, not 5432: Docker Desktop's port-forwarding on this machine
+      # mishandles connections to 5432 specifically (SCRAM auth fails from
+      # the Windows host even though the same credentials work from inside
+      # the Docker network) — see project chat history for the diagnosis.
+      - "5433:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
 
