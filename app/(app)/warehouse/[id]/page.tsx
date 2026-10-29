@@ -53,7 +53,8 @@ export default function WarehouseCheckPage() {
         <CardHeader>
           <CardTitle>Тоо хэмжээ баталгаажуулах</CardTitle>
           <span className="text-xs text-text-muted">
-            Шалгаж буй: {DEMO_APPROVERS.WAREHOUSE_CLERK} · {formatDateTime(new Date())}
+            Шалгаж буй: {DEMO_APPROVERS.WAREHOUSE_CLERK} ·{" "}
+            <span suppressHydrationWarning>{formatDateTime(new Date())}</span>
           </span>
         </CardHeader>
         <CardBody className="space-y-5">

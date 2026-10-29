@@ -281,7 +281,9 @@ export function MaterialRequestForm() {
             )}
             <DemoDataBadge />
           </div>
-          <span className="text-xs text-text-muted">Огноо: {formatDate(new Date())}</span>
+          <span className="text-xs text-text-muted">
+            Огноо: <span suppressHydrationWarning>{formatDate(new Date())}</span>
+          </span>
         </CardHeader>
         <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Цех, тасгийн нэр">

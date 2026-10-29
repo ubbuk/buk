@@ -17,13 +17,14 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useRequestStore } from "@/lib/store";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Хяналтын самбар", icon: LayoutDashboard },
   { href: "/requests/new", label: "Шинэ захиалга", icon: FilePlus2 },
   { href: "/requests", label: "Миний захиалгууд", icon: ListChecks },
-  { href: "/approvals", label: "Батлах хүсэлтүүд", icon: ClipboardCheck, badge: 14 },
-  { href: "/warehouse", label: "Агуулахын шалгалт", icon: Boxes, badge: 6 },
+  { href: "/approvals", label: "Батлах хүсэлтүүд", icon: ClipboardCheck, badgeKey: "approvals" },
+  { href: "/warehouse", label: "Агуулахын шалгалт", icon: Boxes, badgeKey: "warehouse" },
   { href: "/procurement", label: "Худалдан авалт", icon: ShoppingCart },
   { href: "/archive", label: "Захиалгын архив", icon: Archive },
   { href: "/reports", label: "Тайлан", icon: BarChart3 },
@@ -33,6 +34,14 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const requests = useRequestStore((s) => s.requests);
+
+  const badgeCounts: Record<string, number> = {
+    approvals: requests.filter(
+      (r) => r.approvalSteps.some((s) => s.status === "PENDING" && s.type !== "WAREHOUSE_CHECK")
+    ).length,
+    warehouse: requests.filter((r) => r.status === "PENDING_WAREHOUSE_CHECK").length,
+  };
 
   return (
     <aside
@@ -57,6 +66,7 @@ export function Sidebar() {
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href));
           const Icon = item.icon;
+          const badge = "badgeKey" in item ? badgeCounts[item.badgeKey] : 0;
           return (
             <Link
               key={item.href}
@@ -73,9 +83,9 @@ export function Sidebar() {
               )}
               <Icon className="size-[18px] shrink-0" />
               {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
-              {!collapsed && "badge" in item && item.badge ? (
+              {!collapsed && badge > 0 ? (
                 <span className="rounded-full bg-bg-elevated px-1.5 py-0.5 text-[10px] font-semibold text-text-muted group-hover:text-text">
-                  {item.badge}
+                  {badge}
                 </span>
               ) : null}
             </Link>
