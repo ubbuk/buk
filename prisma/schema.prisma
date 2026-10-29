@@ -45,6 +45,8 @@ model User {
   headOfDepartments    Department[]        @relation("DepartmentHead")
   requestsCreated      MaterialRequest[]   @relation("RequestedBy")
   approvalActions       ApprovalAction[]
+  approvalStepsAssigned ApprovalStep[]      @relation("ApprovalStepAssignee")
+  approvalStepsDecided  ApprovalStep[]      @relation("ApprovalStepDecider")
   warehouseChecks       WarehouseCheck[]
   stockIssues            StockIssue[]
   goodsReceipts          GoodsReceipt[]
@@ -376,8 +378,10 @@ model ApprovalStep {
   decidedAt      DateTime?
   comment        String?
 
-  request MaterialRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  actions ApprovalAction[]
+  request      MaterialRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  assignedUser User?            @relation("ApprovalStepAssignee", fields: [assignedUserId], references: [id])
+  decidedBy    User?            @relation("ApprovalStepDecider", fields: [decidedById], references: [id])
+  actions      ApprovalAction[]
 
   @@unique([requestId, sequence])
   @@index([assignedUserId, status])

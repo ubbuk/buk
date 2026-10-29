@@ -1,7 +1,9 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { Bell, LogOut, Search } from "lucide-react";
+import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
+import { USER_ROLE_LABEL } from "@/lib/types";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Хяналтын самбар",
@@ -15,9 +17,21 @@ const PAGE_TITLES: Record<string, string> = {
   "/settings": "Тохиргоо",
 };
 
+function initials(name: string) {
+  return name
+    .split(/[.\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
 export function Topbar() {
   const pathname = usePathname() ?? "";
   const title = PAGE_TITLES[pathname] ?? "Худалдан авалтын систем";
+  const { data: session } = useSession();
+  const user = session?.user;
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-bg/80 px-6 backdrop-blur">
@@ -37,15 +51,24 @@ export function Topbar() {
           <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-danger" />
         </button>
 
-        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-3">
-          <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent">
-            БТ
+        {user && (
+          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-2">
+            <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent">
+              {initials(user.name ?? "?")}
+            </div>
+            <div className="hidden text-left leading-tight md:block">
+              <p className="text-xs font-medium text-text">{user.name}</p>
+              <p className="text-[11px] text-text-muted">{USER_ROLE_LABEL[user.role] ?? user.role}</p>
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="Гарах"
+              className="focus-ring ml-1 flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-bg-elevated hover:text-danger"
+            >
+              <LogOut className="size-3.5" />
+            </button>
           </div>
-          <div className="hidden text-left leading-tight md:block">
-            <p className="text-xs font-medium text-text">Б.Төмөрбаатар</p>
-            <p className="text-[11px] text-text-muted">Цех хэсгийн дарга</p>
-          </div>
-        </div>
+        )}
       </div>
     </header>
   );

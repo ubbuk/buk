@@ -1,10 +1,12 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { ToastProvider } from "@/components/ui/Toast";
+import { RequestsLoader } from "@/components/requests/RequestsLoader";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
+      <RequestsLoader />
       <div className="flex min-h-screen bg-bg">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">

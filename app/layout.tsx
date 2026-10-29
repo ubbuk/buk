@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { SessionProviderWrapper } from "@/components/auth/SessionProviderWrapper";
 import "./globals.css";
 
 const inter = Inter({
@@ -20,7 +21,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="mn" className={`${inter.variable} dark`}>
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        <SessionProviderWrapper>{children}</SessionProviderWrapper>
+      </body>
     </html>
   );
 }

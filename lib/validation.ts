@@ -27,6 +27,25 @@ export type MaterialRequestFormInput = z.infer<typeof materialRequestFormSchema>
 
 export type FieldErrors = Partial<Record<string, string>>;
 
+// --- API payload schema (POST /api/requests) --------------------------------
+export const apiCreateRequestItemSchema = z.object({
+  materialId: z.string().nullable().optional(),
+  materialName: z.string().trim().min(1),
+  unit: z.string().trim().min(1),
+  requestedQuantity: z.number().positive(),
+  unitPrice: z.number().min(0),
+  note: z.string().optional(),
+});
+
+export const apiCreateRequestSchema = z.object({
+  departmentId: z.string().min(1),
+  route: z.enum(["OFFICE", "FACTORY"]),
+  note: z.string().optional(),
+  items: z.array(apiCreateRequestItemSchema).min(1),
+});
+
+export type ApiCreateRequestInput = z.infer<typeof apiCreateRequestSchema>;
+
 export function validateItem(item: MaterialRequestItemInput): FieldErrors {
   const result = materialRequestItemSchema.safeParse(item);
   if (result.success) return {};

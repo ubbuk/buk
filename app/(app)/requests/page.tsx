@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { FilePlus2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
-import { DEMO_CURRENT_USER } from "@/lib/mock-session";
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
@@ -53,16 +54,15 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 
 export default function MyRequestsPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const requests = useRequestStore((s) => s.requests);
-  const myRequests = requests.filter((r) => r.requestedBy === DEMO_CURRENT_USER.name);
+  const loading = useRequestStore((s) => s.requestsLoading);
+  const myRequests = requests.filter((r) => r.requestedBy === session?.user?.name);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-text">Миний захиалгууд</h2>
-          <DemoDataBadge />
-        </div>
+        <h2 className="text-lg font-semibold text-text">Миний захиалгууд</h2>
         <Link href="/requests/new">
           <Button>
             <FilePlus2 className="size-4" />
@@ -72,14 +72,18 @@ export default function MyRequestsPage() {
       </div>
 
       <Card>
-        <DataTable
-          data={myRequests}
-          columns={columns}
-          getRowId={(r) => r.id}
-          onRowClick={(r) => router.push(`/requests/${r.id}`)}
-          emptyTitle="Захиалга байхгүй байна"
-          emptyDescription="Шинэ захиалга үүсгэснээр энд харагдана"
-        />
+        {loading ? (
+          <SkeletonTable />
+        ) : (
+          <DataTable
+            data={myRequests}
+            columns={columns}
+            getRowId={(r) => r.id}
+            onRowClick={(r) => router.push(`/requests/${r.id}`)}
+            emptyTitle="Захиалга байхгүй байна"
+            emptyDescription="Шинэ захиалга үүсгэснээр энд харагдана"
+          />
+        )}
       </Card>
     </div>
   );

@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
-import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useRequestStore } from "@/lib/store";
 import { APPROVAL_STEP_LABEL, type ApprovalStepView, type MaterialRequestView } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -66,6 +67,7 @@ const columns: DataTableColumn<Row>[] = [
 export default function ApprovalsPage() {
   const router = useRouter();
   const requests = useRequestStore((s) => s.requests);
+  const loading = useRequestStore((s) => s.requestsLoading);
 
   const queue: Row[] = requests
     .map((r) => ({ ...r, pendingStep: r.approvalSteps.find((s) => s.status === "PENDING") }))
@@ -73,20 +75,21 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-lg font-semibold text-text">Батлах хүсэлтүүд</h2>
-        <DemoDataBadge />
-      </div>
+      <h2 className="text-lg font-semibold text-text">Батлах хүсэлтүүд</h2>
 
       <Card>
-        <DataTable
-          data={queue}
-          columns={columns}
-          getRowId={(r) => r.id}
-          onRowClick={(r) => router.push(`/requests/${r.id}`)}
-          emptyTitle="Батлах хүсэлт алга"
-          emptyDescription="Шинэ хүсэлт ирэхэд энд харагдана"
-        />
+        {loading ? (
+          <SkeletonTable />
+        ) : (
+          <DataTable
+            data={queue}
+            columns={columns}
+            getRowId={(r) => r.id}
+            onRowClick={(r) => router.push(`/requests/${r.id}`)}
+            emptyTitle="Батлах хүсэлт алга"
+            emptyDescription="Шинэ хүсэлт ирэхэд энд харагдана"
+          />
+        )}
       </Card>
     </div>
   );

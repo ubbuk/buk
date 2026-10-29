@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { notFound, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { CheckCircle2, Paperclip, Undo2, Warehouse } from "lucide-react";
+import { CheckCircle2, Paperclip, ShieldAlert, Undo2, Warehouse } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
 import { ApprovalTimeline } from "@/components/workflow/ApprovalTimeline";
 import { AllocationBar } from "@/components/workflow/AllocationBar";
@@ -17,33 +20,81 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/lib/utils";
 export default function RequestDetailPage() {
   const params = useParams<{ id: string }>();
   const { push } = useToast();
+  const { data: session } = useSession();
   const requests = useRequestStore((s) => s.requests);
+  const loading = useRequestStore((s) => s.requestsLoading);
   const approveStep = useRequestStore((s) => s.approveStep);
   const returnStep = useRequestStore((s) => s.returnStep);
+  const approveDepartmentHead = useRequestStore((s) => s.approveDepartmentHead);
+  const returnDepartmentHead = useRequestStore((s) => s.returnDepartmentHead);
   const request = requests.find((r) => r.id === params.id);
   const [returnOpen, setReturnOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [processing, setProcessing] = useState(false);
 
-  if (!request) notFound();
+  if (loading && !request) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!request) {
+    return <EmptyState title="Захиалга олдсонгүй" description={`Дугаар: ${params.id}`} />;
+  }
 
   const pendingStep = request.approvalSteps.find((s) => s.status === "PENDING");
   const hasAllocation = request.items.some((i) => i.allocatedQuantity !== undefined);
+  const isDepartmentHeadStage = pendingStep?.type === "DEPARTMENT_HEAD";
+  const isAuthorizedApprover = !isDepartmentHeadStage || session?.user?.name === pendingStep?.assignedUserName;
 
-  function approve() {
-    if (!pendingStep) return;
-    approveStep(request!.id, pendingStep.assignedUserName);
-    push({ kind: "success", title: "Хүсэлтийг баталлаа", description: `№${request!.requestNumber}` });
+  async function approve() {
+    if (!pendingStep || !request) return;
+    setProcessing(true);
+    try {
+      if (pendingStep.type === "DEPARTMENT_HEAD") {
+        await approveDepartmentHead(request.id, pendingStep.assignedUserName);
+      } else {
+        approveStep(request.id, pendingStep.assignedUserName);
+      }
+      push({ kind: "success", title: "Хүсэлтийг баталлаа", description: `№${request.requestNumber}` });
+    } catch (err) {
+      push({
+        kind: "error",
+        title: "Баталгаажуулж чадсангүй",
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setProcessing(false);
+    }
   }
 
-  function returnRequest() {
+  async function returnRequest() {
     if (!reason.trim()) {
       push({ kind: "error", title: "Буцаах шалтгаанаа бичнэ үү" });
       return;
     }
-    if (!pendingStep) return;
-    returnStep(request!.id, pendingStep.assignedUserName, reason);
-    setReturnOpen(false);
-    push({ kind: "warning", title: "Хүсэлтийг буцаалаа", description: reason });
+    if (!pendingStep || !request) return;
+    setProcessing(true);
+    try {
+      if (pendingStep.type === "DEPARTMENT_HEAD") {
+        await returnDepartmentHead(request.id, pendingStep.assignedUserName, reason);
+      } else {
+        returnStep(request.id, pendingStep.assignedUserName, reason);
+      }
+      setReturnOpen(false);
+      push({ kind: "warning", title: "Хүсэлтийг буцаалаа", description: reason });
+    } catch (err) {
+      push({
+        kind: "error",
+        title: "Буцааж чадсангүй",
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setProcessing(false);
+    }
   }
 
   return (
@@ -53,7 +104,6 @@ export default function RequestDetailPage() {
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-text">№{request.requestNumber}</h2>
             <StatusBadge status={request.status} />
-            <DemoDataBadge />
           </div>
           <p className="mt-1 text-sm text-text-muted">
             {request.department} · {request.requestedBy} · {formatDateTime(request.createdAt)}
@@ -67,16 +117,22 @@ export default function RequestDetailPage() {
             </Button>
           </Link>
         )}
-        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && (
+        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && isAuthorizedApprover && (
           <div className="flex gap-2">
-            <Button variant="danger" onClick={() => setReturnOpen(true)}>
+            <Button variant="danger" onClick={() => setReturnOpen(true)} disabled={processing}>
               <Undo2 className="size-4" />
               Буцаах
             </Button>
-            <Button variant="success" onClick={approve}>
+            <Button variant="success" onClick={approve} loading={processing}>
               <CheckCircle2 className="size-4" />
               Батлах
             </Button>
+          </div>
+        )}
+        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && !isAuthorizedApprover && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs text-text-muted">
+            <ShieldAlert className="size-3.5" />
+            Зөвхөн {pendingStep.assignedUserName} баталгаажуулах боломжтой
           </div>
         )}
       </div>
@@ -177,7 +233,7 @@ export default function RequestDetailPage() {
           <Button variant="secondary" onClick={() => setReturnOpen(false)}>
             Болих
           </Button>
-          <Button variant="danger" onClick={returnRequest}>
+          <Button variant="danger" onClick={returnRequest} loading={processing}>
             Буцаах
           </Button>
         </div>

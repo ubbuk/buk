@@ -104,6 +104,17 @@ export interface MaterialRequestView {
   approvalSteps: ApprovalStepView[];
 }
 
+export const USER_ROLE_LABEL: Record<string, string> = {
+  EMPLOYEE: "Ажилтан",
+  DEPARTMENT_HEAD: "Цехийн дарга",
+  WAREHOUSE_CLERK: "Нярав",
+  PROCUREMENT_OFFICER: "Худалдан авалтын ажилтан",
+  OFFICE_APPROVER: "Оффисын баталгаажуулагч",
+  FACTORY_APPROVER: "Үйлдвэрийн баталгаажуулагч",
+  DIRECTOR: "Захирал",
+  ADMIN: "Админ",
+};
+
 export const PURCHASE_STATUS_LABEL: Record<string, string> = {
   PENDING_ROUTE_APPROVAL: "Удирдлагын баталгаа хүлээж байна",
   PENDING_DIRECTOR_APPROVAL: "Захирлын баталгаа хүлээж байна",

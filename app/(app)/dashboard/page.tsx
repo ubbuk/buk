@@ -15,8 +15,9 @@ import {
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Button } from "@/components/ui/Button";
-import { StatusBadge, DemoDataBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { DEMO_URGENT_ALERTS } from "@/lib/mock-data";
 import { selectKpis, useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -70,6 +71,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
 
 export default function DashboardPage() {
   const requests = useRequestStore((s) => s.requests);
+  const loading = useRequestStore((s) => s.requestsLoading);
   const activity = useRequestStore((s) => s.activity);
   const kpis = selectKpis(requests);
   const pendingApproval = requests.filter((r) =>
@@ -80,10 +82,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-text">Өнөөдрийн тойм</h2>
-            <DemoDataBadge />
-          </div>
+          <h2 className="text-lg font-semibold text-text">Өнөөдрийн тойм</h2>
           <p className="mt-1 text-sm text-text-muted">
             Материалын захиалга, баталгаажуулалт, худалдан авалтын явцын ерөнхий зураглал
           </p>
@@ -113,12 +112,16 @@ export default function DashboardPage() {
               Бүгдийг харах <ArrowUpRight className="size-3" />
             </Link>
           </CardHeader>
-          <DataTable
-            data={requests}
-            columns={columns}
-            getRowId={(r) => r.id}
-            searchPlaceholder="Захиалга хайх..."
-          />
+          {loading ? (
+            <SkeletonTable />
+          ) : (
+            <DataTable
+              data={requests}
+              columns={columns}
+              getRowId={(r) => r.id}
+              searchPlaceholder="Захиалга хайх..."
+            />
+          )}
         </Card>
 
         <Card>
@@ -127,6 +130,9 @@ export default function DashboardPage() {
             <span className="text-xs text-text-muted">{pendingApproval.length}</span>
           </CardHeader>
           <CardBody className="space-y-3">
+            {!loading && pendingApproval.length === 0 && (
+              <p className="py-6 text-center text-xs text-text-muted">Батлах хүсэлт алга</p>
+            )}
             {pendingApproval.map((r) => (
               <Link
                 key={r.id}

@@ -1,19 +1,12 @@
-// Shared reactive client-side state for the demo. Every screen that shows
-// requests reads from this store instead of the frozen arrays in
-// mock-data.ts, so an action taken on one screen (submit, approve, return,
-// warehouse check) is immediately visible everywhere else in the same
-// session — no page refresh, no backend required yet. This is real-time
-// within the browser tab; cross-session/multi-user sync still needs the
-// Phase 3 API.
+// Shared reactive client-side state. Requests are loaded from, and request
+// creation / department-head approval now write through to, the real
+// database via /api/requests/*. The later pipeline stages (warehouse check,
+// route approval, director approval) are still simulated client-side only —
+// that's the next increment — so an action taken on one screen is still
+// immediately visible everywhere else in the same session, same as before.
 import { create } from "zustand";
-import { DEMO_ACTIVITY, DEMO_REQUESTS } from "./mock-data";
-import { DEMO_APPROVERS, DEMO_DEPARTMENTS } from "./mock-session";
-import type {
-  ApprovalStepView,
-  MaterialRequestItemView,
-  MaterialRequestView,
-  RequestRoute,
-} from "./types";
+import { DEMO_ACTIVITY } from "./mock-data";
+import type { MaterialRequestView, RequestRoute } from "./types";
 
 export interface ActivityEntry {
   id: string;
@@ -23,6 +16,7 @@ export interface ActivityEntry {
 }
 
 interface NewRequestItemInput {
+  materialId?: string | null;
   materialName: string;
   unit: string;
   requestedQuantity: number;
@@ -40,9 +34,12 @@ interface CreateRequestInput {
 
 interface RequestStore {
   requests: MaterialRequestView[];
+  requestsLoading: boolean;
   activity: ActivityEntry[];
-  nextSequence: number;
-  createRequest: (input: CreateRequestInput) => MaterialRequestView;
+  loadRequests: () => Promise<void>;
+  createRequest: (input: CreateRequestInput) => Promise<MaterialRequestView>;
+  approveDepartmentHead: (requestId: string, actorName: string) => Promise<void>;
+  returnDepartmentHead: (requestId: string, actorName: string, reason: string) => Promise<void>;
   approveStep: (requestId: string, actorName: string) => void;
   returnStep: (requestId: string, actorName: string, reason: string) => void;
   submitWarehouseCheck: (
@@ -56,14 +53,6 @@ function logTime() {
   return new Date().toLocaleTimeString("mn-MN", { hour: "2-digit", minute: "2-digit" });
 }
 
-function departmentHeadName(departmentId: string) {
-  return DEMO_DEPARTMENTS.find((d) => d.id === departmentId)?.headName ?? "Цехийн дарга";
-}
-
-function routeApproverName(route: RequestRoute) {
-  return route === "FACTORY" ? DEMO_APPROVERS.FACTORY_APPROVER : DEMO_APPROVERS.OFFICE_APPROVER;
-}
-
 let liveIdCounter = 0;
 function nextLiveId() {
   liveIdCounter += 1;
@@ -72,6 +61,18 @@ function nextLiveId() {
 
 function pushActivity(activity: ActivityEntry[], entry: Omit<ActivityEntry, "id" | "time">) {
   return [{ id: nextLiveId(), time: logTime(), ...entry }, ...activity];
+}
+
+async function apiFetch(url: string, init?: RequestInit) {
+  const res = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Серверийн алдаа (${res.status})`);
+  }
+  return res.json();
 }
 
 const OPEN_STATUSES = new Set([
@@ -103,60 +104,77 @@ export function selectKpis(requests: MaterialRequestView[]) {
   };
 }
 
-export const useRequestStore = create<RequestStore>((set, get) => ({
-  requests: DEMO_REQUESTS,
+export const useRequestStore = create<RequestStore>((set) => ({
+  requests: [],
+  requestsLoading: true,
   activity: DEMO_ACTIVITY,
-  nextSequence: 1372,
 
-  createRequest: (input) => {
-    const department = DEMO_DEPARTMENTS.find((d) => d.id === input.departmentId);
-    const sequence = get().nextSequence;
-    const requestNumber = `2026-${sequence}`;
+  loadRequests: async () => {
+    try {
+      const requests: MaterialRequestView[] = await apiFetch("/api/requests");
+      set({ requests, requestsLoading: false });
+    } catch {
+      set({ requestsLoading: false });
+    }
+  },
 
-    const items: MaterialRequestItemView[] = input.items.map((item, i) => ({
-      id: `${nextLiveId()}-item${i + 1}`,
-      lineNo: i + 1,
-      materialName: item.materialName,
-      warehouseBalance: item.warehouseBalance,
-      unit: item.unit,
-      requestedQuantity: item.requestedQuantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.requestedQuantity * item.unitPrice,
-      note: item.note,
-    }));
-
-    const approvalSteps: ApprovalStepView[] = [
-      { type: "DEPARTMENT_HEAD", status: "PENDING", assignedUserName: departmentHeadName(input.departmentId) },
-      { type: "WAREHOUSE_CHECK", status: "PENDING", assignedUserName: DEMO_APPROVERS.WAREHOUSE_CLERK },
-      { type: "ROUTE_APPROVAL", status: "PENDING", assignedUserName: routeApproverName(input.route) },
-      { type: "DIRECTOR_APPROVAL", status: "PENDING", assignedUserName: DEMO_APPROVERS.DIRECTOR },
-    ];
-
-    const newRequest: MaterialRequestView = {
-      id: nextLiveId(),
-      requestNumber,
-      createdAt: new Date().toISOString(),
-      department: department?.name ?? "—",
-      requestedBy: input.requestedBy,
-      route: input.route,
-      status: "PENDING_DEPARTMENT_APPROVAL",
-      totalAmount: items.reduce((sum, i) => sum + i.totalPrice, 0),
-      itemCount: items.length,
-      items,
-      approvalSteps,
-    };
+  createRequest: async (input) => {
+    const created: MaterialRequestView = await apiFetch("/api/requests", {
+      method: "POST",
+      body: JSON.stringify({
+        departmentId: input.departmentId,
+        route: input.route,
+        items: input.items.map((item) => ({
+          materialId: item.materialId ?? null,
+          materialName: item.materialName,
+          unit: item.unit,
+          requestedQuantity: item.requestedQuantity,
+          unitPrice: item.unitPrice,
+          note: item.note,
+        })),
+      }),
+    });
 
     set((s) => ({
-      requests: [newRequest, ...s.requests],
-      nextSequence: s.nextSequence + 1,
+      requests: [created, ...s.requests],
       activity: pushActivity(s.activity, {
-        text: `${input.requestedBy} №${requestNumber} захиалга үүсгэв`,
+        text: `${input.requestedBy} №${created.requestNumber} захиалга үүсгэв`,
         type: "create",
       }),
     }));
 
-    return newRequest;
+    return created;
   },
+
+  approveDepartmentHead: async (requestId, actorName) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/department-approve`, {
+      method: "POST",
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг баталлаа`,
+        type: "approve",
+      }),
+    }));
+  },
+
+  returnDepartmentHead: async (requestId, actorName, reason) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/department-return`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг буцаалаа — ${reason}`,
+        type: "reject",
+      }),
+    }));
+  },
+
+  // --- Client-only simulation below this line — warehouse check, route and
+  // director approval don't write to the database yet (next increment). ---
 
   approveStep: (requestId, actorName) => {
     let approvedRequestNumber = "";

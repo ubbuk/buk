@@ -3,15 +3,16 @@
 import { Check, ChevronDown, PenLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn, formatNumber } from "@/lib/utils";
-import { DEMO_MATERIALS } from "@/lib/mock-data";
 import type { MaterialCatalogEntry } from "@/lib/types";
 
 export function MaterialCombobox({
   value,
+  materials,
   onSelect,
   onManualChange,
 }: {
   value: string;
+  materials: MaterialCatalogEntry[];
   onSelect: (material: MaterialCatalogEntry) => void;
   onManualChange: (name: string) => void;
 }) {
@@ -31,7 +32,7 @@ export function MaterialCombobox({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  const filtered = DEMO_MATERIALS.filter(
+  const filtered = materials.filter(
     (m) =>
       m.name.toLowerCase().includes(query.toLowerCase()) ||
       m.code.toLowerCase().includes(query.toLowerCase())

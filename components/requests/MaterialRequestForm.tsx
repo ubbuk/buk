@@ -12,13 +12,13 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
-import { DEMO_DEPARTMENTS, DEMO_CURRENT_USER } from "@/lib/mock-session";
-import { DEMO_MATERIALS } from "@/lib/mock-data";
+import { DEMO_DEPARTMENTS } from "@/lib/mock-session";
 import { useRequestStore } from "@/lib/store";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { validateItem, type FieldErrors } from "@/lib/validation";
@@ -53,23 +53,42 @@ function emptyRow(): Row {
 
 export function MaterialRequestForm() {
   const { push } = useToast();
+  const { data: session } = useSession();
   const searchParams = useSearchParams();
-  const [departmentId, setDepartmentId] = useState(DEMO_CURRENT_USER.departmentId);
-  const [route, setRoute] = useState<"OFFICE" | "FACTORY">(
-    DEMO_DEPARTMENTS.find((d) => d.id === DEMO_CURRENT_USER.departmentId)?.type ?? "FACTORY"
-  );
+  const [departmentId, setDepartmentId] = useState(DEMO_DEPARTMENTS[0].id);
+  const [route, setRoute] = useState<"OFFICE" | "FACTORY">(DEMO_DEPARTMENTS[0].type);
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [urgent, setUrgent] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
   const [dirty, setDirty] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [materials, setMaterials] = useState<MaterialCatalogEntry[]>([]);
   const [submitted, setSubmitted] = useState<{ id: string; requestNumber: string; nextApprover: string } | null>(
     null
   );
   const createRequest = useRequestStore((s) => s.createRequest);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const restoredRef = useRef(false);
+  const draftFoundRef = useRef(false);
+  const prefilledRef = useRef(false);
+
+  useEffect(() => {
+    fetch("/api/materials")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: MaterialCatalogEntry[]) => setMaterials(data))
+      .catch(() => setMaterials([]));
+  }, []);
+
+  useEffect(() => {
+    if (session?.user?.departmentId) setDepartmentId(session.user.departmentId);
+  }, [session]);
+
+  useEffect(() => {
+    const dept = DEMO_DEPARTMENTS.find((d) => d.id === departmentId);
+    if (dept) setRoute(dept.type);
+  }, [departmentId]);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -82,36 +101,41 @@ export function MaterialRequestForm() {
         if (draft.departmentId) setDepartmentId(draft.departmentId);
         if (draft.route) setRoute(draft.route);
         if (draft.note) setNote(draft.note);
+        draftFoundRef.current = true;
         push({ kind: "info", title: "Хадгалсан ноорог сэргээгдлээ" });
-        return;
       }
     } catch {
       // corrupted draft — ignore and start fresh
     }
 
-    const materialId = searchParams.get("material");
-    const isUrgent = searchParams.get("urgent") === "1";
-    if (materialId) {
-      const material = DEMO_MATERIALS.find((m) => m.id === materialId);
-      if (material) {
-        setRows([
-          {
-            ...emptyRow(),
-            materialId: material.id,
-            materialName: material.name,
-            warehouseBalance: material.warehouseBalance,
-            unit: material.unit,
-            unitPrice: material.defaultPrice,
-          },
-        ]);
-      }
-    }
-    if (isUrgent) {
+    if (searchParams.get("urgent") === "1") {
       setUrgent(true);
       setNote((prev) => prev || "Яаралтай шаардлагатай — агуулахын нөөц хүрэлцэхгүй байна");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Prefilling a material (from the dashboard's "Яаралтай захиалга" button)
+  // needs the real catalog loaded first, so this waits on `materials`.
+  useEffect(() => {
+    if (prefilledRef.current || draftFoundRef.current || materials.length === 0) return;
+    prefilledRef.current = true;
+    const materialId = searchParams.get("material");
+    if (!materialId) return;
+    const material = materials.find((m) => m.id === materialId);
+    if (material) {
+      setRows([
+        {
+          ...emptyRow(),
+          materialId: material.id,
+          materialName: material.name,
+          warehouseBalance: material.warehouseBalance,
+          unit: material.unit,
+          unitPrice: material.defaultPrice,
+        },
+      ]);
+    }
+  }, [materials, searchParams]);
 
   useEffect(() => {
     if (!dirty || submitted) return;
@@ -200,36 +224,53 @@ export function MaterialRequestForm() {
     return valid;
   }
 
-  function submit() {
+  async function submit() {
     if (!validateAll()) {
       push({ kind: "error", title: "Маягтад алдаа байна", description: "Улаанаар тэмдэглэгдсэн талбаруудыг засна уу" });
       return;
     }
-    const newRequest = createRequest({
-      departmentId,
-      route,
-      requestedBy: DEMO_CURRENT_USER.name,
-      items: rows.map((r) => ({
-        materialName: r.materialName,
-        unit: r.unit,
-        requestedQuantity: typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0,
-        unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : 0,
-        warehouseBalance: r.warehouseBalance,
-        note: r.note || undefined,
-      })),
-    });
-    localStorage.removeItem(DRAFT_KEY);
-    setDirty(false);
-    setSubmitted({
-      id: newRequest.id,
-      requestNumber: newRequest.requestNumber,
-      nextApprover: newRequest.approvalSteps[0].assignedUserName,
-    });
+    if (!session?.user?.name) {
+      push({ kind: "error", title: "Нэвтрэх шаардлагатай" });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const newRequest = await createRequest({
+        departmentId,
+        route,
+        requestedBy: session.user.name,
+        items: rows.map((r) => ({
+          materialId: r.materialId,
+          materialName: r.materialName,
+          unit: r.unit,
+          requestedQuantity: typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0,
+          unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : 0,
+          warehouseBalance: r.warehouseBalance,
+          note: r.note || undefined,
+        })),
+      });
+      localStorage.removeItem(DRAFT_KEY);
+      setDirty(false);
+      setSubmitted({
+        id: newRequest.id,
+        requestNumber: newRequest.requestNumber,
+        nextApprover: newRequest.approvalSteps[0].assignedUserName,
+      });
+    } catch (err) {
+      push({
+        kind: "error",
+        title: "Захиалга илгээхэд алдаа гарлаа",
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function resetForm() {
     setRows([emptyRow()]);
-    setDepartmentId(DEMO_CURRENT_USER.departmentId);
+    setDepartmentId(session?.user?.departmentId || DEMO_DEPARTMENTS[0].id);
     setNote("");
     setUrgent(false);
     setAttachments([]);
@@ -291,8 +332,6 @@ export function MaterialRequestForm() {
               value={departmentId}
               onChange={(e) => {
                 setDepartmentId(e.target.value);
-                const dept = DEMO_DEPARTMENTS.find((d) => d.id === e.target.value);
-                if (dept) setRoute(dept.type);
                 markDirty();
               }}
               className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
@@ -308,7 +347,7 @@ export function MaterialRequestForm() {
           <Field label="Захиалга үүсгэсэн ажилтан">
             <input
               disabled
-              value={DEMO_CURRENT_USER.name}
+              value={session?.user?.name ?? "Ачааллаж байна..."}
               className="h-9 w-full rounded-lg border border-border bg-bg-elevated/50 px-3 text-sm text-text-muted"
             />
           </Field>
@@ -384,6 +423,7 @@ export function MaterialRequestForm() {
                     <td className="px-3 py-3">
                       <MaterialCombobox
                         value={row.materialName}
+                        materials={materials}
                         onSelect={(m) => onMaterialSelect(row.id, m)}
                         onManualChange={(name) =>
                           updateRow(row.id, { materialName: name, materialId: null, warehouseBalance: null })
@@ -525,7 +565,7 @@ export function MaterialRequestForm() {
             <Save className="size-4" />
             Ноорог хадгалах
           </Button>
-          <Button onClick={submit}>
+          <Button onClick={submit} loading={submitting} disabled={submitting}>
             <Send className="size-4" />
             Илгээх
           </Button>
