@@ -1,6 +1,4 @@
-// DEMO — stands in for the authenticated session until NextAuth is wired up
-// in Phase 3. The request form reads the employee/department from here so
-// users never retype information already on their profile.
+
 export const DEMO_CURRENT_USER = {
   id: "u-tumurbaatar",
   name: "Б.Төмөрбаатар",

@@ -70,8 +70,7 @@ model Department {
   @@index([headId])
 }
 
-// Maps a singleton approval role to the currently assigned user. Only one
-// active assignment per role should exist at a time; history is kept for audit.
+
 model ApprovalRoleAssignment {
   id        String       @id @default(cuid())
   role      ApprovalRole
@@ -85,9 +84,7 @@ model ApprovalRoleAssignment {
   @@index([role, isActive])
 }
 
-// ---------------------------------------------------------------------------
-// Catalog & inventory
-// ---------------------------------------------------------------------------
+
 
 model Material {
   id           String   @id @default(cuid())
@@ -116,9 +113,6 @@ model Warehouse {
 
 }
 
-// Available-for-allocation = quantityOnHand - quantityReserved. Updated with
-// row-level locking (`SELECT ... FOR UPDATE` inside a transaction) whenever
-// a reservation is created, so concurrent requests can't over-allocate.
 model InventoryBalance {
   id              String   @id @default(cuid())
   materialId      String
@@ -133,19 +127,13 @@ model InventoryBalance {
   @@unique([materialId, warehouseId])
 }
 
-// ---------------------------------------------------------------------------
-// Material request (Маягт №1) & workflow
-// ---------------------------------------------------------------------------
+
 
 enum RequestRoute {
   OFFICE
   FACTORY
 }
 
-// Coarse pipeline stage only. Item-level fulfillment (warehouse issuance vs.
-// purchasing) is tracked independently in StockReservation/StockIssue and
-// PurchaseRequirement/PurchaseOrder, and can progress concurrently once the
-// approval pipeline below reaches FULFILLMENT_IN_PROGRESS.
 enum RequestStatus {
   DRAFT
   PENDING_DEPARTMENT_APPROVAL
@@ -163,7 +151,7 @@ enum RequestStatus {
 
 model MaterialRequest {
   id            String        @id @default(cuid())
-  requestNumber String        @unique // e.g. "2026-1371"
+  requestNumber String        @unique 
   year          Int
   sequence      Int
   departmentId  String
@@ -172,10 +160,7 @@ model MaterialRequest {
   status        RequestStatus @default(DRAFT)
   note          String?
 
-  // Optimistic concurrency + tamper-evidence. version increments on every
-  // content-changing write; documentHash is a SHA-256 of the canonical
-  // (header + items) payload at last submit/approval, so a change after
-  // signing is detectable instead of silently overwritten.
+
   version      Int      @default(1)
   documentHash String?
 
@@ -204,10 +189,10 @@ model MaterialRequestItem {
   requestId         String
   lineNo            Int
   materialId        String?
-  manualMaterialName String? // free-text entry when not in catalog
+  manualMaterialName String? 
   unit              String
   requestedQuantity Decimal @db.Decimal(14, 3)
-  warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3) // snapshot shown on the form
+  warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3) 
   unitPrice         Decimal @db.Decimal(14, 2)
   totalPrice        Decimal @db.Decimal(14, 2)
   note              String?
@@ -222,9 +207,6 @@ model MaterialRequestItem {
   @@index([materialId])
 }
 
-// ---------------------------------------------------------------------------
-// Warehouse verification
-// ---------------------------------------------------------------------------
 
 model WarehouseCheck {
   id          String   @id @default(cuid())
@@ -245,8 +227,8 @@ model WarehouseCheckItem {
   warehouseCheckId   String
   requestItemId      String
   availableQuantity  Decimal @db.Decimal(14, 3)
-  allocatedQuantity  Decimal @db.Decimal(14, 3) // = min(requested, available), computed server-side
-  missingQuantity    Decimal @db.Decimal(14, 3) // = requested - allocated
+  allocatedQuantity  Decimal @db.Decimal(14, 3) 
+  missingQuantity    Decimal @db.Decimal(14, 3) 
 
   warehouseCheck WarehouseCheck       @relation(fields: [warehouseCheckId], references: [id], onDelete: Cascade)
   requestItem    MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
@@ -288,9 +270,7 @@ model StockIssue {
   issuedBy    User             @relation(fields: [issuedById], references: [id])
 }
 
-// ---------------------------------------------------------------------------
-// Purchasing (missing-quantity path)
-// ---------------------------------------------------------------------------
+
 
 enum PurchaseRequirementStatus {
   PENDING_ROUTE_APPROVAL
@@ -369,9 +349,7 @@ model GoodsReceipt {
   receivedBy         User              @relation(fields: [receivedById], references: [id])
 }
 
-// ---------------------------------------------------------------------------
-// Approvals, attachments, notifications, audit
-// ---------------------------------------------------------------------------
+
 
 enum ApprovalStepType {
   DEPARTMENT_HEAD
@@ -393,7 +371,7 @@ model ApprovalStep {
   type       ApprovalStepType
   sequence   Int
   status     ApprovalStepStatus @default(PENDING)
-  assignedUserId String?        // resolved at creation time from Department.headId or ApprovalRoleAssignment
+  assignedUserId String?       
   decidedById    String?
   decidedAt      DateTime?
   comment        String?
@@ -411,8 +389,7 @@ enum ApprovalActionType {
   RETURN
 }
 
-// Immutable record of each decision: who, what, when, against which document
-// version/hash. This is the source of truth for the approval timeline UI.
+
 model ApprovalAction {
   id             String             @id @default(cuid())
   approvalStepId String
