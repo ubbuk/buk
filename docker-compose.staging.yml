@@ -1,0 +1,77 @@
+# STAGING ONLY -- a separate stack beside the real ERP. It shares nothing with
+# it: own project name, own Postgres volume, own attachments volume, own ports,
+# own secrets. The real database (hangamj2-db-1 / volume hangamj2_db-data) is
+# never referenced here.
+#
+#   docker compose -p ubbuk-staging --env-file .env.staging.local -f docker-compose.staging.yml up -d --build
+#   (first time only, demo data:)  ... run --rm seed
+#
+# Open http://127.0.0.1:3100  (use 127.0.0.1, NOT localhost: browser cookies
+# ignore ports, so "localhost" would let this app and the real one overwrite
+# each other's login cookie.)
+name: ubbuk-staging
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ubbuk_staging
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?set in .env.staging.local}
+      POSTGRES_DB: ubbuk_staging
+    volumes:
+      - staging-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ubbuk_staging -d ubbuk_staging"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # No host port on purpose: only the app container can reach it.
+
+  migrate:
+    build: .
+    image: ubbuk-erp-staging:local
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://ubbuk_staging:${STAGING_DB_PASSWORD}@db:5432/ubbuk_staging?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  seed:
+    image: ubbuk-erp-staging:local
+    profiles: ["seed"]
+    command: ["npx", "tsx", "prisma/seed.ts"]
+    environment:
+      DATABASE_URL: postgresql://ubbuk_staging:${STAGING_DB_PASSWORD}@db:5432/ubbuk_staging?schema=public
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  app:
+    image: ubbuk-erp-staging:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://ubbuk_staging:${STAGING_DB_PASSWORD}@db:5432/ubbuk_staging?schema=public&connection_limit=20&pool_timeout=20
+      NEXTAUTH_URL: http://127.0.0.1:3100
+      NEXTAUTH_SECRET: ${STAGING_NEXTAUTH_SECRET:?set in .env.staging.local}
+      LOCAL_STORAGE_ROOT: /data/attachments
+    volumes:
+      - staging-attachments:/data/attachments  
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  staging-pgdata:
+  staging-attachments:

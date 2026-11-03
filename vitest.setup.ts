@@ -18,3 +18,10 @@ if (!dbName.endsWith("_test")) {
 
 // Prisma reads DATABASE_URL; an already-set env var wins over .env.
 process.env.DATABASE_URL = testUrl;
+
+// Attachment tests write real files through lib/storage.ts; keep them out of
+// the real ERP's .storage directory.
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+process.env.LOCAL_STORAGE_ROOT = mkdtempSync(path.join(tmpdir(), "ubbuk-test-storage-"));

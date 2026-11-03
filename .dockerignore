@@ -1,0 +1,16 @@
+# Keep real secrets, real data and local state OUT of the image / build context
+.git
+.gitignore
+node_modules
+.next
+.env
+.env.*
+!.env.staging.example
+.storage
+.claude
+ubbuk-backups
+*.dump
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store
+README.md
