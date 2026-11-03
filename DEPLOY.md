@@ -56,6 +56,23 @@ SEED_PASSWORD="<урт санамсаргүй нууц үг>" DATABASE_URL="<Aiv
 
 Дараа нь `admin@ubbuk.mn`-ээр нэвтэрч нууц үгээ (Тохиргоо → Нууц үг солих) болон бүх хэрэглэгчийн PIN-г тохируулна, шаардлагагүй demo хэрэглэгчдийг идэвхгүй болгоно. Seed нь demo хэлтэс, материал, агуулах үүсгэдэг тул жинхэнэ өгөгдлөөр солих хэрэгтэй.
 
+
+## 4b. Demo-гүй цэвэр эхлэл (зөвлөмж болгосон)
+
+Demo хэрэглэгчгүй эхлэхийн тулд `prisma/seed.ts`-ийн оронд `prisma/seed.production.ts`-ийг ашиглана. Энэ нь зөвхөн админ ба төв агуулахын нэг мөр үүсгэнэ.
+
+**Aiven DB-г цэвэрлэх (БҮХ ӨГӨГДӨЛ УСТНА, зөвхөн туршилтын өгөгдөлтэй үед):**
+
+1. Aiven → SQL editor → `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` ажиллуулна.
+2. `DATABASE_URL="<Aiven URI>" npx prisma migrate deploy`
+3. `SEED_PASSWORD="<12+ тэмдэгт>" DATABASE_URL="<Aiven URI>" npm run db:seed:prod`
+4. `/login`-д `admin@ubbuk.mn` + тэр нууц үгээр нэвтэрч **Админ** хуудаснаас дарааллаар:
+   1. Цех, тасаг үүсгэх,
+   2. Хэрэглэгчид үүсгэх (зөв role-той, цэхэд оноох),
+   3. Батлагчийн томилгоо: ENGINEERING_CHIEF, OPERATIONS_DIRECTOR, FINANCE_DIRECTOR, EXECUTIVE_DIRECTOR, STOREKEEPER_LEAD, CHIEF_ACCOUNTANT_LEAD (бүгд байхгүй бол захиалга үүсэхгүй),
+   4. Цех бүрийн **Дарга**-г оноох,
+   5. Хэрэглэгч бүр нэвтэрч нууц үгээ солиод, батлагч нар **PIN** тохируулна.
+
 ## 5. Шалгах жагсаалт
 
 - [ ] `https://<домэйн>/api/health` → `{"ok":true,"db":"up"}`
