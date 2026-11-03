@@ -3,7 +3,8 @@ import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
-const DEMO_PASSWORD = "ubbuk2026";
+// Set SEED_PASSWORD when seeding anything other than a throwaway dev/staging database.
+const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? "ubbuk2026";
 
 async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
@@ -109,7 +110,9 @@ async function main() {
   }
 
   console.log("Seed complete.");
-  console.log(`All demo users share the password: ${DEMO_PASSWORD}`);
+  console.log(
+    process.env.SEED_PASSWORD ? "All seeded users share the password from SEED_PASSWORD" : `All demo users share the password: ${DEMO_PASSWORD}`
+  );
   console.log(userDefs.map((u) => `  ${u.email}  (${u.role})`).join("\n"));
 }
 

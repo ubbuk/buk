@@ -19,6 +19,9 @@ const DEMO_ACCOUNTS = [
   { email: "nomintuya@ubbuk.mn", label: "Ерөнхий нягтлан бодогч — Номинтуяа" },
 ];
 
+// The demo account list (and the prefilled shared password) is a development/staging
+// convenience: hidden in production builds unless NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true.
+const SHOW_DEMO = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === "true";
 const DEMO_PASSWORD = "ubbuk2026";
 
 export default function LoginPage() {
@@ -33,7 +36,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [password, setPassword] = useState(SHOW_DEMO ? DEMO_PASSWORD : "");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -115,6 +118,7 @@ function LoginForm() {
           </CardBody>
         </Card>
 
+        {SHOW_DEMO && (
         <Card>
           <CardBody className="space-y-2">
             <p className="text-xs font-medium text-text-muted">
@@ -138,6 +142,7 @@ function LoginForm() {
             </ul>
           </CardBody>
         </Card>
+        )}
       </div>
     </div>
   );

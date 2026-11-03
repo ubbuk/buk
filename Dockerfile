@@ -21,6 +21,9 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY . .
+# Staging keeps the demo-account list on the login page (hidden in real production builds).
+ARG NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=false
+ENV NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=$NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS
 RUN npm run build
 
 ENV NODE_ENV=production

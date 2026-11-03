@@ -12,6 +12,7 @@
 // in the app would need to change.
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { S3Storage } from "./storage-s3";
 
 export interface ObjectStorage {
   put(key: string, data: Buffer): Promise<void>;
@@ -61,8 +62,15 @@ function createStorage(): ObjectStorage {
   switch (driver) {
     case "local":
       return new LocalFsStorage();
+    case "s3": {
+      // Any S3-compatible service (AWS S3, Cloudflare R2, MinIO). Required on hosts with an
+      // ephemeral/read-only disk such as Vercel. Credentials come from the S3_* env vars.
+      const bucket = process.env.S3_BUCKET;
+      if (!bucket) throw new Error("STORAGE_DRIVER=s3 needs S3_BUCKET");
+      return new S3Storage({ bucket, prefix: process.env.S3_PREFIX ?? "attachments/" });
+    }
     default:
-      throw new Error(`Unknown STORAGE_DRIVER "${driver}" — only "local" is implemented`);
+      throw new Error(`Unknown STORAGE_DRIVER "${driver}" — expected "local" or "s3"`);
   }
 }
 

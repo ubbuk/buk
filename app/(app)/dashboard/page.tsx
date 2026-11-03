@@ -173,14 +173,12 @@ export default function DashboardPage() {
   const activity = useRequestStore((s) => s.activity);
   const kpis = useMemo(() => selectKpis(requests), [requests]);
   const [materials, setMaterials] = useState<MaterialCatalogEntry[]>([]);
-  // Stock levels change whenever a request moves; refetch them on every live signal.
+  
   const [materialsTick, setMaterialsTick] = useState(0);
   useLiveRefresh(() => setMaterialsTick((t) => t + 1));
   const mountViewer = useAfterFirstPaintData(!loading);
 
-  // Start downloading the 3D chunk (which also kicks off the GLB fetch) as soon
-  // as the browser is idle, so it is already on its way when the data arrives;
-  // only the expensive mount waits for that.
+
   useEffect(() => {
     if (!isDesktop) return;
     const id =

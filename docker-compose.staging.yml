@@ -29,7 +29,10 @@ services:
     # No host port on purpose: only the app container can reach it.
 
   migrate:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS: "true"
     image: ubbuk-erp-staging:local
     command: ["npx", "prisma", "migrate", "deploy"]
     environment:
