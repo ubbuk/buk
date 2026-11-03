@@ -1,0 +1,24 @@
+# Isolated PostgreSQL for the Vitest suite -- NEVER the real ERP database.
+# Separate project name + volume so it can't touch hangamj2_db-data:
+#   docker compose -p ubbuk-test -f docker-compose.test.yml up -d
+#   (then migrate + seed THIS database only, see vitest.setup.ts)
+services:
+  db-test:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ubbuk_test
+      POSTGRES_PASSWORD: ubbuk_test
+      POSTGRES_DB: ubbuk_procurement_test
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - db-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ubbuk_test -d ubbuk_procurement_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db-test-data:
