@@ -3,8 +3,47 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme (default -- no .dark class on <html>). Values are "R G B"
+     triples (no commas) so Tailwind can apply its own alpha via
+     rgb(var(--x) / <alpha-value>) -- see tailwind.config.ts. */
   :root {
+    color-scheme: light;
+
+    --color-bg: 226 231 237;
+    --color-bg-sidebar: 238 241 245;
+    --color-bg-surface: 240 243 247;
+    --color-bg-elevated: 228 233 240;
+    --color-border: 200 208 219;
+    --color-accent: 180 83 9;
+    --color-accent-hover: 217 119 6;
+    --color-tech: 14 116 144;
+    --color-tech-hover: 8 145 178;
+    --color-success: 21 128 61;
+    --color-warning: 194 65 12;
+    --color-danger: 220 38 38;
+    --color-text: 16 24 35;
+    --color-text-muted: 91 107 123;
+  }
+
+  /* Dark theme (.dark on <html>, the app's original/default look) -- same
+     values the whole UI was hardcoded to before the light theme existed. */
+  .dark {
     color-scheme: dark;
+
+    --color-bg: 11 17 24;
+    --color-bg-sidebar: 17 28 38;
+    --color-bg-surface: 23 36 47;
+    --color-bg-elevated: 30 48 61;
+    --color-border: 48 68 81;
+    --color-accent: 245 158 11;
+    --color-accent-hover: 251 191 36;
+    --color-tech: 34 211 238;
+    --color-tech-hover: 103 232 249;
+    --color-success: 34 197 94;
+    --color-warning: 249 115 22;
+    --color-danger: 239 68 68;
+    --color-text: 243 246 250;
+    --color-text-muted: 148 163 184;
   }
 
   html {
@@ -12,7 +51,7 @@
   }
 
   body {
-    @apply h-full bg-bg text-text antialiased;
+    @apply h-full bg-bg text-text antialiased transition-colors duration-300;
   }
 
   ::selection {
@@ -32,12 +71,12 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: #304451;
+    @apply bg-border;
     border-radius: 999px;
-    border: 2px solid #0b1118;
+    border: 2px solid rgb(var(--color-bg));
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: #3c5564;
+    @apply bg-text-muted/50;
   }
 }
 
@@ -59,6 +98,63 @@
       transparent 100%
     );
     background-size: 200% 100%;
+  }
+
+  /* Dashed "data flow" line animation for the Command Center trunk line. */
+  .icc-flow {
+    animation: icc-dash-flow 2.4s linear infinite;
+  }
+  @keyframes icc-dash-flow {
+    to {
+      stroke-dashoffset: -40px;
+    }
+  }
+
+  /* Pulsing mast light on the Command Center's Reports tower. */
+  .icc-blink {
+    animation: icc-blink 1.8s ease-in-out infinite;
+  }
+  @keyframes icc-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.25;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .icc-flow,
+    .icc-blink {
+      animation: none;
+    }
+  }
+
+  /* Dashboard pending-approval cards: a vivid red/green cross-fade "needs
+     attention" pulse on the border + background tint, plus a slow
+     forward/back scale breathing. Pauses on hover (see
+     hover:[animation-play-state:paused] where this class is used). */
+  .pending-recede {
+    animation: pending-recede-cycle 2.6s ease-in-out infinite;
+  }
+  @keyframes pending-recede-cycle {
+    0%,
+    100% {
+      border-color: rgb(239 68 68 / 0.9);
+      background-color: rgb(239 68 68 / 0.18);
+      transform: scale(1);
+    }
+    50% {
+      border-color: rgb(34 197 94 / 0.9);
+      background-color: rgb(34 197 94 / 0.18);
+      transform: scale(0.96);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pending-recede {
+      animation: none;
+    }
   }
 }
 

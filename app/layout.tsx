@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SessionProviderWrapper } from "@/components/auth/SessionProviderWrapper";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import "./globals.css";
+
+// Always start in dark mode: set before hydration so the first paint is dark.
+// (The toggle only lasts for the current page load.)
+const noFlashThemeScript = `document.documentElement.classList.add('dark');`;
 
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
@@ -20,9 +25,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="mn" className={`${inter.variable} dark`}>
+    <html lang="mn" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: noFlashThemeScript }} />
+      </head>
       <body className="font-sans">
-        <SessionProviderWrapper>{children}</SessionProviderWrapper>
+        <SessionProviderWrapper>
+          <ThemeProvider>{children}</ThemeProvider>
+        </SessionProviderWrapper>
       </body>
     </html>
   );

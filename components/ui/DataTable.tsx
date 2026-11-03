@@ -8,7 +8,7 @@ export interface DataTableColumn<T> {
   key: string;
   header: string;
   sortable?: boolean;
-  accessor: (row: T) => string | number;
+  accessor: (row: T) => string | number | null;
   render: (row: T) => React.ReactNode;
   className?: string;
 }
@@ -39,7 +39,7 @@ export function DataTable<T>({
     if (query.trim()) {
       const q = query.toLowerCase();
       rows = rows.filter((row) =>
-        columns.some((col) => String(col.accessor(row)).toLowerCase().includes(q))
+        columns.some((col) => String(col.accessor(row) ?? "").toLowerCase().includes(q))
       );
     }
     if (sortKey) {
@@ -48,6 +48,11 @@ export function DataTable<T>({
         rows = [...rows].sort((a, b) => {
           const av = col.accessor(a);
           const bv = col.accessor(b);
+          // Unknown values (e.g. a request with no price yet) sort last
+          // regardless of direction, rather than comparing against "null".
+          if (av === null && bv === null) return 0;
+          if (av === null) return 1;
+          if (bv === null) return -1;
           const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
           return sortDir === "asc" ? cmp : -cmp;
         });

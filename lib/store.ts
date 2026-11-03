@@ -1,12 +1,7 @@
-// Shared reactive client-side state. Requests are loaded from, and request
-// creation / department-head approval now write through to, the real
-// database via /api/requests/*. The later pipeline stages (warehouse check,
-// route approval, director approval) are still simulated client-side only —
-// that's the next increment — so an action taken on one screen is still
-// immediately visible everywhere else in the same session, same as before.
+
 import { create } from "zustand";
 import { DEMO_ACTIVITY } from "./mock-data";
-import type { MaterialRequestView, RequestRoute } from "./types";
+import type { MaterialRequestView } from "./types";
 
 export interface ActivityEntry {
   id: string;
@@ -20,14 +15,13 @@ interface NewRequestItemInput {
   materialName: string;
   unit: string;
   requestedQuantity: number;
-  unitPrice: number;
+  unitPrice: number | null;
   warehouseBalance: number | null;
   note?: string;
 }
 
 interface CreateRequestInput {
   departmentId: string;
-  route: RequestRoute;
   requestedBy: string;
   items: NewRequestItemInput[];
 }
@@ -38,15 +32,47 @@ interface RequestStore {
   activity: ActivityEntry[];
   loadRequests: () => Promise<void>;
   createRequest: (input: CreateRequestInput) => Promise<MaterialRequestView>;
-  approveDepartmentHead: (requestId: string, actorName: string) => Promise<void>;
-  returnDepartmentHead: (requestId: string, actorName: string, reason: string) => Promise<void>;
-  approveStep: (requestId: string, actorName: string) => void;
-  returnStep: (requestId: string, actorName: string, reason: string) => void;
-  submitWarehouseCheck: (
+  approveDepartmentHead: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  returnDepartmentHead: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
+  warehouseCheck: (
     requestId: string,
-    availableByItemId: Record<string, number>,
-    actorName: string
-  ) => void;
+    items: { requestItemId: string; availableQuantity: number }[],
+    actorName: string,
+    pin: string,
+    expectedVersion: number
+  ) => Promise<void>;
+  branchApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  branchReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
+  financeApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  financeReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
+  executiveApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  executiveReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
+  recordAccounting: (
+    requestId: string,
+    actorName: string,
+    input: { ledgerNumber: string; recordDate: string; note?: string },
+    expectedVersion: number
+  ) => Promise<void>;
+  resubmitDepartment: (
+    requestId: string,
+    actorName: string,
+    expectedVersion: number,
+    items: NewRequestItemInput[],
+    note?: string
+  ) => Promise<void>;
+  resubmitPositionStep: (
+    requestId: string,
+    actorName: string,
+    expectedVersion: number,
+    adjustments: { requestItemId: string; quantity: number }[]
+  ) => Promise<void>;
+  updateItemPrice: (
+    requestId: string,
+    itemId: string,
+    actorName: string,
+    unitPrice: number,
+    expectedVersion: number
+  ) => Promise<void>;
 }
 
 function logTime() {
@@ -79,9 +105,10 @@ const OPEN_STATUSES = new Set([
   "DRAFT",
   "PENDING_DEPARTMENT_APPROVAL",
   "PENDING_WAREHOUSE_CHECK",
-  "PENDING_ROUTE_APPROVAL",
-  "PENDING_DIRECTOR_APPROVAL",
-  "FULFILLMENT_IN_PROGRESS",
+  "PENDING_BRANCH_APPROVAL",
+  "PENDING_FINANCE_APPROVAL",
+  "PENDING_EXECUTIVE_APPROVAL",
+  "PENDING_ACCOUNTING",
 ]);
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
@@ -91,13 +118,13 @@ export function selectKpis(requests: MaterialRequestView[]) {
   return {
     totalRequests: requests.length,
     pendingApproval: requests.filter((r) =>
-      ["PENDING_DEPARTMENT_APPROVAL", "PENDING_ROUTE_APPROVAL", "PENDING_DIRECTOR_APPROVAL"].includes(r.status)
+      ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
+        r.status
+      )
     ).length,
     warehouseCheck: requests.filter((r) => r.status === "PENDING_WAREHOUSE_CHECK").length,
-    needsProcurement: requests.filter((r) =>
-      ["PENDING_ROUTE_APPROVAL", "PENDING_DIRECTOR_APPROVAL"].includes(r.status)
-    ).length,
-    completed: requests.filter((r) => r.status === "COMPLETED").length,
+    pendingAccounting: requests.filter((r) => r.status === "PENDING_ACCOUNTING").length,
+    completed: requests.filter((r) => r.status === "COMPLETED" || r.status === "ACCOUNTING_COMPLETED").length,
     overdue: requests.filter(
       (r) => OPEN_STATUSES.has(r.status) && now - new Date(r.createdAt).getTime() > FIVE_DAYS_MS
     ).length,
@@ -123,7 +150,6 @@ export const useRequestStore = create<RequestStore>((set) => ({
       method: "POST",
       body: JSON.stringify({
         departmentId: input.departmentId,
-        route: input.route,
         items: input.items.map((item) => ({
           materialId: item.materialId ?? null,
           materialName: item.materialName,
@@ -146,9 +172,10 @@ export const useRequestStore = create<RequestStore>((set) => ({
     return created;
   },
 
-  approveDepartmentHead: async (requestId, actorName) => {
+  approveDepartmentHead: async (requestId, actorName, pin, expectedVersion) => {
     const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/department-approve`, {
       method: "POST",
+      body: JSON.stringify({ pin, expectedVersion }),
     });
     set((s) => ({
       requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
@@ -159,10 +186,10 @@ export const useRequestStore = create<RequestStore>((set) => ({
     }));
   },
 
-  returnDepartmentHead: async (requestId, actorName, reason) => {
+  returnDepartmentHead: async (requestId, actorName, reason, expectedVersion) => {
     const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/department-return`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, expectedVersion }),
     });
     set((s) => ({
       requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
@@ -173,130 +200,167 @@ export const useRequestStore = create<RequestStore>((set) => ({
     }));
   },
 
-  // --- Client-only simulation below this line — warehouse check, route and
-  // director approval don't write to the database yet (next increment). ---
-
-  approveStep: (requestId, actorName) => {
-    let approvedRequestNumber = "";
+  warehouseCheck: async (requestId, items, actorName, pin, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/warehouse-check`, {
+      method: "POST",
+      body: JSON.stringify({ items, pin, expectedVersion }),
+    });
     set((s) => ({
-      requests: s.requests.map((r) => {
-        if (r.id !== requestId) return r;
-        const stepIndex = r.approvalSteps.findIndex((st) => st.status === "PENDING");
-        if (stepIndex === -1) return r;
-        approvedRequestNumber = r.requestNumber;
-
-        const decidedAt = new Date().toISOString();
-        const step = r.approvalSteps[stepIndex];
-        const approvalSteps = r.approvalSteps.map((st, i) =>
-          i === stepIndex ? { ...st, status: "APPROVED" as const, decidedAt } : st
-        );
-
-        let status = r.status;
-        const completedAt = r.completedAt;
-        switch (step.type) {
-          case "DEPARTMENT_HEAD":
-            status = "PENDING_WAREHOUSE_CHECK";
-            break;
-          case "ROUTE_APPROVAL":
-            status = "PENDING_DIRECTOR_APPROVAL";
-            break;
-          case "DIRECTOR_APPROVAL":
-            status = "FULFILLMENT_IN_PROGRESS";
-            break;
-          case "WAREHOUSE_CHECK":
-            // Warehouse verification is handled by submitWarehouseCheck
-            // (it needs per-item quantities), not this generic approve.
-            break;
-        }
-
-        return { ...r, approvalSteps, status, completedAt };
-      }),
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
       activity: pushActivity(s.activity, {
-        text: `${actorName} №${approvedRequestNumber} хүсэлтийг баталлаа`,
+        text: `${actorName} №${updated.requestNumber} агуулахын шалгалтыг баталгаажуулав`,
         type: "approve",
       }),
     }));
   },
 
-  returnStep: (requestId, actorName, reason) => {
-    let returnedRequestNumber = "";
+  branchApprove: async (requestId, actorName, pin, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/branch-approve`, {
+      method: "POST",
+      body: JSON.stringify({ pin, expectedVersion }),
+    });
     set((s) => ({
-      requests: s.requests.map((r) => {
-        if (r.id !== requestId) return r;
-        const stepIndex = r.approvalSteps.findIndex((st) => st.status === "PENDING");
-        if (stepIndex === -1) return r;
-        returnedRequestNumber = r.requestNumber;
-
-        const decidedAt = new Date().toISOString();
-        const step = r.approvalSteps[stepIndex];
-        const approvalSteps = r.approvalSteps.map((st, i) => {
-          if (i === stepIndex) return { ...st, status: "REJECTED" as const, decidedAt, comment: reason };
-          if (i > stepIndex) return { ...st, status: "SKIPPED" as const };
-          return st;
-        });
-
-        let status = r.status;
-        switch (step.type) {
-          case "DEPARTMENT_HEAD":
-            status = "RETURNED_BY_DEPARTMENT";
-            break;
-          case "ROUTE_APPROVAL":
-            status = "RETURNED_BY_ROUTE_APPROVER";
-            break;
-          case "DIRECTOR_APPROVAL":
-            status = "RETURNED_BY_DIRECTOR";
-            break;
-          case "WAREHOUSE_CHECK":
-            // Not exposed via the generic return UI — the warehouse clerk
-            // only ever reports quantities, never rejects the request.
-            break;
-        }
-
-        return { ...r, approvalSteps, status };
-      }),
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
       activity: pushActivity(s.activity, {
-        text: `${actorName} №${returnedRequestNumber} хүсэлтийг буцаалаа — ${reason}`,
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг баталлаа`,
+        type: "approve",
+      }),
+    }));
+  },
+
+  branchReturn: async (requestId, actorName, reason, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/branch-return`, {
+      method: "POST",
+      body: JSON.stringify({ reason, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг буцаалаа — ${reason}`,
         type: "reject",
       }),
     }));
   },
 
-  submitWarehouseCheck: (requestId, availableByItemId, actorName) => {
-    let checkedRequestNumber = "";
+  financeApprove: async (requestId, actorName, pin, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/finance-approve`, {
+      method: "POST",
+      body: JSON.stringify({ pin, expectedVersion }),
+    });
     set((s) => ({
-      requests: s.requests.map((r) => {
-        if (r.id !== requestId) return r;
-        checkedRequestNumber = r.requestNumber;
-
-        const items = r.items.map((item) => {
-          const available = availableByItemId[item.id] ?? item.warehouseBalance ?? 0;
-          const allocatedQuantity = Math.min(available, item.requestedQuantity);
-          const missingQuantity = Math.max(item.requestedQuantity - allocatedQuantity, 0);
-          return { ...item, warehouseBalance: available, allocatedQuantity, missingQuantity };
-        });
-
-        const hasMissing = items.some((i) => (i.missingQuantity ?? 0) > 0);
-        const decidedAt = new Date().toISOString();
-
-        const approvalSteps = r.approvalSteps.map((st) => {
-          if (st.type === "WAREHOUSE_CHECK") return { ...st, status: "APPROVED" as const, decidedAt };
-          if (!hasMissing && (st.type === "ROUTE_APPROVAL" || st.type === "DIRECTOR_APPROVAL")) {
-            return { ...st, status: "SKIPPED" as const };
-          }
-          return st;
-        });
-
-        return {
-          ...r,
-          items,
-          approvalSteps,
-          status: hasMissing ? "PENDING_ROUTE_APPROVAL" : "COMPLETED",
-          completedAt: hasMissing ? r.completedAt : decidedAt,
-        };
-      }),
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
       activity: pushActivity(s.activity, {
-        text: `${actorName} №${checkedRequestNumber} агуулахын шалгалтыг баталгаажуулав`,
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг баталлаа`,
         type: "approve",
+      }),
+    }));
+  },
+
+  financeReturn: async (requestId, actorName, reason, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/finance-return`, {
+      method: "POST",
+      body: JSON.stringify({ reason, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг буцаалаа — ${reason}`,
+        type: "reject",
+      }),
+    }));
+  },
+
+  executiveApprove: async (requestId, actorName, pin, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/executive-approve`, {
+      method: "POST",
+      body: JSON.stringify({ pin, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг баталлаа`,
+        type: "approve",
+      }),
+    }));
+  },
+
+  executiveReturn: async (requestId, actorName, reason, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/executive-return`, {
+      method: "POST",
+      body: JSON.stringify({ reason, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг буцаалаа — ${reason}`,
+        type: "reject",
+      }),
+    }));
+  },
+
+  recordAccounting: async (requestId, actorName, input, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/accounting-record`, {
+      method: "POST",
+      body: JSON.stringify({ ...input, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийн санхүүгийн бүртгэл хийв`,
+        type: "info",
+      }),
+    }));
+  },
+
+  resubmitDepartment: async (requestId, actorName, expectedVersion, items, note) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/resubmit`, {
+      method: "POST",
+      body: JSON.stringify({
+        expectedVersion,
+        note,
+        items: items.map((item) => ({
+          materialId: item.materialId ?? null,
+          materialName: item.materialName,
+          unit: item.unit,
+          requestedQuantity: item.requestedQuantity,
+          unitPrice: item.unitPrice,
+          note: item.note,
+        })),
+      }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг засварлаж дахин илгээв`,
+        type: "info",
+      }),
+    }));
+  },
+
+  resubmitPositionStep: async (requestId, actorName, expectedVersion, adjustments) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/resubmit`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion, adjustments }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг дахин илгээв`,
+        type: "info",
+      }),
+    }));
+  },
+
+  updateItemPrice: async (requestId, itemId, actorName, unitPrice, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/items/${itemId}/price`, {
+      method: "PATCH",
+      body: JSON.stringify({ unitPrice, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийн үнийг шинэчлэв`,
+        type: "info",
       }),
     }));
   },

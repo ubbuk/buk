@@ -50,16 +50,16 @@ export function MaterialCombobox({
           }}
           onFocus={() => setOpen(true)}
           placeholder="Материал хайх эсвэл шинээр бичих..."
-          className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 pr-8 text-sm text-text placeholder:text-text-muted"
+          className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 pr-9 text-base text-text placeholder:text-text-muted"
         />
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
       </div>
 
       {open && (
-        <div className="absolute z-20 mt-1 max-h-60 w-full min-w-[280px] overflow-y-auto rounded-lg border border-border bg-bg-elevated shadow-elevated">
+        <div className="absolute z-20 mt-1 max-h-72 w-full min-w-[360px] overflow-y-auto rounded-lg border border-border bg-bg-elevated shadow-elevated">
           {filtered.length === 0 ? (
-            <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-text-muted">
-              <PenLine className="size-3.5" />
+            <div className="flex items-center gap-2 px-3 py-3 text-sm text-text-muted">
+              <PenLine className="size-4" />
               Каталогт байхгүй — &quot;{query}&quot; гэж шинээр нэмэгдэнэ
             </div>
           ) : (
@@ -73,7 +73,7 @@ export function MaterialCombobox({
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-bg-surface",
+                  "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-base hover:bg-bg-surface",
                   m.name === value && "bg-bg-surface"
                 )}
               >

@@ -6,25 +6,34 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Piped through CSS variables (see globals.css :root / .dark) so every
+        // component that already uses these semantic names (bg-bg-surface,
+        // text-text-muted, border-accent/40, ...) flips between the light and
+        // dark palette automatically when the `dark` class toggles -- no
+        // per-component changes needed.
         bg: {
-          DEFAULT: "#0B1118",
-          sidebar: "#111C26",
-          surface: "#17242F",
-          elevated: "#1E303D",
+          DEFAULT: "rgb(var(--color-bg) / <alpha-value>)",
+          sidebar: "rgb(var(--color-bg-sidebar) / <alpha-value>)",
+          surface: "rgb(var(--color-bg-surface) / <alpha-value>)",
+          elevated: "rgb(var(--color-bg-elevated) / <alpha-value>)",
         },
         border: {
-          DEFAULT: "#304451",
+          DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#F59E0B",
-          hover: "#FBBF24",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
         },
-        success: "#22C55E",
-        warning: "#F97316",
-        danger: "#EF4444",
+        tech: {
+          DEFAULT: "rgb(var(--color-tech) / <alpha-value>)",
+          hover: "rgb(var(--color-tech-hover) / <alpha-value>)",
+        },
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
         text: {
-          DEFAULT: "#F3F6FA",
-          muted: "#94A3B8",
+          DEFAULT: "rgb(var(--color-text) / <alpha-value>)",
+          muted: "rgb(var(--color-text-muted) / <alpha-value>)",
         },
       },
       fontFamily: {

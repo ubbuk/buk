@@ -1,29 +1,20 @@
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('EMPLOYEE', 'DEPARTMENT_HEAD', 'WAREHOUSE_CLERK', 'PROCUREMENT_OFFICER', 'OFFICE_APPROVER', 'FACTORY_APPROVER', 'DIRECTOR', 'ADMIN');
+CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'DIRECTOR', 'BOSS', 'MANAGER', 'STOREKEEPER', 'EMPLOYEE', 'ENGINEERING', 'CHIEF_ACCOUNTANT');
 
 -- CreateEnum
 CREATE TYPE "DepartmentType" AS ENUM ('OFFICE', 'FACTORY');
 
 -- CreateEnum
-CREATE TYPE "ApprovalRole" AS ENUM ('OFFICE_APPROVER', 'FACTORY_APPROVER', 'DIRECTOR');
+CREATE TYPE "ApprovalPosition" AS ENUM ('ENGINEERING_CHIEF', 'OPERATIONS_DIRECTOR', 'FINANCE_DIRECTOR', 'EXECUTIVE_DIRECTOR', 'STOREKEEPER_LEAD', 'CHIEF_ACCOUNTANT_LEAD');
 
 -- CreateEnum
-CREATE TYPE "RequestRoute" AS ENUM ('OFFICE', 'FACTORY');
-
--- CreateEnum
-CREATE TYPE "RequestStatus" AS ENUM ('DRAFT', 'PENDING_DEPARTMENT_APPROVAL', 'RETURNED_BY_DEPARTMENT', 'PENDING_WAREHOUSE_CHECK', 'PENDING_ROUTE_APPROVAL', 'RETURNED_BY_ROUTE_APPROVER', 'PENDING_DIRECTOR_APPROVAL', 'RETURNED_BY_DIRECTOR', 'FULFILLMENT_IN_PROGRESS', 'PARTIALLY_COMPLETED', 'COMPLETED', 'CANCELLED');
+CREATE TYPE "RequestStatus" AS ENUM ('DRAFT', 'PENDING_DEPARTMENT_APPROVAL', 'RETURNED_BY_DEPARTMENT', 'PENDING_WAREHOUSE_CHECK', 'PENDING_BRANCH_APPROVAL', 'RETURNED_BY_BRANCH_APPROVER', 'PENDING_FINANCE_APPROVAL', 'RETURNED_BY_FINANCE', 'PENDING_EXECUTIVE_APPROVAL', 'RETURNED_BY_EXECUTIVE', 'PENDING_ACCOUNTING', 'ACCOUNTING_COMPLETED', 'PARTIALLY_COMPLETED', 'COMPLETED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "ReservationStatus" AS ENUM ('RESERVED', 'RELEASED', 'ISSUED');
 
 -- CreateEnum
-CREATE TYPE "PurchaseRequirementStatus" AS ENUM ('PENDING_ROUTE_APPROVAL', 'PENDING_DIRECTOR_APPROVAL', 'APPROVED', 'REJECTED', 'IN_PROCUREMENT', 'FULFILLED', 'CANCELLED');
-
--- CreateEnum
-CREATE TYPE "PurchaseOrderStatus" AS ENUM ('DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED');
-
--- CreateEnum
-CREATE TYPE "ApprovalStepType" AS ENUM ('DEPARTMENT_HEAD', 'WAREHOUSE_CHECK', 'ROUTE_APPROVAL', 'DIRECTOR_APPROVAL');
+CREATE TYPE "ApprovalStepType" AS ENUM ('DEPARTMENT_HEAD', 'WAREHOUSE_CHECK', 'BRANCH_APPROVAL', 'FINANCE_APPROVAL', 'EXECUTIVE_APPROVAL', 'ACCOUNTING_RECORD');
 
 -- CreateEnum
 CREATE TYPE "ApprovalStepStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'SKIPPED');
@@ -32,10 +23,10 @@ CREATE TYPE "ApprovalStepStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'SK
 CREATE TYPE "ApprovalActionType" AS ENUM ('APPROVE', 'REJECT', 'RETURN');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('APPROVAL_REQUIRED', 'REQUEST_RETURNED', 'REQUEST_APPROVED', 'WAREHOUSE_CHECK_NEEDED', 'PURCHASE_REQUIREMENT_READY', 'GOODS_RECEIVED', 'REQUEST_COMPLETED', 'GENERIC');
+CREATE TYPE "NotificationType" AS ENUM ('APPROVAL_REQUIRED', 'REQUEST_RETURNED', 'REQUEST_APPROVED', 'WAREHOUSE_CHECK_NEEDED', 'REQUEST_COMPLETED', 'GENERIC');
 
 -- CreateEnum
-CREATE TYPE "AuditAction" AS ENUM ('CREATE', 'UPDATE', 'SUBMIT', 'APPROVE', 'REJECT', 'RETURN', 'RESERVE_STOCK', 'ISSUE_STOCK', 'CREATE_PURCHASE_ORDER', 'RECEIVE_GOODS', 'CANCEL');
+CREATE TYPE "AuditAction" AS ENUM ('CREATE', 'UPDATE', 'SUBMIT', 'APPROVE', 'REJECT', 'RETURN', 'RESERVE_STOCK', 'ISSUE_STOCK', 'ACCOUNTING_RECORD', 'CANCEL', 'PIN_SETUP', 'PIN_FAILURE', 'PIN_LOCKOUT', 'RESUBMIT', 'CREATE_USER', 'UPDATE_USER', 'RESET_CREDENTIALS', 'UPDATE_PRICE', 'ATTACHMENT_UPLOAD');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -44,12 +35,27 @@ CREATE TABLE "User" (
     "name" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "role" "UserRole" NOT NULL DEFAULT 'EMPLOYEE',
+    "title" TEXT,
     "departmentId" TEXT,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "lastLoginAt" TIMESTAMP(3),
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ApprovalPinCredential" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "pinHash" TEXT NOT NULL,
+    "failedAttempts" INTEGER NOT NULL DEFAULT 0,
+    "lockedUntil" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ApprovalPinCredential_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -65,7 +71,7 @@ CREATE TABLE "Department" (
 -- CreateTable
 CREATE TABLE "ApprovalRoleAssignment" (
     "id" TEXT NOT NULL,
-    "role" "ApprovalRole" NOT NULL,
+    "role" "ApprovalPosition" NOT NULL,
     "userId" TEXT NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -118,7 +124,6 @@ CREATE TABLE "MaterialRequest" (
     "sequence" INTEGER NOT NULL,
     "departmentId" TEXT NOT NULL,
     "requestedById" TEXT NOT NULL,
-    "route" "RequestRoute" NOT NULL,
     "status" "RequestStatus" NOT NULL DEFAULT 'DRAFT',
     "note" TEXT,
     "version" INTEGER NOT NULL DEFAULT 1,
@@ -143,8 +148,8 @@ CREATE TABLE "MaterialRequestItem" (
     "unit" TEXT NOT NULL,
     "requestedQuantity" DECIMAL(14,3) NOT NULL,
     "warehouseBalanceAtRequest" DECIMAL(14,3),
-    "unitPrice" DECIMAL(14,2) NOT NULL,
-    "totalPrice" DECIMAL(14,2) NOT NULL,
+    "unitPrice" DECIMAL(14,2),
+    "totalPrice" DECIMAL(14,2),
     "note" TEXT,
 
     CONSTRAINT "MaterialRequestItem_pkey" PRIMARY KEY ("id")
@@ -198,60 +203,6 @@ CREATE TABLE "StockIssue" (
 );
 
 -- CreateTable
-CREATE TABLE "PurchaseRequirement" (
-    "id" TEXT NOT NULL,
-    "requestItemId" TEXT NOT NULL,
-    "quantity" DECIMAL(14,3) NOT NULL,
-    "status" "PurchaseRequirementStatus" NOT NULL DEFAULT 'PENDING_ROUTE_APPROVAL',
-    "routeApprovedById" TEXT,
-    "routeApprovedAt" TIMESTAMP(3),
-    "directorApprovedById" TEXT,
-    "directorApprovedAt" TIMESTAMP(3),
-    "rejectionReason" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PurchaseRequirement_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PurchaseOrder" (
-    "id" TEXT NOT NULL,
-    "orderNumber" TEXT NOT NULL,
-    "supplierName" TEXT NOT NULL,
-    "status" "PurchaseOrderStatus" NOT NULL DEFAULT 'DRAFT',
-    "createdById" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "expectedDeliveryDate" TIMESTAMP(3),
-
-    CONSTRAINT "PurchaseOrder_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PurchaseOrderItem" (
-    "id" TEXT NOT NULL,
-    "purchaseOrderId" TEXT NOT NULL,
-    "purchaseRequirementId" TEXT NOT NULL,
-    "quantity" DECIMAL(14,3) NOT NULL,
-    "estimatedPrice" DECIMAL(14,2) NOT NULL,
-    "actualPrice" DECIMAL(14,2),
-
-    CONSTRAINT "PurchaseOrderItem_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "GoodsReceipt" (
-    "id" TEXT NOT NULL,
-    "purchaseOrderItemId" TEXT NOT NULL,
-    "receivedQuantity" DECIMAL(14,3) NOT NULL,
-    "receivedById" TEXT NOT NULL,
-    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "note" TEXT,
-
-    CONSTRAINT "GoodsReceipt_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "ApprovalStep" (
     "id" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
@@ -280,11 +231,24 @@ CREATE TABLE "ApprovalAction" (
 );
 
 -- CreateTable
+CREATE TABLE "AccountingRecord" (
+    "id" TEXT NOT NULL,
+    "requestId" TEXT NOT NULL,
+    "ledgerNumber" TEXT NOT NULL,
+    "recordDate" TIMESTAMP(3) NOT NULL,
+    "note" TEXT,
+    "recordedById" TEXT NOT NULL,
+    "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AccountingRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Attachment" (
     "id" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
     "fileName" TEXT NOT NULL,
-    "fileUrl" TEXT NOT NULL,
+    "storageKey" TEXT NOT NULL,
     "mimeType" TEXT NOT NULL,
     "sizeBytes" INTEGER NOT NULL,
     "uploadedById" TEXT NOT NULL,
@@ -329,6 +293,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE INDEX "User_departmentId_idx" ON "User"("departmentId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "ApprovalPinCredential_userId_key" ON "ApprovalPinCredential"("userId");
+
+-- CreateIndex
 CREATE INDEX "Department_headId_idx" ON "Department"("headId");
 
 -- CreateIndex
@@ -356,6 +323,12 @@ CREATE INDEX "MaterialRequest_requestedById_idx" ON "MaterialRequest"("requested
 CREATE INDEX "MaterialRequest_status_idx" ON "MaterialRequest"("status");
 
 -- CreateIndex
+CREATE INDEX "MaterialRequest_createdAt_idx" ON "MaterialRequest"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "MaterialRequest_status_createdAt_idx" ON "MaterialRequest"("status", "createdAt");
+
+-- CreateIndex
 CREATE INDEX "MaterialRequestItem_materialId_idx" ON "MaterialRequestItem"("materialId");
 
 -- CreateIndex
@@ -377,15 +350,6 @@ CREATE INDEX "StockReservation_warehouseId_idx" ON "StockReservation"("warehouse
 CREATE UNIQUE INDEX "StockIssue_reservationId_key" ON "StockIssue"("reservationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PurchaseRequirement_requestItemId_key" ON "PurchaseRequirement"("requestItemId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "PurchaseOrder_orderNumber_key" ON "PurchaseOrder"("orderNumber");
-
--- CreateIndex
-CREATE INDEX "PurchaseOrderItem_purchaseOrderId_idx" ON "PurchaseOrderItem"("purchaseOrderId");
-
--- CreateIndex
 CREATE INDEX "ApprovalStep_assignedUserId_status_idx" ON "ApprovalStep"("assignedUserId", "status");
 
 -- CreateIndex
@@ -393,6 +357,9 @@ CREATE UNIQUE INDEX "ApprovalStep_requestId_sequence_key" ON "ApprovalStep"("req
 
 -- CreateIndex
 CREATE INDEX "ApprovalAction_approvalStepId_idx" ON "ApprovalAction"("approvalStepId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AccountingRecord_requestId_key" ON "AccountingRecord"("requestId");
 
 -- CreateIndex
 CREATE INDEX "Attachment_requestId_idx" ON "Attachment"("requestId");
@@ -408,6 +375,9 @@ CREATE INDEX "AuditLog_actorId_idx" ON "AuditLog"("actorId");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "Department"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ApprovalPinCredential" ADD CONSTRAINT "ApprovalPinCredential_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Department" ADD CONSTRAINT "Department_headId_fkey" FOREIGN KEY ("headId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -458,31 +428,25 @@ ALTER TABLE "StockIssue" ADD CONSTRAINT "StockIssue_reservationId_fkey" FOREIGN 
 ALTER TABLE "StockIssue" ADD CONSTRAINT "StockIssue_issuedById_fkey" FOREIGN KEY ("issuedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PurchaseRequirement" ADD CONSTRAINT "PurchaseRequirement_requestItemId_fkey" FOREIGN KEY ("requestItemId") REFERENCES "MaterialRequestItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PurchaseOrder" ADD CONSTRAINT "PurchaseOrder_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PurchaseOrderItem" ADD CONSTRAINT "PurchaseOrderItem_purchaseOrderId_fkey" FOREIGN KEY ("purchaseOrderId") REFERENCES "PurchaseOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PurchaseOrderItem" ADD CONSTRAINT "PurchaseOrderItem_purchaseRequirementId_fkey" FOREIGN KEY ("purchaseRequirementId") REFERENCES "PurchaseRequirement"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "GoodsReceipt" ADD CONSTRAINT "GoodsReceipt_purchaseOrderItemId_fkey" FOREIGN KEY ("purchaseOrderItemId") REFERENCES "PurchaseOrderItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "GoodsReceipt" ADD CONSTRAINT "GoodsReceipt_receivedById_fkey" FOREIGN KEY ("receivedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "ApprovalStep" ADD CONSTRAINT "ApprovalStep_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "MaterialRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ApprovalStep" ADD CONSTRAINT "ApprovalStep_assignedUserId_fkey" FOREIGN KEY ("assignedUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ApprovalStep" ADD CONSTRAINT "ApprovalStep_decidedById_fkey" FOREIGN KEY ("decidedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ApprovalAction" ADD CONSTRAINT "ApprovalAction_approvalStepId_fkey" FOREIGN KEY ("approvalStepId") REFERENCES "ApprovalStep"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ApprovalAction" ADD CONSTRAINT "ApprovalAction_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AccountingRecord" ADD CONSTRAINT "AccountingRecord_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "MaterialRequest"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AccountingRecord" ADD CONSTRAINT "AccountingRecord_recordedById_fkey" FOREIGN KEY ("recordedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Attachment" ADD CONSTRAINT "Attachment_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "MaterialRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE;

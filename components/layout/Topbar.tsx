@@ -2,7 +2,9 @@
 
 import { Bell, LogOut, Search } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { cn, formatDateTime } from "@/lib/utils";
 import { USER_ROLE_LABEL } from "@/lib/types";
 
 const PAGE_TITLES: Record<string, string> = {
@@ -11,11 +13,22 @@ const PAGE_TITLES: Record<string, string> = {
   "/requests/new": "Шинэ захиалга",
   "/approvals": "Батлах хүсэлтүүд",
   "/warehouse": "Агуулахын шалгалт",
-  "/procurement": "Худалдан авалт",
+  "/warehouses": "Агуулахын жагсаалт",
+  "/accounting": "Санхүүгийн бүртгэл",
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",
+  "/admin": "Хэрэглэгч, эрх",
 };
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  body: string;
+  relatedRequestId: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
 
 function initials(name: string) {
   return name
@@ -29,9 +42,54 @@ function initials(name: string) {
 
 export function Topbar() {
   const pathname = usePathname() ?? "";
+  const router = useRouter();
   const title = PAGE_TITLES[pathname] ?? "Худалдан авалтын систем";
   const { data: session } = useSession();
   const user = session?.user;
+
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  async function loadNotifications() {
+    try {
+      const res = await fetch("/api/notifications");
+      if (res.ok) setNotifications(await res.json());
+    } catch {
+      // ignore — bell just stays at its last known count
+    }
+  }
+
+  useEffect(() => {
+    if (!user) return;
+    loadNotifications();
+    window.addEventListener("ubbuk:live-event", loadNotifications);
+    return () => window.removeEventListener("ubbuk:live-event", loadNotifications);
+  }, [user]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  async function openNotification(n: NotificationItem) {
+    if (!n.isRead) {
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, isRead: true } : x)));
+      fetch(`/api/notifications/${n.id}/read`, { method: "POST" }).catch(() => {});
+    }
+    setOpen(false);
+    if (n.relatedRequestId) router.push(`/requests/${n.relatedRequestId}`);
+  }
+
+  async function markAllRead() {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    fetch("/api/notifications/read-all", { method: "POST" }).catch(() => {});
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-bg/80 px-6 backdrop-blur">
@@ -46,10 +104,52 @@ export function Topbar() {
           />
         </div>
 
-        <button className="focus-ring relative flex size-9 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text">
-          <Bell className="size-4" />
-          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-danger" />
-        </button>
+        <div ref={containerRef} className="relative">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="focus-ring relative flex size-9 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text"
+          >
+            <Bell className="size-4" />
+            {unreadCount > 0 && (
+              <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-danger text-[9px] font-semibold text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {open && (
+            <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-bg-surface shadow-elevated">
+              <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                <p className="text-xs font-semibold text-text">Мэдэгдэл</p>
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="text-[11px] text-accent hover:underline">
+                    Бүгдийг уншсан болгох
+                  </button>
+                )}
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-xs text-text-muted">Мэдэгдэл алга</p>
+                ) : (
+                  notifications.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => openNotification(n)}
+                      className={cn(
+                        "flex w-full flex-col gap-0.5 border-b border-border/60 px-3 py-2.5 text-left last:border-0 hover:bg-bg-elevated",
+                        !n.isRead && "bg-accent/5"
+                      )}
+                    >
+                      <span className="text-xs font-medium text-text">{n.title}</span>
+                      <span className="text-[11px] text-text-muted">{n.body}</span>
+                      <span className="text-[10px] text-text-muted/70">{formatDateTime(n.createdAt)}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {user && (
           <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-2">

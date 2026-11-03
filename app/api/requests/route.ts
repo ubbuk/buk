@@ -5,11 +5,15 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requestInclude, serializeRequest } from "@/lib/serialize";
 import { apiCreateRequestSchema } from "@/lib/validation";
+import { emitBroadcast, emitUserEvent } from "@/lib/events";
+import { withTiming } from "@/lib/api-timing";
 
 const REQUEST_YEAR = 2026;
 const START_SEQUENCE = 1372;
 
-export async function GET() {
+const STREAM_YIELD_EVERY = 100;
+
+export const GET = withTiming("GET /api/requests", async () => {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
@@ -18,10 +22,26 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(requests.map(serializeRequest));
-}
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode("["));
+      for (let i = 0; i < requests.length; i++) {
+        const prefix = i > 0 ? "," : "";
+        controller.enqueue(encoder.encode(prefix + JSON.stringify(serializeRequest(requests[i]))));
+        if (i % STREAM_YIELD_EVERY === STREAM_YIELD_EVERY - 1) {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      }
+      controller.enqueue(encoder.encode("]"));
+      controller.close();
+    },
+  });
 
-export async function POST(req: Request) {
+  return new NextResponse(stream, { headers: { "Content-Type": "application/json" } });
+});
+
+export const POST = withTiming("POST /api/requests", async (req: Request) => {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
@@ -43,72 +63,90 @@ export async function POST(req: Request) {
     );
   }
 
-  const warehouseClerk = await prisma.user.findFirst({ where: { role: "WAREHOUSE_CLERK", isActive: true } });
-  if (!warehouseClerk) {
-    return NextResponse.json({ error: "Идэвхтэй нярав тохируулагдаагүй байна" }, { status: 400 });
-  }
+  // Stage 4's branch (ENGINEERING for a FACTORY department, OPERATIONS_DIRECTOR
+  // for an OFFICE one) is resolved from the department's own classification —
+  // there is no requester-chosen route field anymore.
+  const branchPosition = department.type === "FACTORY" ? "ENGINEERING_CHIEF" : "OPERATIONS_DIRECTOR";
+  const [branchAssignment, financeAssignment, executiveAssignment, storekeeperAssignment, accountantAssignment] =
+    await Promise.all([
+      prisma.approvalRoleAssignment.findFirst({ where: { role: branchPosition, isActive: true } }),
+      prisma.approvalRoleAssignment.findFirst({ where: { role: "FINANCE_DIRECTOR", isActive: true } }),
+      prisma.approvalRoleAssignment.findFirst({ where: { role: "EXECUTIVE_DIRECTOR", isActive: true } }),
+      prisma.approvalRoleAssignment.findFirst({ where: { role: "STOREKEEPER_LEAD", isActive: true } }),
+      prisma.approvalRoleAssignment.findFirst({ where: { role: "CHIEF_ACCOUNTANT_LEAD", isActive: true } }),
+    ]);
 
-  const routeApproverRole = input.route === "FACTORY" ? "FACTORY_APPROVER" : "OFFICE_APPROVER";
-  const routeApproverAssignment = await prisma.approvalRoleAssignment.findFirst({
-    where: { role: routeApproverRole, isActive: true },
-  });
-  const directorAssignment = await prisma.approvalRoleAssignment.findFirst({
-    where: { role: "DIRECTOR", isActive: true },
-  });
-  if (!routeApproverAssignment || !directorAssignment) {
+  if (!branchAssignment || !financeAssignment || !executiveAssignment || !storekeeperAssignment || !accountantAssignment) {
     return NextResponse.json(
-      { error: "Баталгаажуулах эрхийн хуваарилалт бүрэн бус байна. Тохиргоо хуудаснаас шалгана уу." },
+      { error: "Баталгаажуулах албан тушаалын хуваарилалт бүрэн бус байна. Админ хуудаснаас шалгана уу." },
       { status: 400 }
     );
   }
 
- 
+  const requestedMaterialIds = [...new Set(input.items.map((item) => item.materialId).filter((id): id is string => !!id))];
+  const materials = requestedMaterialIds.length
+    ? await prisma.material.findMany({
+        where: { id: { in: requestedMaterialIds } },
+        include: { inventoryBalances: true },
+      })
+    : [];
+  const materialsById = new Map(materials.map((m) => [m.id, m]));
+
   const resolvedItems: {
     materialId: string | null;
     manualMaterialName: string | null;
     unit: string;
     requestedQuantity: Prisma.Decimal;
     warehouseBalanceAtRequest: Prisma.Decimal | null;
-    unitPrice: Prisma.Decimal;
-    totalPrice: Prisma.Decimal;
+    unitPrice: Prisma.Decimal | null;
+    totalPrice: Prisma.Decimal | null;
     note: string | undefined;
   }[] = [];
   for (const item of input.items) {
     let warehouseBalanceAtRequest: number | null = null;
     let materialId: string | null = null;
+    let materialNameAtRequest = item.materialName;
 
     if (item.materialId) {
-      const material = await prisma.material.findUnique({
-        where: { id: item.materialId },
-        include: { inventoryBalances: true },
-      });
+      const material = materialsById.get(item.materialId);
       if (!material) {
         return NextResponse.json({ error: `Материал олдсонгүй: ${item.materialName}` }, { status: 400 });
       }
       materialId = material.id;
+      materialNameAtRequest = material.name;
       warehouseBalanceAtRequest = material.inventoryBalances.reduce((s, b) => s + Number(b.quantityOnHand), 0);
     }
 
+    // unitPrice is optional: a request can be submitted with no price and
+    // priced in later by MANAGER. null/undefined stays null end to end
+    // (never coerced to 0) so "no price yet" and "price is 0" stay
+    // distinguishable in the database and in the document hash.
+    const hasPrice = item.unitPrice !== null && item.unitPrice !== undefined;
     resolvedItems.push({
       materialId,
-      manualMaterialName: materialId ? null : item.materialName,
+      // Snapshot the name as it was at the moment of ordering -- a later
+      // rename of the catalog material must never retroactively change
+      // what an old request appears to have been for.
+      manualMaterialName: materialNameAtRequest,
       unit: item.unit,
       requestedQuantity: new Prisma.Decimal(item.requestedQuantity),
       warehouseBalanceAtRequest:
         warehouseBalanceAtRequest === null ? null : new Prisma.Decimal(warehouseBalanceAtRequest),
-      unitPrice: new Prisma.Decimal(item.unitPrice),
-      totalPrice: new Prisma.Decimal(item.requestedQuantity * item.unitPrice),
+      unitPrice: hasPrice ? new Prisma.Decimal(item.unitPrice as number) : null,
+      totalPrice: hasPrice ? new Prisma.Decimal(item.requestedQuantity * (item.unitPrice as number)) : null,
       note: item.note,
     });
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    const count = await prisma.materialRequest.count({ where: { year: REQUEST_YEAR } });
-    const sequence = START_SEQUENCE + count;
-    const requestNumber = `${REQUEST_YEAR}-${sequence}`;
-
     try {
       const created = await prisma.$transaction(async (tx) => {
+
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`material-request-seq:${REQUEST_YEAR}`}))`;
+        const count = await tx.materialRequest.count({ where: { year: REQUEST_YEAR } });
+        const sequence = START_SEQUENCE + count;
+        const requestNumber = `${REQUEST_YEAR}-${sequence}`;
+
         const request = await tx.materialRequest.create({
           data: {
             requestNumber,
@@ -116,7 +154,6 @@ export async function POST(req: Request) {
             sequence,
             departmentId: input.departmentId,
             requestedById: session.user.id,
-            route: input.route,
             status: "PENDING_DEPARTMENT_APPROVAL",
             note: input.note,
             submittedAt: new Date(),
@@ -124,14 +161,11 @@ export async function POST(req: Request) {
             approvalSteps: {
               create: [
                 { type: "DEPARTMENT_HEAD", sequence: 1, status: "PENDING", assignedUserId: department.headId },
-                { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: warehouseClerk.id },
-                {
-                  type: "ROUTE_APPROVAL",
-                  sequence: 3,
-                  status: "PENDING",
-                  assignedUserId: routeApproverAssignment.userId,
-                },
-                { type: "DIRECTOR_APPROVAL", sequence: 4, status: "PENDING", assignedUserId: directorAssignment.userId },
+                { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: storekeeperAssignment.userId },
+                { type: "BRANCH_APPROVAL", sequence: 3, status: "PENDING", assignedUserId: branchAssignment.userId },
+                { type: "FINANCE_APPROVAL", sequence: 4, status: "PENDING", assignedUserId: financeAssignment.userId },
+                { type: "EXECUTIVE_APPROVAL", sequence: 5, status: "PENDING", assignedUserId: executiveAssignment.userId },
+                { type: "ACCOUNTING_RECORD", sequence: 6, status: "PENDING", assignedUserId: accountantAssignment.userId },
               ],
             },
           },
@@ -160,14 +194,17 @@ export async function POST(req: Request) {
         return request;
       });
 
+      emitBroadcast({ type: "request-changed" });
+      emitUserEvent(department.headId!, { type: "notification" });
+
       return NextResponse.json(serializeRequest(created), { status: 201 });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        continue; // requestNumber collision — retry with a fresh count
+        continue;
       }
       throw err;
     }
   }
 
   return NextResponse.json({ error: "Захиалгын дугаар үүсгэхэд алдаа гарлаа" }, { status: 500 });
-}
+});

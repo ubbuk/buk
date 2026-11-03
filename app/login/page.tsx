@@ -6,14 +6,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Factory, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
+import StrokeText from "@/components/ui/StrokeText";
 
 const DEMO_ACCOUNTS = [
   { email: "tumurbaatar@ubbuk.mn", label: "Ажилтан — Б.Төмөрбаатар" },
   { email: "bold@ubbuk.mn", label: "Цехийн дарга — Ц.Болд (Бетон цех)" },
   { email: "sarnai@ubbuk.mn", label: "Нярав — Г.Сарнай" },
-  { email: "narmandakh@ubbuk.mn", label: "Үйлдвэрийн баталгаажуулагч — Б.Нармандах" },
-  { email: "khuntsengel@ubbuk.mn", label: "Оффисын баталгаажуулагч — Н.Хүнцэнгэл" },
-  { email: "magomed@ubbuk.mn", label: "Захирал — Хамхоев Магомед" },
+  { email: "narmandakh@ubbuk.mn", label: "Ерөнхий инженер — Б.Нармандах" },
+  { email: "khuntsengel@ubbuk.mn", label: "Үйл ажиллагаа эрхэлсэн захирал — Н.Хүнцэнгэл" },
+  { email: "magomed@ubbuk.mn", label: "Санхүү эрхэлсэн захирал — Хамхоев Магомед" },
+  { email: "ganbold@ubbuk.mn", label: "Гүйцэтгэх захирал — Ганболд" },
+  { email: "nomintuya@ubbuk.mn", label: "Ерөнхий нягтлан бодогч — Номинтуяа" },
 ];
 
 const DEMO_PASSWORD = "ubbuk2026";
@@ -63,7 +66,19 @@ function LoginForm() {
           <div className="flex size-12 items-center justify-center rounded-xl bg-accent/15 text-accent">
             <Factory className="size-6" />
           </div>
-          <h1 className="text-lg font-semibold text-text">УБ БҮК ХК</h1>
+          <StrokeText
+            text="УБ БҮК ХК"
+            trigger="mount"
+            fillMode="wipe"
+            wipeFrom="left"
+            strokeColor="#F59E0B"
+            fontSize={32}
+            fontWeight={700}
+            letterSpacing={-0.5}
+            drawDuration={1.1}
+            fillDelay={0.1}
+            className="max-w-[220px]"
+          />
           <p className="text-sm text-text-muted">Худалдан авалтын систем рүү нэвтрэх</p>
         </div>
 

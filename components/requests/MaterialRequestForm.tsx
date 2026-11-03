@@ -16,14 +16,24 @@ import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
-import { DEMO_DEPARTMENTS } from "@/lib/mock-session";
 import { useRequestStore } from "@/lib/store";
-import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, formatFileSize, formatNumber } from "@/lib/utils";
 import { validateItem, type FieldErrors } from "@/lib/validation";
-import type { MaterialCatalogEntry } from "@/lib/types";
+import {
+  ALLOWED_ATTACHMENT_EXTENSIONS,
+  ALLOWED_ATTACHMENT_MIME_TYPES,
+  MAX_ATTACHMENTS_PER_REQUEST,
+  MAX_ATTACHMENT_SIZE_BYTES,
+} from "@/lib/attachment-rules";
+import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
 import { MaterialCombobox } from "./MaterialCombobox";
+
+interface DepartmentOption {
+  id: string;
+  name: string;
+  type: "OFFICE" | "FACTORY";
+}
 
 interface Row {
   id: string;
@@ -55,8 +65,8 @@ export function MaterialRequestForm() {
   const { push } = useToast();
   const { data: session } = useSession();
   const searchParams = useSearchParams();
-  const [departmentId, setDepartmentId] = useState(DEMO_DEPARTMENTS[0].id);
-  const [route, setRoute] = useState<"OFFICE" | "FACTORY">(DEMO_DEPARTMENTS[0].type);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [departmentId, setDepartmentId] = useState("");
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [urgent, setUrgent] = useState(false);
@@ -65,14 +75,50 @@ export function MaterialRequestForm() {
   const [dirty, setDirty] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [materials, setMaterials] = useState<MaterialCatalogEntry[]>([]);
-  const [submitted, setSubmitted] = useState<{ id: string; requestNumber: string; nextApprover: string } | null>(
-    null
-  );
+  const [submitted, setSubmitted] = useState<{
+    id: string;
+    requestNumber: string;
+    nextApprover: string;
+    attachmentWarning?: string;
+  } | null>(null);
   const createRequest = useRequestStore((s) => s.createRequest);
+  const resubmitDepartment = useRequestStore((s) => s.resubmitDepartment);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const restoredRef = useRef(false);
   const draftFoundRef = useRef(false);
   const prefilledRef = useRef(false);
+
+  const editRequestId = searchParams.get("editRequestId");
+  const isEditMode = !!editRequestId;
+  const [editRequest, setEditRequest] = useState<MaterialRequestView | null>(null);
+  const editHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (!editRequestId) return;
+    fetch(`/api/requests/${editRequestId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: MaterialRequestView | null) => {
+        if (!data) return;
+        setEditRequest(data);
+        if (editHydratedRef.current) return;
+        editHydratedRef.current = true;
+        setDepartmentId(data.departmentId);
+        setNote(data.note ?? "");
+        setRows(
+          data.items.map((item) => ({
+            id: crypto.randomUUID(),
+            materialId: item.materialId,
+            materialName: item.materialName,
+            warehouseBalance: item.warehouseBalance,
+            unit: item.unit,
+            requestedQuantity: item.requestedQuantity,
+            unitPrice: item.unitPrice ?? "",
+            note: item.note ?? "",
+          }))
+        );
+      })
+      .catch(() => setEditRequest(null));
+  }, [editRequestId]);
 
   useEffect(() => {
     fetch("/api/materials")
@@ -82,16 +128,19 @@ export function MaterialRequestForm() {
   }, []);
 
   useEffect(() => {
-    if (session?.user?.departmentId) setDepartmentId(session.user.departmentId);
-  }, [session]);
+    fetch("/api/departments")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: DepartmentOption[]) => setDepartments(data))
+      .catch(() => setDepartments([]));
+  }, []);
 
   useEffect(() => {
-    const dept = DEMO_DEPARTMENTS.find((d) => d.id === departmentId);
-    if (dept) setRoute(dept.type);
-  }, [departmentId]);
+    if (departmentId || departments.length === 0) return;
+    setDepartmentId(session?.user?.departmentId || departments[0].id);
+  }, [departments, session, departmentId]);
 
   useEffect(() => {
-    if (restoredRef.current) return;
+    if (restoredRef.current || isEditMode) return;
     restoredRef.current = true;
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
@@ -99,7 +148,6 @@ export function MaterialRequestForm() {
         const draft = JSON.parse(raw);
         if (draft.rows?.length) setRows(draft.rows);
         if (draft.departmentId) setDepartmentId(draft.departmentId);
-        if (draft.route) setRoute(draft.route);
         if (draft.note) setNote(draft.note);
         draftFoundRef.current = true;
         push({ kind: "info", title: "Хадгалсан ноорог сэргээгдлээ" });
@@ -118,7 +166,7 @@ export function MaterialRequestForm() {
   // Prefilling a material (from the dashboard's "Яаралтай захиалга" button)
   // needs the real catalog loaded first, so this waits on `materials`.
   useEffect(() => {
-    if (prefilledRef.current || draftFoundRef.current || materials.length === 0) return;
+    if (prefilledRef.current || draftFoundRef.current || materials.length === 0 || isEditMode) return;
     prefilledRef.current = true;
     const materialId = searchParams.get("material");
     if (!materialId) return;
@@ -135,7 +183,7 @@ export function MaterialRequestForm() {
         },
       ]);
     }
-  }, [materials, searchParams]);
+  }, [materials, searchParams, isEditMode]);
 
   useEffect(() => {
     if (!dirty || submitted) return;
@@ -182,23 +230,71 @@ export function MaterialRequestForm() {
     });
   }
 
-  const total = useMemo(
-    () =>
-      rows.reduce((sum, r) => {
-        const qty = typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0;
-        const price = typeof r.unitPrice === "number" ? r.unitPrice : 0;
-        return sum + qty * price;
-      }, 0),
-    [rows]
-  );
+  // null (not 0) whenever any row has no price yet — the real total is
+  // unknown until every row is priced, not zero for the missing rows.
+  const total = useMemo<number | null>(() => {
+    if (rows.some((r) => typeof r.unitPrice !== "number")) return null;
+    return rows.reduce((sum, r) => {
+      const qty = typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0;
+      return sum + qty * (r.unitPrice as number);
+    }, 0);
+  }, [rows]);
 
   function saveDraft() {
     localStorage.setItem(
       DRAFT_KEY,
-      JSON.stringify({ rows, departmentId, route, note, savedAt: new Date().toISOString() })
+      JSON.stringify({ rows, departmentId, note, savedAt: new Date().toISOString() })
     );
     setDirty(false);
     push({ kind: "success", title: "Ноорог хадгалагдлаа", description: "Та дараа нэвтрэхдээ үргэлжлүүлэх боломжтой" });
+  }
+
+  function onFilesSelected(selected: File[]) {
+    const existingCount = (isEditMode ? editRequest?.attachments.length ?? 0 : 0) + attachments.length;
+    const accepted: File[] = [];
+    for (const file of selected) {
+      if (existingCount + accepted.length >= MAX_ATTACHMENTS_PER_REQUEST) {
+        push({
+          kind: "error",
+          title: "Хэт олон файл",
+          description: `Нэг захиалгад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргах боломжтой`,
+        });
+        break;
+      }
+      if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(file.type as (typeof ALLOWED_ATTACHMENT_MIME_TYPES)[number])) {
+        push({ kind: "error", title: "Дэмжигдэхгүй файлын төрөл", description: `${file.name} — JPG, PNG, WEBP, PDF, XLSX, DOCX файл дэмжинэ` });
+        continue;
+      }
+      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+        push({ kind: "error", title: "Файл хэт том байна", description: `${file.name} — 10 MB-с ихгүй байх ёстой` });
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (accepted.length > 0) {
+      setAttachments((prev) => [...prev, ...accepted]);
+      markDirty();
+    }
+  }
+
+  // Uploaded only after the request itself is successfully created/resubmitted
+  // -- a failed upload never loses the already-saved request data, it just
+  // returns a warning the success screen surfaces so the user knows to
+  // retry from the request's detail page.
+  async function uploadAttachments(requestId: string): Promise<string | null> {
+    if (attachments.length === 0) return null;
+    const formData = new FormData();
+    for (const file of attachments) formData.append("files", file);
+    try {
+      const res = await fetch(`/api/requests/${requestId}/attachments`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return body.error || "Файл хавсаргахад алдаа гарлаа";
+      }
+      return null;
+    } catch {
+      return "Файл хавсаргахад алдаа гарлаа. Сүлжээгээ шалгаад Дэлгэрэнгүй хуудаснаас дахин оролдоно уу";
+    }
   }
 
   function validateAll(): boolean {
@@ -212,7 +308,10 @@ export function MaterialRequestForm() {
         warehouseBalance: row.warehouseBalance,
         unit: row.unit,
         requestedQuantity: typeof row.requestedQuantity === "number" ? row.requestedQuantity : NaN,
-        unitPrice: typeof row.unitPrice === "number" ? row.unitPrice : NaN,
+        // An empty price field means "not entered" (valid) -- only an
+        // actually-typed invalid value (e.g. negative) should fail
+        // validation, so this passes null rather than NaN.
+        unitPrice: typeof row.unitPrice === "number" ? row.unitPrice : null,
         note: row.note,
       });
       if (Object.keys(errs).length > 0) {
@@ -236,31 +335,59 @@ export function MaterialRequestForm() {
 
     setSubmitting(true);
     try {
+      if (isEditMode && editRequest) {
+        await resubmitDepartment(
+          editRequest.id,
+          session.user.name,
+          editRequest.version,
+          rows.map((r) => ({
+            materialId: r.materialId,
+            materialName: r.materialName,
+            unit: r.unit,
+            requestedQuantity: typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0,
+            unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : null,
+            warehouseBalance: r.warehouseBalance,
+            note: r.note || undefined,
+          })),
+          note || undefined
+        );
+        const attachmentWarning = await uploadAttachments(editRequest.id);
+        setDirty(false);
+        setSubmitted({
+          id: editRequest.id,
+          requestNumber: editRequest.requestNumber,
+          nextApprover: editRequest.approvalSteps.find((s) => s.type === "DEPARTMENT_HEAD")?.assignedUserName ?? "—",
+          attachmentWarning: attachmentWarning ?? undefined,
+        });
+        return;
+      }
+
       const newRequest = await createRequest({
         departmentId,
-        route,
         requestedBy: session.user.name,
         items: rows.map((r) => ({
           materialId: r.materialId,
           materialName: r.materialName,
           unit: r.unit,
           requestedQuantity: typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0,
-          unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : 0,
+          unitPrice: typeof r.unitPrice === "number" ? r.unitPrice : null,
           warehouseBalance: r.warehouseBalance,
           note: r.note || undefined,
         })),
       });
+      const attachmentWarning = await uploadAttachments(newRequest.id);
       localStorage.removeItem(DRAFT_KEY);
       setDirty(false);
       setSubmitted({
         id: newRequest.id,
         requestNumber: newRequest.requestNumber,
         nextApprover: newRequest.approvalSteps[0].assignedUserName,
+        attachmentWarning: attachmentWarning ?? undefined,
       });
     } catch (err) {
       push({
         kind: "error",
-        title: "Захиалга илгээхэд алдаа гарлаа",
+        title: isEditMode ? "Дахин илгээхэд алдаа гарлаа" : "Захиалга илгээхэд алдаа гарлаа",
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -270,7 +397,7 @@ export function MaterialRequestForm() {
 
   function resetForm() {
     setRows([emptyRow()]);
-    setDepartmentId(session?.user?.departmentId || DEMO_DEPARTMENTS[0].id);
+    setDepartmentId(session?.user?.departmentId || departments[0]?.id || "");
     setNote("");
     setUrgent(false);
     setAttachments([]);
@@ -287,7 +414,9 @@ export function MaterialRequestForm() {
             <CheckCircle2 className="size-7" />
           </div>
           <div>
-            <p className="text-lg font-semibold text-text">Захиалга амжилттай илгээгдлээ</p>
+            <p className="text-lg font-semibold text-text">
+              {isEditMode ? "Захиалгыг амжилттай дахин илгээлээ" : "Захиалга амжилттай илгээгдлээ"}
+            </p>
             <p className="mt-1 text-sm text-text-muted">
               Захиалгын дугаар <span className="font-medium text-text">№{submitted.requestNumber}</span>
             </p>
@@ -296,6 +425,11 @@ export function MaterialRequestForm() {
             <p className="text-text-muted">Дараагийн баталгаажуулагч</p>
             <p className="mt-0.5 font-medium text-text">{submitted.nextApprover}</p>
           </div>
+          {submitted.attachmentWarning && (
+            <div className="w-full rounded-lg border border-warning/30 bg-warning/10 p-3 text-left text-xs text-warning">
+              Захиалга хадгалагдсан боловч файл хавсаргахад алдаа гарлаа: {submitted.attachmentWarning}. Дэлгэрэнгүй хуудаснаас дахин оролдоно уу.
+            </div>
+          )}
           <div className="flex gap-2">
             <Button variant="secondary" onClick={resetForm}>
               Шинэ захиалга үүсгэх
@@ -314,76 +448,26 @@ export function MaterialRequestForm() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <CardTitle>Маягт №1 — Материалын захиалгын хуудас</CardTitle>
+            <CardTitle>{isEditMode ? "Захиалгыг засварлаж дахин илгээх" : "Маягт №1 — Материалын захиалгын хуудас"}</CardTitle>
             {urgent && (
               <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger">
                 Яаралтай
               </span>
             )}
-            <DemoDataBadge />
           </div>
           <span className="text-xs text-text-muted">
             Огноо: <span suppressHydrationWarning>{formatDate(new Date())}</span>
           </span>
         </CardHeader>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Цех, тасгийн нэр">
-            <select
-              value={departmentId}
-              onChange={(e) => {
-                setDepartmentId(e.target.value);
-                markDirty();
-              }}
-              className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
-            >
-              {DEMO_DEPARTMENTS.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Захиалга үүсгэсэн ажилтан">
-            <input
-              disabled
-              value={session?.user?.name ?? "Ачааллаж байна..."}
-              className="h-9 w-full rounded-lg border border-border bg-bg-elevated/50 px-3 text-sm text-text-muted"
-            />
-          </Field>
-
-          <Field label="Захиалгын чиглэл">
-            <div className="flex h-9 items-center gap-1 rounded-lg border border-border bg-bg-elevated p-1">
-              {(["FACTORY", "OFFICE"] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    setRoute(r);
-                    markDirty();
-                  }}
-                  className={cn(
-                    "focus-ring h-full flex-1 rounded-md text-xs font-medium transition-colors",
-                    route === r ? "bg-accent text-bg" : "text-text-muted hover:text-text"
-                  )}
-                >
-                  {r === "FACTORY" ? "Үйлдвэр" : "Оффис"}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Тайлбар (заавал биш)">
-            <input
-              value={note}
-              onChange={(e) => {
-                setNote(e.target.value);
-                markDirty();
-              }}
-              placeholder="Нэмэлт тайлбар..."
-              className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted"
-            />
-          </Field>
+        <CardBody>
+          <div className="max-w-xs">
+            <Field label="Захиалгын чиглэл">
+              <div className="flex h-9 items-center rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text-muted">
+                {departments.find((d) => d.id === departmentId)?.type === "OFFICE" ? "Оффис" : "Үйлдвэр"}
+                <span className="ml-1.5 text-xs text-text-muted/70">(цехийн ангиллаар автоматаар тодорхойлогдоно)</span>
+              </div>
+            </Field>
+          </div>
         </CardBody>
       </Card>
 
@@ -396,31 +480,31 @@ export function MaterialRequestForm() {
           </Button>
         </CardHeader>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] border-collapse text-sm">
+          <table className="w-full min-w-[1080px] border-collapse text-base">
             <thead>
-              <tr className="border-b border-border text-left text-xs text-text-muted">
-                <th className="w-10 px-4 py-2.5 font-medium">№</th>
-                <th className="min-w-[220px] px-3 py-2.5 font-medium">Захиалах сэлбэг, материалын нэр</th>
-                <th className="w-28 px-3 py-2.5 font-medium">Агуулахын үлдэгдэл</th>
-                <th className="w-20 px-3 py-2.5 font-medium">Хэмжих нэгж</th>
-                <th className="w-24 px-3 py-2.5 font-medium">Тоо</th>
-                <th className="w-28 px-3 py-2.5 font-medium">Нэгж үнэ</th>
-                <th className="w-28 px-3 py-2.5 font-medium">Бүгд үнэ</th>
-                <th className="min-w-[140px] px-3 py-2.5 font-medium">Тайлбар</th>
-                <th className="w-10 px-3 py-2.5" />
+              <tr className="border-b border-border text-left text-sm text-text-muted">
+                <th className="w-12 px-4 py-3.5 font-medium">№</th>
+                <th className="min-w-[360px] px-3 py-3.5 text-base font-semibold text-text">Захиалах сэлбэг, материалын нэр</th>
+                <th className="w-32 px-3 py-3.5 font-medium">Агуулахын үлдэгдэл</th>
+                <th className="w-24 px-3 py-3.5 font-medium">Хэмжих нэгж</th>
+                <th className="w-28 px-3 py-3.5 font-medium">Тоо</th>
+                <th className="w-32 px-3 py-3.5 font-medium">Нэгж үнэ</th>
+                <th className="w-32 px-3 py-3.5 font-medium">Бүгд үнэ</th>
+                <th className="min-w-[160px] px-3 py-3.5 font-medium">Тайлбар</th>
+                <th className="w-10 px-3 py-3.5" />
               </tr>
             </thead>
             <tbody>
               {rows.map((row, idx) => {
                 const rowErrors = errors[row.id] ?? {};
                 const qty = typeof row.requestedQuantity === "number" ? row.requestedQuantity : 0;
-                const price = typeof row.unitPrice === "number" ? row.unitPrice : 0;
+                const price = typeof row.unitPrice === "number" ? row.unitPrice : null;
                 const shortfall =
                   row.warehouseBalance !== null && qty > row.warehouseBalance;
                 return (
                   <tr key={row.id} className="border-b border-border/60 align-top last:border-0">
-                    <td className="px-4 py-3 text-text-muted">{idx + 1}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-4 text-text-muted">{idx + 1}</td>
+                    <td className="px-3 py-4">
                       <MaterialCombobox
                         value={row.materialName}
                         materials={materials}
@@ -431,7 +515,7 @@ export function MaterialRequestForm() {
                       />
                       {rowErrors.materialName && <FieldError>{rowErrors.materialName}</FieldError>}
                     </td>
-                    <td className="px-3 py-3 text-text-muted">
+                    <td className="px-3 py-4 text-text-muted">
                       {row.warehouseBalance !== null ? (
                         <span className={shortfall ? "font-medium text-warning" : ""}>
                           {formatNumber(row.warehouseBalance)}
@@ -440,16 +524,16 @@ export function MaterialRequestForm() {
                         <span className="text-text-muted/60">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <input
                         value={row.unit}
                         onChange={(e) => updateRow(row.id, { unit: e.target.value })}
                         placeholder="тн, м³..."
-                        className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-2 text-sm text-text placeholder:text-text-muted"
+                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text placeholder:text-text-muted"
                       />
                       {rowErrors.unit && <FieldError>{rowErrors.unit}</FieldError>}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <input
                         type="number"
                         min={0}
@@ -460,39 +544,42 @@ export function MaterialRequestForm() {
                             requestedQuantity: e.target.value === "" ? "" : Number(e.target.value),
                           })
                         }
-                        className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-2 text-sm text-text"
+                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text"
                       />
                       {rowErrors.requestedQuantity && <FieldError>{rowErrors.requestedQuantity}</FieldError>}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <input
                         type="number"
                         min={0}
                         step="any"
                         value={row.unitPrice}
+                        placeholder="Заавал биш"
                         onChange={(e) =>
                           updateRow(row.id, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })
                         }
-                        className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-2 text-sm text-text"
+                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text placeholder:text-text-muted"
                       />
                       {rowErrors.unitPrice && <FieldError>{rowErrors.unitPrice}</FieldError>}
                     </td>
-                    <td className="px-3 py-3 font-medium text-text">{formatCurrency(qty * price)}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4 font-medium text-text">
+                      {formatCurrency(price === null ? null : qty * price)}
+                    </td>
+                    <td className="px-3 py-4">
                       <input
                         value={row.note}
                         onChange={(e) => updateRow(row.id, { note: e.target.value })}
-                        className="focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-2 text-sm text-text"
+                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text"
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-4">
                       <button
                         type="button"
                         onClick={() => removeRow(row.id)}
                         disabled={rows.length === 1}
                         className="focus-ring rounded text-text-muted hover:text-danger disabled:opacity-30"
                       >
-                        <Trash2 className="size-4" />
+                        <Trash2 className="size-5" />
                       </button>
                     </td>
                   </tr>
@@ -501,10 +588,10 @@ export function MaterialRequestForm() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={6} className="px-3 py-3 text-right text-sm font-medium text-text-muted">
+                <td colSpan={6} className="px-3 py-4 text-right text-base font-medium text-text-muted">
                   Нийт дүн
                 </td>
-                <td colSpan={3} className="px-3 py-3 text-base font-semibold text-text">
+                <td colSpan={3} className="px-3 py-4 text-lg font-semibold text-text">
                   {formatCurrency(total)}
                 </td>
               </tr>
@@ -515,18 +602,42 @@ export function MaterialRequestForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Хавсралт</CardTitle>
+          <CardTitle>Хавсралт (заавал биш)</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
+          <p className="text-xs text-text-muted">
+            JPG, PNG, WEBP, PDF, XLSX, DOCX · файл тус бүр 10 MB хүртэл · нэг захиалгад {MAX_ATTACHMENTS_PER_REQUEST} файл хүртэл
+          </p>
+
+          {isEditMode && editRequest && editRequest.attachments.length > 0 && (
+            <ul className="space-y-1.5">
+              {editRequest.attachments.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs"
+                >
+                  <a
+                    href={`/api/requests/${editRequest.id}/attachments/${a.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="focus-ring truncate text-text underline decoration-dotted hover:text-accent"
+                  >
+                    {a.fileName}
+                  </a>
+                  <span className="shrink-0 text-text-muted">{formatFileSize(a.sizeBytes)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
             multiple
+            accept={ALLOWED_ATTACHMENT_EXTENSIONS}
             className="hidden"
             onChange={(e) => {
-              const files = Array.from(e.target.files ?? []);
-              setAttachments((prev) => [...prev, ...files]);
-              markDirty();
+              onFilesSelected(Array.from(e.target.files ?? []));
               e.target.value = "";
             }}
           />
@@ -541,7 +652,9 @@ export function MaterialRequestForm() {
                   key={`${f.name}-${i}`}
                   className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs"
                 >
-                  <span className="truncate text-text">{f.name}</span>
+                  <span className="truncate text-text">
+                    {f.name} <span className="text-text-muted">({formatFileSize(f.size)})</span>
+                  </span>
                   <button
                     onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
                     className="focus-ring text-text-muted hover:text-danger"
@@ -561,13 +674,15 @@ export function MaterialRequestForm() {
           Илгээхийн өмнө бүх мөрийг шалгана уу. Илгээсний дараа цехийн дарга баталгаажуулна.
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={saveDraft}>
-            <Save className="size-4" />
-            Ноорог хадгалах
-          </Button>
+          {!isEditMode && (
+            <Button variant="secondary" onClick={saveDraft}>
+              <Save className="size-4" />
+              Ноорог хадгалах
+            </Button>
+          )}
           <Button onClick={submit} loading={submitting} disabled={submitting}>
             <Send className="size-4" />
-            Илгээх
+            {isEditMode ? "Дахин илгээх" : "Илгээх"}
           </Button>
         </div>
       </div>

@@ -9,14 +9,14 @@ datasource db {
 }
 
 enum UserRole {
-  EMPLOYEE
-  DEPARTMENT_HEAD
-  WAREHOUSE_CLERK
-  PROCUREMENT_OFFICER
-  OFFICE_APPROVER
-  FACTORY_APPROVER
-  DIRECTOR
   ADMIN
+  DIRECTOR
+  BOSS
+  MANAGER
+  STOREKEEPER
+  EMPLOYEE
+  ENGINEERING
+  CHIEF_ACCOUNTANT
 }
 
 enum DepartmentType {
@@ -24,10 +24,17 @@ enum DepartmentType {
   FACTORY
 }
 
-enum ApprovalRole {
-  OFFICE_APPROVER
-  FACTORY_APPROVER
-  DIRECTOR
+// Admin-managed singleton positions. Each value has at most one isActive
+// holder at a time (old holder soft-ended via endedAt on reassignment) --
+// this is how we resolve "who is currently the Chief Engineer / Finance
+// Director / etc" without hardcoding a single user id anywhere.
+enum ApprovalPosition {
+  ENGINEERING_CHIEF
+  OPERATIONS_DIRECTOR
+  FINANCE_DIRECTOR
+  EXECUTIVE_DIRECTOR
+  STOREKEEPER_LEAD
+  CHIEF_ACCOUNTANT_LEAD
 }
 
 model User {
@@ -36,10 +43,12 @@ model User {
   name          String
   passwordHash  String
   role          UserRole @default(EMPLOYEE)
+  title         String?
   departmentId  String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
 
   department          Department?          @relation("DepartmentMembers", fields: [departmentId], references: [id])
   headOfDepartments    Department[]        @relation("DepartmentHead")
@@ -49,14 +58,26 @@ model User {
   approvalStepsDecided  ApprovalStep[]      @relation("ApprovalStepDecider")
   warehouseChecks       WarehouseCheck[]
   stockIssues            StockIssue[]
-  goodsReceipts          GoodsReceipt[]
-  purchaseOrdersCreated  PurchaseOrder[]
+  accountingRecords       AccountingRecord[]
   notifications           Notification[]
   auditLogs               AuditLog[]
   approvalAssignments     ApprovalRoleAssignment[]
   attachments             Attachment[]
+  approvalPinCredential   ApprovalPinCredential?
 
   @@index([departmentId])
+}
+
+model ApprovalPinCredential {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  pinHash        String
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Department {
@@ -74,11 +95,11 @@ model Department {
 
 
 model ApprovalRoleAssignment {
-  id        String       @id @default(cuid())
-  role      ApprovalRole
+  id        String           @id @default(cuid())
+  role      ApprovalPosition
   userId    String
-  isActive  Boolean      @default(true)
-  startedAt DateTime     @default(now())
+  isActive  Boolean          @default(true)
+  startedAt DateTime         @default(now())
   endedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id])
@@ -131,21 +152,19 @@ model InventoryBalance {
 
 
 
-enum RequestRoute {
-  OFFICE
-  FACTORY
-}
-
 enum RequestStatus {
   DRAFT
   PENDING_DEPARTMENT_APPROVAL
   RETURNED_BY_DEPARTMENT
   PENDING_WAREHOUSE_CHECK
-  PENDING_ROUTE_APPROVAL
-  RETURNED_BY_ROUTE_APPROVER
-  PENDING_DIRECTOR_APPROVAL
-  RETURNED_BY_DIRECTOR
-  FULFILLMENT_IN_PROGRESS
+  PENDING_BRANCH_APPROVAL
+  RETURNED_BY_BRANCH_APPROVER
+  PENDING_FINANCE_APPROVAL
+  RETURNED_BY_FINANCE
+  PENDING_EXECUTIVE_APPROVAL
+  RETURNED_BY_EXECUTIVE
+  PENDING_ACCOUNTING
+  ACCOUNTING_COMPLETED
   PARTIALLY_COMPLETED
   COMPLETED
   CANCELLED
@@ -153,12 +172,11 @@ enum RequestStatus {
 
 model MaterialRequest {
   id            String        @id @default(cuid())
-  requestNumber String        @unique 
+  requestNumber String        @unique
   year          Int
   sequence      Int
   departmentId  String
   requestedById String
-  route         RequestRoute
   status        RequestStatus @default(DRAFT)
   note          String?
 
@@ -180,10 +198,13 @@ model MaterialRequest {
   warehouseChecks  WarehouseCheck[]
   attachments      Attachment[]
   notifications    Notification[]
+  accountingRecord AccountingRecord?
 
   @@index([departmentId])
   @@index([requestedById])
   @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 model MaterialRequestItem {
@@ -191,19 +212,18 @@ model MaterialRequestItem {
   requestId         String
   lineNo            Int
   materialId        String?
-  manualMaterialName String? 
+  manualMaterialName String?
   unit              String
   requestedQuantity Decimal @db.Decimal(14, 3)
-  warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3) 
-  unitPrice         Decimal @db.Decimal(14, 2)
-  totalPrice        Decimal @db.Decimal(14, 2)
+  warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3)
+  unitPrice         Decimal? @db.Decimal(14, 2)
+  totalPrice        Decimal? @db.Decimal(14, 2)
   note              String?
 
   request            MaterialRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
   material           Material?            @relation(fields: [materialId], references: [id])
   warehouseCheckItems WarehouseCheckItem[]
   reservations        StockReservation[]
-  purchaseRequirement  PurchaseRequirement?
 
   @@unique([requestId, lineNo])
   @@index([materialId])
@@ -229,8 +249,8 @@ model WarehouseCheckItem {
   warehouseCheckId   String
   requestItemId      String
   availableQuantity  Decimal @db.Decimal(14, 3)
-  allocatedQuantity  Decimal @db.Decimal(14, 3) 
-  missingQuantity    Decimal @db.Decimal(14, 3) 
+  allocatedQuantity  Decimal @db.Decimal(14, 3)
+  missingQuantity    Decimal @db.Decimal(14, 3)
 
   warehouseCheck WarehouseCheck       @relation(fields: [warehouseCheckId], references: [id], onDelete: Cascade)
   requestItem    MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
@@ -274,90 +294,13 @@ model StockIssue {
 
 
 
-enum PurchaseRequirementStatus {
-  PENDING_ROUTE_APPROVAL
-  PENDING_DIRECTOR_APPROVAL
-  APPROVED
-  REJECTED
-  IN_PROCUREMENT
-  FULFILLED
-  CANCELLED
-}
-
-model PurchaseRequirement {
-  id            String                    @id @default(cuid())
-  requestItemId String                    @unique
-  quantity      Decimal                   @db.Decimal(14, 3)
-  status        PurchaseRequirementStatus @default(PENDING_ROUTE_APPROVAL)
-
-  routeApprovedById String?
-  routeApprovedAt   DateTime?
-  directorApprovedById String?
-  directorApprovedAt   DateTime?
-  rejectionReason      String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  requestItem        MaterialRequestItem @relation(fields: [requestItemId], references: [id])
-  purchaseOrderItems  PurchaseOrderItem[]
-}
-
-enum PurchaseOrderStatus {
-  DRAFT
-  ORDERED
-  PARTIALLY_RECEIVED
-  RECEIVED
-  CANCELLED
-}
-
-model PurchaseOrder {
-  id                   String              @id @default(cuid())
-  orderNumber          String              @unique
-  supplierName         String
-  status               PurchaseOrderStatus @default(DRAFT)
-  createdById          String
-  createdAt            DateTime            @default(now())
-  expectedDeliveryDate DateTime?
-
-  createdBy User                @relation(fields: [createdById], references: [id])
-  items     PurchaseOrderItem[]
-}
-
-model PurchaseOrderItem {
-  id                    String  @id @default(cuid())
-  purchaseOrderId       String
-  purchaseRequirementId String
-  quantity              Decimal @db.Decimal(14, 3)
-  estimatedPrice        Decimal @db.Decimal(14, 2)
-  actualPrice           Decimal? @db.Decimal(14, 2)
-
-  purchaseOrder       PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
-  purchaseRequirement PurchaseRequirement  @relation(fields: [purchaseRequirementId], references: [id])
-  goodsReceipts        GoodsReceipt[]
-
-  @@index([purchaseOrderId])
-}
-
-model GoodsReceipt {
-  id                  String   @id @default(cuid())
-  purchaseOrderItemId String
-  receivedQuantity    Decimal  @db.Decimal(14, 3)
-  receivedById         String
-  receivedAt           DateTime @default(now())
-  note                 String?
-
-  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
-  receivedBy         User              @relation(fields: [receivedById], references: [id])
-}
-
-
-
 enum ApprovalStepType {
   DEPARTMENT_HEAD
   WAREHOUSE_CHECK
-  ROUTE_APPROVAL
-  DIRECTOR_APPROVAL
+  BRANCH_APPROVAL
+  FINANCE_APPROVAL
+  EXECUTIVE_APPROVAL
+  ACCOUNTING_RECORD
 }
 
 enum ApprovalStepStatus {
@@ -373,7 +316,7 @@ model ApprovalStep {
   type       ApprovalStepType
   sequence   Int
   status     ApprovalStepStatus @default(PENDING)
-  assignedUserId String?       
+  assignedUserId String?
   decidedById    String?
   decidedAt      DateTime?
   comment        String?
@@ -409,11 +352,27 @@ model ApprovalAction {
   @@index([approvalStepId])
 }
 
+// Stage 7 output -- Chief Accountant's financial record of a fully
+// approved request. Terminal: this is a data-entry action, not an
+// approve/reject decision, so it carries no ApprovalAction row.
+model AccountingRecord {
+  id           String   @id @default(cuid())
+  requestId    String   @unique
+  ledgerNumber String
+  recordDate   DateTime
+  note         String?
+  recordedById String
+  recordedAt   DateTime @default(now())
+
+  request    MaterialRequest @relation(fields: [requestId], references: [id])
+  recordedBy User            @relation(fields: [recordedById], references: [id])
+}
+
 model Attachment {
   id           String   @id @default(cuid())
   requestId    String
   fileName     String
-  fileUrl      String
+  storageKey   String
   mimeType     String
   sizeBytes    Int
   uploadedById String
@@ -430,8 +389,6 @@ enum NotificationType {
   REQUEST_RETURNED
   REQUEST_APPROVED
   WAREHOUSE_CHECK_NEEDED
-  PURCHASE_REQUIREMENT_READY
-  GOODS_RECEIVED
   REQUEST_COMPLETED
   GENERIC
 }
@@ -461,9 +418,18 @@ enum AuditAction {
   RETURN
   RESERVE_STOCK
   ISSUE_STOCK
-  CREATE_PURCHASE_ORDER
-  RECEIVE_GOODS
+  ACCOUNTING_RECORD
   CANCEL
+  PIN_SETUP
+  PIN_FAILURE
+  PIN_LOCKOUT
+  RESUBMIT
+  CREATE_USER
+  UPDATE_USER
+  RESET_CREDENTIALS
+  CHANGE_PASSWORD
+  UPDATE_PRICE
+  ATTACHMENT_UPLOAD
 }
 
 model AuditLog {

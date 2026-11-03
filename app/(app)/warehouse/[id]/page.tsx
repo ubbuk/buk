@@ -2,27 +2,32 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { CheckCircle2, PackageCheck } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { DemoDataBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { AllocationBar } from "@/components/workflow/AllocationBar";
+import { PinModal } from "@/components/workflow/PinModal";
 import { useRequestStore } from "@/lib/store";
-import { DEMO_APPROVERS } from "@/lib/mock-session";
+import { USER_ROLE_LABEL } from "@/lib/types";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 
 export default function WarehouseCheckPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { push } = useToast();
+  const { data: session } = useSession();
   const requests = useRequestStore((s) => s.requests);
-  const submitWarehouseCheck = useRequestStore((s) => s.submitWarehouseCheck);
+  const warehouseCheck = useRequestStore((s) => s.warehouseCheck);
   const request = requests.find((r) => r.id === params.id);
   const [available, setAvailable] = useState<Record<string, number>>(() =>
     Object.fromEntries((request?.items ?? []).map((i) => [i.id, i.warehouseBalance ?? 0]))
   );
   const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   if (!request) return null;
 
@@ -30,30 +35,44 @@ export default function WarehouseCheckPage() {
     (item) => Math.min(available[item.id] ?? 0, item.requestedQuantity) < item.requestedQuantity
   );
 
-  function confirmCheck() {
-    submitWarehouseCheck(request!.id, available, DEMO_APPROVERS.WAREHOUSE_CLERK);
-    setConfirmed(true);
-    push({
-      kind: "success",
-      title: "Агуулахын шалгалт баталгаажлаа",
-      description: hasMissing
-        ? "Дутуу материал худалдан авалтын баталгаажуулах дараагийн шатанд шилжлээ"
-        : "Бүх материал бэлэн байгаа тул захиалга дуусгавар боллоо",
-    });
+  async function confirmCheck(pin: string) {
+    setSubmitting(true);
+    setPinError(null);
+    try {
+      await warehouseCheck(
+        request!.id,
+        request!.items.map((item) => ({ requestItemId: item.id, availableQuantity: available[item.id] ?? 0 })),
+        session?.user?.name ?? "Нярав",
+        pin,
+        request!.version
+      );
+      setConfirmed(true);
+      setPinOpen(false);
+      push({
+        kind: "success",
+        title: "Агуулахын шалгалт баталгаажлаа",
+        description: hasMissing
+          ? "Дутуу материал худалдан авалтын баталгаажуулах дараагийн шатанд шилжлээ"
+          : "Бүх материал бэлэн байгаа тул захиалга дуусгавар боллоо",
+      });
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : "Баталгаажуулж чадсангүй");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">№{request.requestNumber} — Агуулахын шалгалт</h2>
-        <DemoDataBadge />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Тоо хэмжээ баталгаажуулах</CardTitle>
           <span className="text-xs text-text-muted">
-            Шалгаж буй: {DEMO_APPROVERS.WAREHOUSE_CLERK} ·{" "}
+            Шалгаж буй: {session?.user?.name ?? "—"} ·{" "}
             <span suppressHydrationWarning>{formatDateTime(new Date())}</span>
           </span>
         </CardHeader>
@@ -109,12 +128,27 @@ export default function WarehouseCheckPage() {
             Баталгаажсан — Жагсаалт руу буцах
           </Button>
         ) : (
-          <Button onClick={confirmCheck}>
+          <Button
+            onClick={() => {
+              setPinError(null);
+              setPinOpen(true);
+            }}
+          >
             <CheckCircle2 className="size-4" />
             Шалгалт баталгаажуулах
           </Button>
         )}
       </div>
+
+      <PinModal
+        open={pinOpen}
+        onClose={() => setPinOpen(false)}
+        onConfirm={confirmCheck}
+        approverName={session?.user?.name ?? "—"}
+        approverRole={USER_ROLE_LABEL[session?.user?.role ?? ""] ?? "Нярав"}
+        processing={submitting}
+        error={pinError}
+      />
     </div>
   );
 }

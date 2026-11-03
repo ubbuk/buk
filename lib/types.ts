@@ -1,20 +1,22 @@
 // Shared view-model types for the procurement UI. These mirror the Prisma
-// enums in prisma/schema.prisma so Phase 2 screens can be built against a
-// stable shape before the API layer (Phase 3) replaces the mock data in
-// lib/mock-data.ts with real fetches.
+// enums in prisma/schema.prisma so screens can be built against a stable
+// shape, matching what the API layer actually serializes.
 
-export type RequestRoute = "OFFICE" | "FACTORY";
+export type DepartmentType = "OFFICE" | "FACTORY";
 
 export type RequestStatus =
   | "DRAFT"
   | "PENDING_DEPARTMENT_APPROVAL"
   | "RETURNED_BY_DEPARTMENT"
   | "PENDING_WAREHOUSE_CHECK"
-  | "PENDING_ROUTE_APPROVAL"
-  | "RETURNED_BY_ROUTE_APPROVER"
-  | "PENDING_DIRECTOR_APPROVAL"
-  | "RETURNED_BY_DIRECTOR"
-  | "FULFILLMENT_IN_PROGRESS"
+  | "PENDING_BRANCH_APPROVAL"
+  | "RETURNED_BY_BRANCH_APPROVER"
+  | "PENDING_FINANCE_APPROVAL"
+  | "RETURNED_BY_FINANCE"
+  | "PENDING_EXECUTIVE_APPROVAL"
+  | "RETURNED_BY_EXECUTIVE"
+  | "PENDING_ACCOUNTING"
+  | "ACCOUNTING_COMPLETED"
   | "PARTIALLY_COMPLETED"
   | "COMPLETED"
   | "CANCELLED";
@@ -24,11 +26,14 @@ export const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
   PENDING_DEPARTMENT_APPROVAL: "Цехийн даргын баталгаа хүлээж байна",
   RETURNED_BY_DEPARTMENT: "Цехийн дарга буцаасан",
   PENDING_WAREHOUSE_CHECK: "Агуулахын шалгалт хүлээж байна",
-  PENDING_ROUTE_APPROVAL: "Хариуцсан удирдлагын баталгаа хүлээж байна",
-  RETURNED_BY_ROUTE_APPROVER: "Удирдлага буцаасан",
-  PENDING_DIRECTOR_APPROVAL: "Захирлын баталгаа хүлээж байна",
-  RETURNED_BY_DIRECTOR: "Захирал буцаасан",
-  FULFILLMENT_IN_PROGRESS: "Гүйцэтгэл хийгдэж байна",
+  PENDING_BRANCH_APPROVAL: "Инженер/Үйл ажиллагааны захирлын баталгаа хүлээж байна",
+  RETURNED_BY_BRANCH_APPROVER: "Инженер/Үйл ажиллагааны захирал буцаасан",
+  PENDING_FINANCE_APPROVAL: "Санхүү эрхэлсэн захирлын баталгаа хүлээж байна",
+  RETURNED_BY_FINANCE: "Санхүү эрхэлсэн захирал буцаасан",
+  PENDING_EXECUTIVE_APPROVAL: "Гүйцэтгэх захирлын баталгаа хүлээж байна",
+  RETURNED_BY_EXECUTIVE: "Гүйцэтгэх захирал буцаасан",
+  PENDING_ACCOUNTING: "Санхүүгийн бүртгэл хүлээж байна",
+  ACCOUNTING_COMPLETED: "Санхүүгийн бүртгэл хийгдсэн",
   PARTIALLY_COMPLETED: "Хэсэгчлэн дууссан",
   COMPLETED: "Дууссан",
   CANCELLED: "Цуцалсан",
@@ -42,11 +47,14 @@ export const REQUEST_STATUS_TONE: Record<
   PENDING_DEPARTMENT_APPROVAL: "accent",
   RETURNED_BY_DEPARTMENT: "danger",
   PENDING_WAREHOUSE_CHECK: "accent",
-  PENDING_ROUTE_APPROVAL: "accent",
-  RETURNED_BY_ROUTE_APPROVER: "danger",
-  PENDING_DIRECTOR_APPROVAL: "accent",
-  RETURNED_BY_DIRECTOR: "danger",
-  FULFILLMENT_IN_PROGRESS: "warning",
+  PENDING_BRANCH_APPROVAL: "accent",
+  RETURNED_BY_BRANCH_APPROVER: "danger",
+  PENDING_FINANCE_APPROVAL: "accent",
+  RETURNED_BY_FINANCE: "danger",
+  PENDING_EXECUTIVE_APPROVAL: "accent",
+  RETURNED_BY_EXECUTIVE: "danger",
+  PENDING_ACCOUNTING: "warning",
+  ACCOUNTING_COMPLETED: "success",
   PARTIALLY_COMPLETED: "warning",
   COMPLETED: "success",
   CANCELLED: "neutral",
@@ -55,14 +63,18 @@ export const REQUEST_STATUS_TONE: Record<
 export type ApprovalStepType =
   | "DEPARTMENT_HEAD"
   | "WAREHOUSE_CHECK"
-  | "ROUTE_APPROVAL"
-  | "DIRECTOR_APPROVAL";
+  | "BRANCH_APPROVAL"
+  | "FINANCE_APPROVAL"
+  | "EXECUTIVE_APPROVAL"
+  | "ACCOUNTING_RECORD";
 
 export const APPROVAL_STEP_LABEL: Record<ApprovalStepType, string> = {
   DEPARTMENT_HEAD: "Цехийн дарга",
   WAREHOUSE_CHECK: "Нярав",
-  ROUTE_APPROVAL: "Үйлдвэр/Оффис",
-  DIRECTOR_APPROVAL: "Захирал",
+  BRANCH_APPROVAL: "Инженер / Үйл ажиллагаа эрхэлсэн захирал",
+  FINANCE_APPROVAL: "Санхүү эрхэлсэн захирал",
+  EXECUTIVE_APPROVAL: "Гүйцэтгэх захирал",
+  ACCOUNTING_RECORD: "Ерөнхий нягтлан бодогч",
 };
 
 export type ApprovalStepStatus = "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED";
@@ -70,23 +82,44 @@ export type ApprovalStepStatus = "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED"
 export interface MaterialRequestItemView {
   id: string;
   lineNo: number;
+  materialId: string | null;
   materialName: string;
   warehouseBalance: number | null;
   unit: string;
   requestedQuantity: number;
-  unitPrice: number;
-  totalPrice: number;
+  unitPrice: number | null;
+  totalPrice: number | null;
   note?: string;
   allocatedQuantity?: number;
   missingQuantity?: number;
 }
 
+export interface AttachmentView {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedById: string;
+}
+
 export interface ApprovalStepView {
   type: ApprovalStepType;
   status: ApprovalStepStatus;
+  assignedUserId: string | null;
   assignedUserName: string;
   decidedAt?: string;
   comment?: string;
+  decidedByRole?: string;
+  documentHash?: string;
+}
+
+export interface AccountingRecordView {
+  ledgerNumber: string;
+  recordDate: string;
+  note?: string;
+  recordedByName: string;
+  recordedAt: string;
 }
 
 export interface MaterialRequestView {
@@ -95,39 +128,104 @@ export interface MaterialRequestView {
   createdAt: string;
   completedAt?: string;
   department: string;
+  departmentId: string;
+  departmentType: DepartmentType;
+  requestedById: string;
   requestedBy: string;
-  route: RequestRoute;
   status: RequestStatus;
-  totalAmount: number;
+  version: number;
+  note?: string;
+  // null when at least one item has no price yet — the real total is
+  // indeterminate, not zero, until every item is priced.
+  totalAmount: number | null;
   itemCount: number;
   items: MaterialRequestItemView[];
   approvalSteps: ApprovalStepView[];
+  attachments: AttachmentView[];
+  accountingRecord?: AccountingRecordView;
 }
 
+// The closed 8-role list from the spec. `as const` so this doubles as a
+// zod `z.enum(USER_ROLES)` tuple wherever role input is validated.
+export const USER_ROLES = [
+  "ADMIN",
+  "DIRECTOR",
+  "BOSS",
+  "MANAGER",
+  "STOREKEEPER",
+  "EMPLOYEE",
+  "ENGINEERING",
+  "CHIEF_ACCOUNTANT",
+] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
+
+// Role names are displayed in English Title Case everywhere (spec: "all
+// labels Mongolian except role names") — every other surrounding label
+// stays Mongolian.
 export const USER_ROLE_LABEL: Record<string, string> = {
-  EMPLOYEE: "Ажилтан",
-  DEPARTMENT_HEAD: "Цехийн дарга",
-  WAREHOUSE_CLERK: "Нярав",
-  PROCUREMENT_OFFICER: "Худалдан авалтын ажилтан",
-  OFFICE_APPROVER: "Оффисын баталгаажуулагч",
-  FACTORY_APPROVER: "Үйлдвэрийн баталгаажуулагч",
-  DIRECTOR: "Захирал",
-  ADMIN: "Админ",
+  ADMIN: "Admin",
+  DIRECTOR: "Director",
+  BOSS: "Boss",
+  MANAGER: "Manager",
+  STOREKEEPER: "Storekeeper",
+  EMPLOYEE: "Employee",
+  ENGINEERING: "Engineering",
+  CHIEF_ACCOUNTANT: "Chief Accountant",
 };
 
-export const PURCHASE_STATUS_LABEL: Record<string, string> = {
-  PENDING_ROUTE_APPROVAL: "Удирдлагын баталгаа хүлээж байна",
-  PENDING_DIRECTOR_APPROVAL: "Захирлын баталгаа хүлээж байна",
-  APPROVED: "Баталсан",
-  IN_PROCUREMENT: "Худалдан авалтад",
-  FULFILLED: "Хүлээн авсан",
-};
+// Roles that can hold an approval step (PIN-gated stages: department/boss,
+// warehouse-check, branch, finance, executive). CHIEF_ACCOUNTANT holds the
+// terminal recording step but it is NOT PIN-gated (data entry, not a
+// decision) — see lib/pin.ts call sites. MANAGER has no approve/return
+// authority at all.
+export const APPROVER_ROLES: UserRole[] = ["BOSS", "STOREKEEPER", "DIRECTOR", "ENGINEERING", "CHIEF_ACCOUNTANT"];
 
-export const RECEIVING_STATUS_LABEL: Record<string, string> = {
-  NOT_ORDERED: "Захиалаагүй",
-  ORDERED: "Захиалсан",
-  PARTIALLY_RECEIVED: "Хэсэгчлэн ирсэн",
-  RECEIVED: "Бүрэн ирсэн",
+// Mongolian permission bullets shown in the admin UI when a role is
+// selected (spec §9: "show a permission summary when ADMIN selects a role").
+export const ROLE_PERMISSION_SUMMARY: Record<UserRole, string[]> = {
+  ADMIN: [
+    "Хэрэглэгч үүсгэх, засах",
+    "Эрх (role), албан тушаал, цех/тасаг хуваарилах",
+    "Бүртгэл идэвхжүүлэх/түдгэлзүүлэх, нэвтрэх мэдээлэл/PIN шинэчлэх",
+    "Баталгаажуулах албан тушаалын хуваарилалт удирдах",
+    "Системийн audit log харах",
+  ],
+  EMPLOYEE: [
+    "Материалын хэрэгцээний хүсэлт үүсгэх",
+    "Материал нэмэх, тоо хэмжээ, (сайн дурын) үнэ оруулах",
+    "Хүсэлтээ илгээх, өөрийн хүсэлтүүдийг харах",
+    "Буцаагдсан хүсэлтээ засаж дахин илгээх",
+  ],
+  DIRECTOR: [
+    "Хуваарилагдсан албан тушаалын шатанд ирсэн хүсэлтийг хянах",
+    "Батлах (PIN код шаардлагатай) эсвэл шалтгаантай буцаах",
+    "Баталгаажуулалтын түүх харах",
+  ],
+  BOSS: [
+    "Цехийн хүсэлтийг хянах, батлах (PIN код шаардлагатай) эсвэл буцаах",
+    "Буцаахдаа шалтгаан бичих шаардлагатай",
+    "Өөрийн цехийн нэрээр хүсэлт үүсгэх боломжтой",
+  ],
+  MANAGER: [
+    "Хуваарилагдсан хүсэлтийн материалын мэдээллийг хянах",
+    "Санал болгох үнийг оруулах/засах (audit trail-д хадгалагдана)",
+    "Эцсийн баталгаа эсвэл буцаах эрхгүй",
+  ],
+  STOREKEEPER: [
+    "Агуулахын үлдэгдэл харах",
+    "Материал бүрэн/хэсэгчлэн/огт байхгүйг тогтоох (PIN код шаардлагатай)",
+    "Олгосон тоо хэмжээг бүртгэх, дутууг дараагийн шат руу шилжүүлэх",
+  ],
+  ENGINEERING: [
+    "Үйлдвэрийн (FACTORY) чиглэлийн хүсэлтийг хянах",
+    "Батлах (PIN код шаардлагатай) эсвэл шалтгаантай буцаах",
+  ],
+  CHIEF_ACCOUNTANT: [
+    "Эцсийн баталгаажсан хүсэлтийг хүлээн авах",
+    "Санхүүгийн бүртгэлийн дугаар, огноо, тайлбар оруулах",
+    "Батлахгүй, татгалзахгүй — зөвхөн бүртгэл хийж шилжүүлнэ",
+  ],
 };
 
 export interface MaterialCatalogEntry {

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
-import { DemoDataBadge, StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -63,7 +63,6 @@ export default function WarehousePage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">Агуулахын шалгалт</h2>
-        <DemoDataBadge />
       </div>
 
       <Card>

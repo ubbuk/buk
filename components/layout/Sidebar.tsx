@@ -4,35 +4,42 @@ import { cn } from "@/lib/utils";
 import {
   Archive,
   BarChart3,
-  Boxes,
   ChevronsLeft,
   ClipboardCheck,
   FilePlus2,
-  LayoutDashboard,
   ListChecks,
+  Receipt,
   Settings,
-  ShoppingCart,
+  ShieldCheck,
   Factory,
+  Warehouse,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { useRequestStore } from "@/lib/store";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Хяналтын самбар", icon: LayoutDashboard },
   { href: "/requests/new", label: "Шинэ захиалга", icon: FilePlus2 },
   { href: "/requests", label: "Миний захиалгууд", icon: ListChecks },
   { href: "/approvals", label: "Батлах хүсэлтүүд", icon: ClipboardCheck, badgeKey: "approvals" },
-  { href: "/warehouse", label: "Агуулахын шалгалт", icon: Boxes, badgeKey: "warehouse" },
-  { href: "/procurement", label: "Худалдан авалт", icon: ShoppingCart },
+  { href: "/warehouses", label: "Агуулахын жагсаалт", icon: Warehouse },
   { href: "/archive", label: "Захиалгын архив", icon: Archive },
   { href: "/reports", label: "Тайлан", icon: BarChart3 },
   { href: "/settings", label: "Тохиргоо", icon: Settings },
 ] as const;
 
+const ACCOUNTING_NAV_ITEM = { href: "/accounting", label: "Санхүүгийн бүртгэл", icon: Receipt, badgeKey: "accounting" } as const;
+const ADMIN_NAV_ITEM = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck } as const;
+
+// EMPLOYEE only creates/tracks their own requests -- no approvals, archive, or
+// reports to see, so their sidebar is trimmed to just these.
+const EMPLOYEE_NAV_HREFS = new Set(["/requests/new", "/requests", "/warehouses", "/settings"]);
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const requests = useRequestStore((s) => s.requests);
 
@@ -40,8 +47,14 @@ export function Sidebar() {
     approvals: requests.filter(
       (r) => r.approvalSteps.some((s) => s.status === "PENDING" && s.type !== "WAREHOUSE_CHECK")
     ).length,
-    warehouse: requests.filter((r) => r.status === "PENDING_WAREHOUSE_CHECK").length,
+    accounting: requests.filter((r) => r.status === "PENDING_ACCOUNTING").length,
   };
+
+  const role = session?.user?.role;
+  let navItems: readonly { href: string; label: string; icon: typeof FilePlus2; badgeKey?: string }[] =
+    role === "EMPLOYEE" ? NAV_ITEMS.filter((item) => EMPLOYEE_NAV_HREFS.has(item.href)) : NAV_ITEMS;
+  if (role === "CHIEF_ACCOUNTANT" || role === "ADMIN") navItems = [...navItems, ACCOUNTING_NAV_ITEM];
+  if (role === "ADMIN") navItems = [...navItems, ADMIN_NAV_ITEM];
 
   return (
     <aside
@@ -57,16 +70,15 @@ export function Sidebar() {
         {!collapsed && (
           <div className="min-w-0 animate-fade-in">
             <p className="truncate text-sm font-semibold text-text">УБ БҮК ХК</p>
-            <p className="truncate text-[11px] text-text-muted">Худалдан авалтын систем</p>
           </div>
         )}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href));
+        {navItems.map((item) => {
+          const active = pathname === item.href || pathname?.startsWith(item.href);
           const Icon = item.icon;
-          const badge = "badgeKey" in item ? badgeCounts[item.badgeKey] : 0;
+          const badge = item.badgeKey ? badgeCounts[item.badgeKey] : 0;
           return (
             <Link
               key={item.href}

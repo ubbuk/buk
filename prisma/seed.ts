@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
@@ -26,23 +26,26 @@ async function main() {
 
   // --- Users ---------------------------------------------------------------
   const userDefs = [
-    { id: "u-tumurbaatar", email: "tumurbaatar@ubbuk.mn", name: "Б.Төмөрбаатар", role: "EMPLOYEE" as const, departmentId: "d-concrete" },
-    { id: "u-bold", email: "bold@ubbuk.mn", name: "Ц.Болд", role: "DEPARTMENT_HEAD" as const, departmentId: "d-concrete" },
-    { id: "u-purev", email: "purev@ubbuk.mn", name: "Д.Пүрэв", role: "DEPARTMENT_HEAD" as const, departmentId: "d-metal" },
-    { id: "u-erdene", email: "erdene@ubbuk.mn", name: "Н.Эрдэнэ", role: "DEPARTMENT_HEAD" as const, departmentId: "d-mechanic" },
-    { id: "u-munkhzul", email: "munkhzul@ubbuk.mn", name: "О.Мөнхзул", role: "DEPARTMENT_HEAD" as const, departmentId: "d-finance" },
-    { id: "u-ariunaa", email: "ariunaa@ubbuk.mn", name: "Б.Ариунаа", role: "DEPARTMENT_HEAD" as const, departmentId: "d-admin" },
-    { id: "u-sarnai", email: "sarnai@ubbuk.mn", name: "Г.Сарнай", role: "WAREHOUSE_CLERK" as const, departmentId: null },
-    { id: "u-khuntsengel", email: "khuntsengel@ubbuk.mn", name: "Н.Хүнцэнгэл", role: "OFFICE_APPROVER" as const, departmentId: null },
-    { id: "u-narmandakh", email: "narmandakh@ubbuk.mn", name: "Б.Нармандах", role: "FACTORY_APPROVER" as const, departmentId: null },
-    { id: "u-magomed", email: "magomed@ubbuk.mn", name: "Хамхоев Магомед", role: "DIRECTOR" as const, departmentId: null },
-    { id: "u-procurement", email: "procurement@ubbuk.mn", name: "О.Пүрэвсүрэн", role: "PROCUREMENT_OFFICER" as const, departmentId: null },
+    { id: "u-tumurbaatar", email: "tumurbaatar@ubbuk.mn", name: "Б.Төмөрбаатар", role: "EMPLOYEE" as const, title: "Ажилтан", departmentId: "d-concrete" },
+    { id: "u-bold", email: "bold@ubbuk.mn", name: "Ц.Болд", role: "BOSS" as const, title: "Цехийн дарга", departmentId: "d-concrete" },
+    { id: "u-purev", email: "purev@ubbuk.mn", name: "Д.Пүрэв", role: "BOSS" as const, title: "Цехийн дарга", departmentId: "d-metal" },
+    { id: "u-erdene", email: "erdene@ubbuk.mn", name: "Н.Эрдэнэ", role: "BOSS" as const, title: "Цехийн дарга", departmentId: "d-mechanic" },
+    { id: "u-munkhzul", email: "munkhzul@ubbuk.mn", name: "О.Мөнхзул", role: "BOSS" as const, title: "Цехийн дарга", departmentId: "d-finance" },
+    { id: "u-ariunaa", email: "ariunaa@ubbuk.mn", name: "Б.Ариунаа", role: "BOSS" as const, title: "Цехийн дарга", departmentId: "d-admin" },
+    { id: "u-sarnai", email: "sarnai@ubbuk.mn", name: "Г.Сарнай", role: "STOREKEEPER" as const, title: "Нярав", departmentId: null },
+    { id: "u-narmandakh", email: "narmandakh@ubbuk.mn", name: "Б.Нармандах", role: "ENGINEERING" as const, title: "Ерөнхий инженер", departmentId: null },
+    { id: "u-khuntsengel", email: "khuntsengel@ubbuk.mn", name: "Н.Хүнцэнгэл", role: "DIRECTOR" as const, title: "Үйл ажиллагаа эрхэлсэн захирал", departmentId: null },
+    { id: "u-magomed", email: "magomed@ubbuk.mn", name: "Хамхоев Магомед", role: "DIRECTOR" as const, title: "Санхүү эрхэлсэн захирал", departmentId: null },
+    { id: "u-ganbold", email: "ganbold@ubbuk.mn", name: "Ганболд", role: "DIRECTOR" as const, title: "Гүйцэтгэх захирал", departmentId: null },
+    { id: "u-admin", email: "admin@ubbuk.mn", name: "Системийн админ", role: "ADMIN" as const, title: "Системийн админ", departmentId: null },
+    { id: "u-tuvshin", email: "tuvshin@ubbuk.mn", name: "Ц.Түвшин", role: "MANAGER" as const, title: "Нийлүүлэлтийн менежер", departmentId: null },
+    { id: "u-bayarmaa", email: "nomintuya@ubbuk.mn", name: "Номинтуяа", role: "CHIEF_ACCOUNTANT" as const, title: "Ерөнхий нягтлан бодогч", departmentId: null },
   ];
   for (const u of userDefs) {
     await prisma.user.upsert({
       where: { id: u.id },
-      update: { email: u.email, name: u.name, role: u.role, departmentId: u.departmentId, passwordHash },
-      create: { id: u.id, email: u.email, name: u.name, role: u.role, departmentId: u.departmentId, passwordHash },
+      update: { email: u.email, name: u.name, role: u.role, title: u.title, departmentId: u.departmentId, passwordHash },
+      create: { id: u.id, email: u.email, name: u.name, role: u.role, title: u.title, departmentId: u.departmentId, passwordHash },
     });
   }
 
@@ -53,13 +56,19 @@ async function main() {
   await prisma.department.update({ where: { id: "d-finance" }, data: { headId: "u-munkhzul" } });
   await prisma.department.update({ where: { id: "d-admin" }, data: { headId: "u-ariunaa" } });
 
-  // --- Org-wide approval role assignments ----------------------------------
-  const approvalRoles: { role: "OFFICE_APPROVER" | "FACTORY_APPROVER" | "DIRECTOR"; userId: string }[] = [
-    { role: "OFFICE_APPROVER", userId: "u-khuntsengel" },
-    { role: "FACTORY_APPROVER", userId: "u-narmandakh" },
-    { role: "DIRECTOR", userId: "u-magomed" },
+  // --- Org-wide approval position assignments ------------------------------
+  const approvalPositions: {
+    role: "ENGINEERING_CHIEF" | "OPERATIONS_DIRECTOR" | "FINANCE_DIRECTOR" | "EXECUTIVE_DIRECTOR" | "STOREKEEPER_LEAD" | "CHIEF_ACCOUNTANT_LEAD";
+    userId: string;
+  }[] = [
+    { role: "ENGINEERING_CHIEF", userId: "u-narmandakh" },
+    { role: "OPERATIONS_DIRECTOR", userId: "u-khuntsengel" },
+    { role: "FINANCE_DIRECTOR", userId: "u-magomed" },
+    { role: "EXECUTIVE_DIRECTOR", userId: "u-ganbold" },
+    { role: "STOREKEEPER_LEAD", userId: "u-sarnai" },
+    { role: "CHIEF_ACCOUNTANT_LEAD", userId: "u-bayarmaa" },
   ];
-  for (const a of approvalRoles) {
+  for (const a of approvalPositions) {
     const existing = await prisma.approvalRoleAssignment.findFirst({ where: { role: a.role, isActive: true } });
     if (!existing) {
       await prisma.approvalRoleAssignment.create({ data: { role: a.role, userId: a.userId, isActive: true } });
