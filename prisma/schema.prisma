@@ -350,6 +350,7 @@ model ApprovalAction {
   actor        User         @relation(fields: [actorId], references: [id])
 
   @@index([approvalStepId])
+  @@index([createdAt])
 }
 
 // Stage 7 output -- Chief Accountant's financial record of a fully
@@ -430,6 +431,8 @@ enum AuditAction {
   CHANGE_PASSWORD
   UPDATE_PRICE
   ATTACHMENT_UPLOAD
+  VIEW_MONITORING
+  MONITORING_ACCESS_DENIED
 }
 
 model AuditLog {
@@ -447,4 +450,9 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([actorId])
+  // Monitoring (/admin/monitoring): time-ordered activity feed, filtered feed,
+  // and the per-request "last status transition" lookup.
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId, createdAt])
 }

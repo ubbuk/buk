@@ -1,6 +1,7 @@
 import {
   Archive,
   BarChart3,
+  Activity,
   ClipboardCheck,
   FilePlus2,
   ListChecks,
@@ -34,6 +35,8 @@ export const ACCOUNTING_NAV_ITEM: NavItem = {
   icon: Receipt,
   badgeKey: "accounting",
 };
+// ADMIN and DIRECTOR (server-enforced again in /api/admin/monitoring and the page itself).
+export const MONITORING_NAV_ITEM: NavItem = { href: "/admin/monitoring", label: "Хяналт, мониторинг", icon: Activity };
 export const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck };
 
 // EMPLOYEE only creates/tracks their own requests -- no approvals, archive, or
@@ -44,6 +47,7 @@ export function resolveNavItems(role: string | undefined): NavItem[] {
   let items: NavItem[] = role === "EMPLOYEE" ? NAV_ITEMS.filter((item) => EMPLOYEE_NAV_HREFS.has(item.href)) : [...NAV_ITEMS];
   if (role === "CHIEF_ACCOUNTANT" || role === "ADMIN") items = [...items, ACCOUNTING_NAV_ITEM];
   if (role === "ADMIN") items = [...items, ADMIN_NAV_ITEM];
+  if (role === "ADMIN" || role === "DIRECTOR") items = [...items, MONITORING_NAV_ITEM];
   return items;
 }
 
@@ -59,4 +63,6 @@ export const PAGE_TITLES: Record<string, string> = {
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",
   "/admin": "Хэрэглэгч, эрх",
+  "/admin/monitoring": "Хяналт, мониторинг",
+  "/admin/monitoring/time-machine": "Time Machine",
 };
