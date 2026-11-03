@@ -54,6 +54,9 @@ export async function GET(req: Request) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Tell nginx-style reverse proxies not to buffer the stream, or events
+      // would only arrive in bursts.
+      "X-Accel-Buffering": "no",
     },
   });
 }

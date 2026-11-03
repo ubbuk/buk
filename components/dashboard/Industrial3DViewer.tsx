@@ -1,15 +1,16 @@
 "use client";
 
 import { Component, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, OrbitControls, useGLTF } from "@react-three/drei";
 import { AlertTriangle, Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import * as THREE from "three";
+import { ForkliftPoster, ViewerFrame, ViewerLabel } from "./ForkliftPreview";
 
-
-const MODEL_SRC = "/models/forklift.glb";
-const MODEL_LABEL = "Electric Counterbalance Forklift";
-const MODEL_ATTRIBUTION = "CC0 — Innerscene Corp";
+// Optimized build of assets-src/models/forklift.source.glb (81 meshes -> 5 draw
+// calls, meshopt-compressed, same materials). The name carries a content hash so
+// it can be cached as immutable (see next.config.mjs); change it with the file.
+const MODEL_SRC = "/models/forklift.b35b36ab.glb";
 
 const VIEW_DIRECTION = new THREE.Vector3(0.85, 0.55, 1.15).normalize();
 
@@ -70,6 +71,18 @@ function Model({
   return <primitive object={scene} />;
 }
 useGLTF.preload(MODEL_SRC);
+
+// Fires once the model's first frame has been drawn (frameloop is "demand", so
+// useFrame only runs after Model's invalidate()).
+function FirstFrame({ onReady }: { onReady: () => void }) {
+  const done = useRef(false);
+  useFrame(() => {
+    if (done.current) return;
+    done.current = true;
+    onReady();
+  });
+  return null;
+}
 
 function Stage({ groundY, radius }: { groundY: number; radius: number }) {
   const r = radius * 1.35;
@@ -151,11 +164,23 @@ export default function Industrial3DViewer({ className = "" }: { className?: str
   const [webglOk, setWebglOk] = useState<boolean | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [{ groundY, radius }, setMeasure] = useState({ groundY: -1, radius: 2 });
+  const [ready, setReady] = useState(false);
+  const [inView, setInView] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<React.ComponentRef<typeof OrbitControls>>(null);
 
   useEffect(() => {
     setWebglOk(hasWebGL());
+  }, []);
+
+  // Stop the auto-rotate (and with it every redraw, since frameloop is "demand")
+  // while the viewer is scrolled out of view.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
   useEffect(() => {
@@ -179,10 +204,8 @@ export default function Industrial3DViewer({ className = "" }: { className?: str
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`group relative overflow-hidden rounded-2xl border border-border bg-gradient-to-b from-bg-surface via-bg-surface to-bg transition-colors hover:border-tech/40 ${className}`}
-    >
+    <ViewerFrame containerRef={containerRef} className={className}>
+      {webglOk !== false && <ForkliftPoster />}
       {webglOk === null && <LoadingState />}
 
       {webglOk === false && <ViewerFallback reason="3D харагдац энэ төхөөрөмж дээр дэмжигдэхгүй байна" />}
@@ -192,24 +215,35 @@ export default function Industrial3DViewer({ className = "" }: { className?: str
           <Suspense fallback={<LoadingState />}>
             <Canvas
               frameloop="demand"
+              className={`size-full transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`}
               dpr={[1, 1.5]}
               camera={{ position: [3.2, 1.6, 3.6], fov: 38 }}
               gl={{ antialias: true, alpha: false }}
               onCreated={({ gl }) => gl.setClearColor("#0B1118", 1)}
-              className="size-full"
             >
               <Lighting />
               <Suspense fallback={null}>
                 <Model controlsRef={controlsRef} onMeasure={setMeasure} />
                 <Stage groundY={groundY} radius={radius} />
-                <ContactShadows position={[0, groundY + 0.003, 0]} opacity={0.5} scale={radius * 2.6} blur={2.2} far={3} color="#000000" />
+                {/* The model is static: bake the contact shadow once per measurement instead of every frame. */}
+                <ContactShadows
+                  key={`${groundY}:${radius}`}
+                  frames={1}
+                  position={[0, groundY + 0.003, 0]}
+                  opacity={0.5}
+                  scale={radius * 2.6}
+                  blur={2.2}
+                  far={3}
+                  color="#000000"
+                />
+                <FirstFrame onReady={() => setReady(true)} />
               </Suspense>
               <OrbitControls
                 ref={controlsRef}
                 enablePan={false}
                 minPolarAngle={Math.PI / 6}
                 maxPolarAngle={Math.PI / 1.7}
-                autoRotate
+                autoRotate={inView}
                 autoRotateSpeed={1.2}
                 makeDefault
               />
@@ -219,9 +253,7 @@ export default function Industrial3DViewer({ className = "" }: { className?: str
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-2.5 pr-14">
-        <span className="rounded-md border border-border bg-bg/85 px-2 py-1 text-[10px] font-medium text-text-muted backdrop-blur">
-          {MODEL_LABEL} · {MODEL_ATTRIBUTION}
-        </span>
+        <ViewerLabel />
         {webglOk === true && (
           <div className="pointer-events-auto flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
             <button
@@ -241,6 +273,6 @@ export default function Industrial3DViewer({ className = "" }: { className?: str
           </div>
         )}
       </div>
-    </div>
+    </ViewerFrame>
   );
 }

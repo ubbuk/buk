@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { formatDateTime } from "@/lib/utils";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 interface AuditRow {
   id: string;
@@ -28,9 +29,11 @@ export default function AdminAuditPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const pageSize = 50;
+  const [tick, setTick] = useState(0);
+  useLiveRefresh(() => setTick((t) => t + 1));
 
   useEffect(() => {
-    setLoading(true);
+    if (tick === 0) setLoading(true);
     fetch(`/api/admin/audit-log?page=${page}`)
       .then((res) => (res.ok ? res.json() : { rows: [], total: 0 }))
       .then((data) => {
@@ -38,7 +41,7 @@ export default function AdminAuditPage() {
         setTotal(data.total);
       })
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, tick]);
 
   if (status === "authenticated" && session.user.role !== "ADMIN") {
     return <EmptyState title="Эрхгүй" description="Зөвхөн админ хэрэглэгч энэ хуудсыг харах боломжтой" />;

@@ -15,7 +15,8 @@ eventBus.setMaxListeners(0);
 // refetch from the real (authenticated, authorized) REST endpoints that
 // already exist. This is what keeps "never broadcast confidential data"
 // true by construction rather than by careful per-event filtering.
-export type LiveEvent = { type: "request-changed" | "notification" };
+// "data-changed" = reference data (users, departments, approvers) edited by an admin.
+export type LiveEvent = { type: "request-changed" | "notification" | "data-changed" };
 
 export function emitUserEvent(userId: string, event: LiveEvent) {
   eventBus.emit(`user:${userId}`, event);

@@ -13,6 +13,7 @@ import { cn, formatDateTime } from "@/lib/utils";
 import BlurText from "@/components/ui/BlurText";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { useToast } from "@/components/ui/Toast";
 
 interface SearchRequestResult {
   id: string;
@@ -73,6 +74,9 @@ export function CommandBar() {
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const { push } = useToast();
+  // Ids already shown/known; null until the first load so existing unread items don't toast on page open.
+  const seenNotificationIds = useRef<Set<string> | null>(null);
   const launcherRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -122,7 +126,17 @@ export function CommandBar() {
   async function loadNotifications() {
     try {
       const res = await fetch("/api/notifications");
-      if (res.ok) setNotifications(await res.json());
+      if (res.ok) {
+        const list: NotificationItem[] = await res.json();
+        setNotifications(list);
+        const seen = seenNotificationIds.current;
+        if (seen) {
+          for (const n of list) {
+            if (!n.isRead && !seen.has(n.id)) push({ kind: "info", title: n.title, description: n.body });
+          }
+        }
+        seenNotificationIds.current = new Set(list.map((n) => n.id));
+      }
     } catch {
       // ignore — bell just stays at its last known count
     }

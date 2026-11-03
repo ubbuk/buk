@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { generateTempPassword } from "@/lib/credentials";
+import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { USER_ROLES } from "@/lib/types";
 
@@ -72,5 +73,8 @@ export async function POST(req: Request) {
     data: { entityType: "User", entityId: user.id, action: "CREATE_USER", actorId: session.user.id },
   });
 
+  // Admin edits change what other open sessions show (user lists, department
+  // heads, approvers) -- tell them to refetch instead of waiting for a reload.
+  emitBroadcast({ type: "data-changed" });
   return NextResponse.json({ id: user.id, email: user.email, tempPassword }, { status: 201 });
 }

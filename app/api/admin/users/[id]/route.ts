@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions, userSessionCacheKey } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { invalidate } from "@/lib/cache";
 import { USER_ROLES } from "@/lib/types";
@@ -40,5 +41,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
   invalidate(userSessionCacheKey(id));
 
+  // Admin edits change what other open sessions show (user lists, department
+  // heads, approvers) -- tell them to refetch instead of waiting for a reload.
+  emitBroadcast({ type: "data-changed" });
   return NextResponse.json({ id: updated.id, role: updated.role, title: updated.title, departmentId: updated.departmentId, isActive: updated.isActive });
 }

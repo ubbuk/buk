@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 
 const APPROVAL_ROLES = [
@@ -54,5 +55,8 @@ export async function POST(req: Request) {
     });
   });
 
+  // Admin edits change what other open sessions show (user lists, department
+  // heads, approvers) -- tell them to refetch instead of waiting for a reload.
+  emitBroadcast({ type: "data-changed" });
   return NextResponse.json({ ok: true });
 }

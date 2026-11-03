@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -21,14 +21,24 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { IndustrialCommandCenter } from "@/components/dashboard/IndustrialCommandCenter";
+import { ForkliftPreview } from "@/components/dashboard/ForkliftPreview";
 import { selectKpis, useRequestStore } from "@/lib/store";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
 
 // Heavy (three.js) -- dynamically imported with no SSR, and only ever
-// *mounted* (see useIsDesktopViewport below) on desktop, so mobile never
-// downloads the chunk or the GLB model.
-const Industrial3DViewer = dynamic(() => import("@/components/dashboard/Industrial3DViewer"), { ssr: false });
+// *mounted* (see useIsDesktopViewport / useAfterFirstPaintData below) on
+// desktop, once the dashboard's own data has arrived, so mobile never downloads
+// the chunk or the GLB and desktop never competes with the KPI/table fetches.
+// While it loads, a static snapshot of the same scene holds the space.
+const loadViewer = () => import("@/components/dashboard/Industrial3DViewer");
+const Industrial3DViewer = dynamic(loadViewer, {
+  ssr: false,
+  loading: () => <ForkliftPreview className="min-h-[220px] flex-1" />,
+});
+
+const VIEWER_MOUNT_FALLBACK_MS = 3000;
 
 const LOW_STOCK_THRESHOLD = 5;
 const CRITICAL_STOCK_THRESHOLD = 2;
@@ -48,13 +58,21 @@ const TONE_CLASSES: Record<CompactKpi["tone"], string> = {
   danger: "bg-danger/15 text-danger",
 };
 
-function CompactKpiTile({ label, value, icon: Icon, tone }: CompactKpi) {
+// `value` is null while the request list is still loading: show a pulsing dash
+// rather than a misleading 0.
+function CompactKpiTile({ label, value, icon: Icon, tone }: Omit<CompactKpi, "value"> & { value: number | null }) {
   return (
     <div className="rounded-xl border border-border bg-bg-surface p-3">
       <div className={`flex size-7 items-center justify-center rounded-lg ${TONE_CLASSES[tone]}`}>
         <Icon className="size-3.5" />
       </div>
-      <p className="mt-2 text-xl font-semibold leading-none text-text">{value}</p>
+      {value === null ? (
+        <p aria-busy className="mt-2 animate-pulse text-xl font-semibold leading-none text-text-muted">
+          –
+        </p>
+      ) : (
+        <p className="mt-2 text-xl font-semibold leading-none text-text">{value}</p>
+      )}
       <p className="mt-1 truncate text-[11px] text-text-muted">{label}</p>
     </div>
   );
@@ -73,6 +91,32 @@ function useIsDesktopViewport() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
   return isDesktop;
+}
+
+// Waits until the dashboard's own data is in (or a fallback timeout fires), then
+// until the browser is idle, before letting the heavy 3D viewer mount.
+function useAfterFirstPaintData(dataReady: boolean) {
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    if (go) return;
+    let idleId: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(() => setGo(true), { timeout: 1500 });
+      } else {
+        timer = setTimeout(() => setGo(true), 200);
+      }
+    };
+    if (dataReady) start();
+    const fallback = setTimeout(() => setGo(true), VIEWER_MOUNT_FALLBACK_MS);
+    return () => {
+      clearTimeout(fallback);
+      if (timer) clearTimeout(timer);
+      if (idleId !== undefined) window.cancelIdleCallback(idleId);
+    };
+  }, [dataReady, go]);
+  return go;
 }
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
@@ -127,25 +171,61 @@ export default function DashboardPage() {
   const requests = useRequestStore((s) => s.requests);
   const loading = useRequestStore((s) => s.requestsLoading);
   const activity = useRequestStore((s) => s.activity);
-  const kpis = selectKpis(requests);
+  const kpis = useMemo(() => selectKpis(requests), [requests]);
   const [materials, setMaterials] = useState<MaterialCatalogEntry[]>([]);
+  // Stock levels change whenever a request moves; refetch them on every live signal.
+  const [materialsTick, setMaterialsTick] = useState(0);
+  useLiveRefresh(() => setMaterialsTick((t) => t + 1));
+  const mountViewer = useAfterFirstPaintData(!loading);
+
+  // Start downloading the 3D chunk (which also kicks off the GLB fetch) as soon
+  // as the browser is idle, so it is already on its way when the data arrives;
+  // only the expensive mount waits for that.
+  useEffect(() => {
+    if (!isDesktop) return;
+    const id =
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(() => void loadViewer(), { timeout: 2000 })
+        : window.setTimeout(() => void loadViewer(), 300);
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  }, [isDesktop]);
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/materials")
       .then((res) => (res.ok ? res.json() : []))
-      .then((data: MaterialCatalogEntry[]) => setMaterials(data))
-      .catch(() => setMaterials([]));
-  }, []);
+      .then((data: MaterialCatalogEntry[]) => {
+        if (!cancelled) setMaterials(data);
+      })
+      .catch(() => {
+        if (!cancelled) setMaterials([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [materialsTick]);
 
-  const lowStockAlerts = materials
-    .filter((m) => m.warehouseBalance <= LOW_STOCK_THRESHOLD)
-    .sort((a, b) => a.warehouseBalance - b.warehouseBalance);
-
-  const pendingApproval = requests.filter((r) =>
-    ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
-      r.status
-    )
+  const lowStockAlerts = useMemo(
+    () =>
+      materials
+        .filter((m) => m.warehouseBalance <= LOW_STOCK_THRESHOLD)
+        .sort((a, b) => a.warehouseBalance - b.warehouseBalance),
+    [materials]
   );
+
+  const pendingApproval = useMemo(
+    () =>
+      requests.filter((r) =>
+        ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
+          r.status
+        )
+      ),
+    [requests]
+  );
+  const kpiValue = (n: number) => (loading ? null : n);
 
   return (
     <div className="space-y-6">
@@ -156,14 +236,19 @@ export default function DashboardPage() {
           kpis={{ pendingApproval: kpis.pendingApproval, pendingAccounting: kpis.pendingAccounting }}
         />
         <div className="hidden min-w-0 flex-col gap-3 md:flex">
-          {isDesktop && <Industrial3DViewer className="min-h-[220px] flex-1" />}
+          {/* The preview is server-rendered, so the slot keeps its size from the first paint (no KPI tiles jumping down). */}
+          {isDesktop && mountViewer ? (
+            <Industrial3DViewer className="min-h-[220px] flex-1" />
+          ) : (
+            <ForkliftPreview className="min-h-[220px] flex-1" />
+          )}
           <div className="grid grid-cols-3 gap-2.5">
-            <CompactKpiTile label="Нийт захиалга" value={kpis.totalRequests} icon={ListChecks} tone="neutral" />
-            <CompactKpiTile label="Батлах хүлээлттэй" value={kpis.pendingApproval} icon={Clock} tone="accent" />
-            <CompactKpiTile label="Агуулахын шалгалт" value={kpis.warehouseCheck} icon={Boxes} tone="accent" />
-            <CompactKpiTile label="Санхүү бүртгэл хүлээгдэж буй" value={kpis.pendingAccounting} icon={Receipt} tone="warning" />
-            <CompactKpiTile label="Дууссан захиалга" value={kpis.completed} icon={CheckCircle2} tone="success" />
-            <CompactKpiTile label="Хугацаа хэтэрсэн" value={kpis.overdue} icon={AlertTriangle} tone="danger" />
+            <CompactKpiTile label="Нийт захиалга" value={kpiValue(kpis.totalRequests)} icon={ListChecks} tone="neutral" />
+            <CompactKpiTile label="Батлах хүлээлттэй" value={kpiValue(kpis.pendingApproval)} icon={Clock} tone="accent" />
+            <CompactKpiTile label="Агуулахын шалгалт" value={kpiValue(kpis.warehouseCheck)} icon={Boxes} tone="accent" />
+            <CompactKpiTile label="Санхүү бүртгэл хүлээгдэж буй" value={kpiValue(kpis.pendingAccounting)} icon={Receipt} tone="warning" />
+            <CompactKpiTile label="Дууссан захиалга" value={kpiValue(kpis.completed)} icon={CheckCircle2} tone="success" />
+            <CompactKpiTile label="Хугацаа хэтэрсэн" value={kpiValue(kpis.overdue)} icon={AlertTriangle} tone="danger" />
           </div>
         </div>
       </div>

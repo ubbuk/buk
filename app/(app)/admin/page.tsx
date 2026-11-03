@@ -12,6 +12,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { ROLE_PERMISSION_SUMMARY, USER_ROLE_LABEL, USER_ROLES } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 
@@ -76,8 +77,8 @@ export default function AdminPage() {
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const [u, d, a] = await Promise.all([
         fetch("/api/admin/users").then((r) => (r.ok ? r.json() : [])),
@@ -95,6 +96,9 @@ export default function AdminPage() {
   useEffect(() => {
     load();
   }, []);
+  useLiveRefresh(() => {
+    load(true); // keep the list on screen while it refreshes
+  });
 
   async function createUser() {
     setSubmitting(true);
