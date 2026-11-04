@@ -1,5 +1,5 @@
 import type { S3Client } from "@aws-sdk/client-s3";
-import type { ObjectStorage } from "./storage";
+import type { ObjectStorage, StoredObjectInfo } from "./storage";
 
 // S3-compatible driver (AWS S3, Cloudflare R2, MinIO, ...) for deployments
 // where the local disk is ephemeral or read-only -- e.g. Vercel. Selected with
@@ -65,6 +65,37 @@ export class S3Storage implements ObjectStorage {
     const { PutObjectCommand } = await import("@aws-sdk/client-s3");
     const client = await this.client();
     await client.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), Body: data }));
+  }
+
+  async putNew(key: string, data: Buffer): Promise<boolean> {
+    const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = await this.client();
+    try {
+      // Conditional write: S3 / R2 reject it with 412 when the key already exists.
+      await client.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), Body: data, IfNoneMatch: "*" }));
+      return true;
+    } catch (err) {
+      const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (e?.name === "PreconditionFailed" || e?.$metadata?.httpStatusCode === 412) return false;
+      throw err;
+    }
+  }
+
+  async list(prefix: string): Promise<StoredObjectInfo[]> {
+    const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+    const client = await this.client();
+    if (prefix.startsWith("/") || prefix.split("/").includes("..")) throw new Error("Invalid storage prefix");
+    const out: StoredObjectInfo[] = [];
+    let token: string | undefined;
+    do {
+      const res = await client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: this.prefix + prefix, ContinuationToken: token }));
+      for (const o of res.Contents ?? []) {
+        if (!o.Key) continue;
+        out.push({ key: o.Key.slice(this.prefix.length), size: o.Size ?? 0, lastModified: o.LastModified ?? null });
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+    return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   }
 
   async get(key: string): Promise<Buffer | null> {

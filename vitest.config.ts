@@ -9,6 +9,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Every test file shares one isolated database and several suites count rows
+    // across the whole table (monitoring queries, history reconstruction), so files
+    // must not run at the same time.
+    fileParallelism: false,
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 15000,
   },
