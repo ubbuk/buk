@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { authOptions } from "@/lib/auth";
 import { canViewMonitoring } from "@/lib/monitoring/access";
 import { logMonitoringDenied } from "@/lib/monitoring/audit";
+import "@/components/monitoring/hud/monitoring-hud.css";
 
 export const dynamic = "force-dynamic";
 
@@ -33,11 +34,7 @@ export default async function MonitoringLayout({ children }: { children: ReactNo
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-text">Хяналт, мониторинг</h2>
-        <p className="mt-1 text-xs text-text-muted">Системийн идэвхжил, захиалгын урсгал, батлалтын гацаа</p>
-      </div>
+    <div className="mh-root space-y-5">
       <MonitoringTabs />
       {children}
     </div>

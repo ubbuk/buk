@@ -23,7 +23,8 @@ import {
   statusLabel,
   waitTone,
 } from "./format";
-import { DataGrid, Pager, Panel, TileSkeleton, Td, Th } from "./Panel";
+import { HudOverview, LiveClock } from "./hud/HudOverview";
+import { DataGrid, Pager, Panel, Td, Th } from "./Panel";
 import { REFRESH_INTERVAL_MS, useLiveData, useRefreshTick } from "./useLiveData";
 
 const API = "/api/admin/monitoring";
@@ -45,6 +46,11 @@ function stateOf<T>(s: ReturnType<typeof useLiveData<T>>) {
 export function MonitoringDashboard() {
   const { tick, refresh } = useRefreshTick();
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("30d");
+  const [pendingPage, setPendingPage] = useState(1);
+  // Fetched once here: the command center (3D scene, KPIs, bottleneck card) and
+  // the detail tables below read the same responses.
+  const overview = useLiveData<OverviewData>(`${API}/overview?range=${range}`, tick);
+  const pending = useLiveData<PendingData>(`${API}/pending?page=${pendingPage}&pageSize=${PAGE_SIZE}`, tick);
 
   // Record one access entry per page load (not per 30 s refresh).
   useEffect(() => {
@@ -54,10 +60,15 @@ export function MonitoringDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-text-muted">
-          Бодит өгөгдөл · Улаанбаатарын цаг (UTC+8) · {REFRESH_INTERVAL_MS / 1000} секунд тутам автоматаар шинэчлэгдэнэ
-        </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <span className="mh-live">LIVE</span>
+          <p className="text-xs text-text-muted">
+            Бодит өгөгдөл · Улаанбаатарын цаг (UTC+8) · {REFRESH_INTERVAL_MS / 1000} секунд тутам шинэчлэгдэнэ
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <LiveClock />
+          <div className="flex items-center gap-2">
           <div role="group" aria-label="Хугацааны муж" className="flex overflow-hidden rounded-lg border border-border">
             {RANGES.map((r) => (
               <button
@@ -78,11 +89,12 @@ export function MonitoringDashboard() {
             <RefreshCw className="size-3.5" />
             Шинэчлэх
           </Button>
+          </div>
         </div>
       </div>
 
-      <OverviewSection range={range} tick={tick} refresh={refresh} />
-      <PendingSection tick={tick} refresh={refresh} />
+      <HudOverview overview={overview} pending={pending.data} range={range} tick={tick} refresh={refresh} />
+      <PendingSection s={pending} setPage={setPendingPage} refresh={refresh} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <DepartmentsSection range={range} tick={tick} refresh={refresh} />
         <EmployeesSection range={range} tick={tick} refresh={refresh} />
@@ -99,86 +111,15 @@ interface SectionProps {
 }
 type RangeProps = SectionProps & { range: string };
 
-function Tile({ label, value, sub, tone }: { label: string; value: number | string; sub?: string; tone?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-bg-surface p-4">
-      <p className="text-xs text-text-muted">{label}</p>
-      <p className={cn("mt-2 text-2xl font-semibold leading-none", tone ?? "text-text")}>{value}</p>
-      {sub && <p className="mt-1.5 text-[11px] text-text-muted">{sub}</p>}
-    </div>
-  );
-}
-
-function OverviewSection({ range, tick, refresh }: RangeProps) {
-  const s = useLiveData<OverviewData>(`${API}/overview?range=${range}`, tick);
-  const d = s.data;
-
-  if (s.loading) {
-    return (
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <TileSkeleton key={i} />
-        ))}
-      </div>
-    );
-  }
-  if (!d) {
-    return (
-      <Panel title="Ерөнхий тойм" state={stateOf(s)} onRetry={refresh}>
-        {null}
-      </Panel>
-    );
-  }
-
-  const max = Math.max(1, ...d.daily.map((x) => x.count));
-  return (
-    <div className="space-y-3">
-      {s.error && (
-        <p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger">
-          {s.error} — өмнөх мэдээллийг харуулж байна{" "}
-          <button type="button" className="underline" onClick={refresh}>
-            Дахин оролдох
-          </button>
-        </p>
-      )}
-      <div className={cn("grid grid-cols-2 gap-3 transition-opacity md:grid-cols-4 xl:grid-cols-7", s.fetching && "opacity-70")}>
-        <Tile label="Идэвхтэй хэрэглэгч" value={d.users.active} sub={`нийт ${d.users.total}`} />
-        <Tile label="24 цагт нэвтэрсэн" value={d.users.loggedIn24h} />
-        <Tile label="24 цагт үйлдэл хийсэн" value={d.users.acted24h} />
-        <Tile label="Нийт захиалга" value={d.requests.total} sub={`${d.departments} хэлтэс`} />
-        <Tile label="Хүлээгдэж буй" value={d.requests.pending} tone="text-accent" />
-        <Tile label="Буцаагдсан" value={d.requests.returned} tone={d.requests.returned ? "text-warning" : undefined} />
-        <Tile label="Дууссан" value={d.requests.completed} tone="text-success" />
-      </div>
-
-      <div className="rounded-xl border border-border bg-bg-surface p-4">
-        <p className="text-xs font-medium text-text">Өдөр тутмын шинэ захиалга</p>
-        {d.daily.length === 0 ? (
-          <p className="py-6 text-center text-xs text-text-muted">Энэ хугацаанд захиалга алга</p>
-        ) : (
-          <div className="mt-3 flex h-24 items-end gap-1 overflow-x-auto" role="img" aria-label="Өдөр тутмын захиалгын тоо">
-            {d.daily.map((x) => (
-              <div key={x.day} className="flex min-w-[10px] flex-1 flex-col items-center justify-end gap-1" title={`${x.day}: ${x.count}`}>
-                <span className="text-[9px] text-text-muted">{x.count}</span>
-                <div className="w-full rounded-t bg-accent/70" style={{ height: `${Math.max(4, (x.count / max) * 64)}px` }} />
-              </div>
-            ))}
-          </div>
-        )}
-        {d.daily.length > 0 && (
-          <div className="mt-1 flex justify-between text-[10px] text-text-muted">
-            <span>{d.daily[0].day}</span>
-            <span>{d.daily[d.daily.length - 1].day}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PendingSection({ tick, refresh }: SectionProps) {
-  const [page, setPage] = useState(1);
-  const s = useLiveData<PendingData>(`${API}/pending?page=${page}&pageSize=${PAGE_SIZE}`, tick);
+function PendingSection({
+  s,
+  setPage,
+  refresh,
+}: {
+  s: ReturnType<typeof useLiveData<PendingData>>;
+  setPage: (p: number) => void;
+  refresh: () => void;
+}) {
   const d = s.data;
   const worst = d?.stages[0];
 
