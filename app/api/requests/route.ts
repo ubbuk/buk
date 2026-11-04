@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isRequestHiddenFrom } from "@/lib/request-visibility";
 import { requestInclude, serializeRequest } from "@/lib/serialize";
 import { apiCreateRequestSchema } from "@/lib/validation";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
@@ -17,10 +18,11 @@ export const GET = withTiming("GET /api/requests", async () => {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
-  const requests = await prisma.materialRequest.findMany({
+  const all = await prisma.materialRequest.findMany({
     include: requestInclude,
     orderBy: { createdAt: "desc" },
   });
+  const requests = all.filter((r) => !isRequestHiddenFrom(r, session.user.id, session.user.role));
 
   const stream = new ReadableStream({
     async start(controller) {

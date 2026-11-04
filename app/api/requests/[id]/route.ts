@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isRequestHiddenFrom } from "@/lib/request-visibility";
 import { requestInclude, serializeRequest } from "@/lib/serialize";
 import { withTiming } from "@/lib/api-timing";
 
@@ -13,7 +14,9 @@ export const GET = withTiming(
 
     const { id } = await params;
     const request = await prisma.materialRequest.findUnique({ where: { id }, include: requestInclude });
-    if (!request) return NextResponse.json({ error: "Захиалга олдсонгүй" }, { status: 404 });
+    if (!request || isRequestHiddenFrom(request, session.user.id, session.user.role)) {
+      return NextResponse.json({ error: "Захиалга олдсонгүй" }, { status: 404 });
+    }
 
     return NextResponse.json(serializeRequest(request));
   }
