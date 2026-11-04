@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, UserCog } from "lucide-react";
+import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -166,6 +166,18 @@ export default function AdminPage() {
     await load();
   }
 
+  async function deleteUser(user: AdminUser) {
+    if (!window.confirm(`${user.name} (${user.email}) хэрэглэгчийг өгөгдлийн сангаас бүрмөсөн устгах уу?`)) return;
+    const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      push({ kind: "error", title: "Устгаж чадсангүй", description: body.error });
+      return;
+    }
+    push({ kind: "success", title: `${user.name} устгагдлаа` });
+    await load();
+  }
+
   async function setApprovalRole(role: string, userId: string) {
     const res = await fetch("/api/admin/approval-roles", {
       method: "POST",
@@ -254,6 +266,11 @@ export default function AdminPage() {
           <Button size="sm" variant="secondary" onClick={() => resetCredentials(u)} title="Нууц үг шинэчлэх">
             <RotateCcw className="size-3.5" />
           </Button>
+          {u.id !== session?.user?.id && (
+            <Button size="sm" variant="secondary" onClick={() => deleteUser(u)} title="Устгах">
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
           {u.hasPinSet && (
             <Button size="sm" variant="secondary" onClick={() => resetPin(u)} title="PIN цуцлах">
               <KeyRound className="size-3.5" />
