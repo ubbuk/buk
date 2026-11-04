@@ -48,7 +48,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
 ];
 
-const APPROVED_STATUSES = ["COMPLETED", "PARTIALLY_COMPLETED"];
+const APPROVED_STATUSES = ["COMPLETED", "PARTIALLY_COMPLETED", "ACCOUNTING_COMPLETED"];
 const REJECTED_STATUSES = ["CANCELLED"];
 
 const FILTERS = [
