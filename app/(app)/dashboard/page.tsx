@@ -5,27 +5,34 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   AlertTriangle,
   ArrowUpRight,
+  Box,
   Boxes,
+  CalendarDays,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
+  Coins,
+  Factory,
+  Layers,
   ListChecks,
   Receipt,
-  Zap,
+  ShieldCheck,
+  User,
   type LucideIcon,
 } from "lucide-react";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { IndustrialCommandCenter } from "@/components/dashboard/IndustrialCommandCenter";
 import { ForkliftPreview } from "@/components/dashboard/ForkliftPreview";
+import { DashPanel } from "@/components/dashboard/hud/DashPanel";
+import { EmptyHologram } from "@/components/dashboard/hud/EmptyHologram";
 import { selectKpis, useRequestStore } from "@/lib/store";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
-import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
+import type { MaterialRequestView } from "@/lib/types";
 
 // Heavy (three.js) -- dynamically imported with no SSR, and only ever
 // *mounted* (see useIsDesktopViewport / useAfterFirstPaintData below) on
@@ -39,9 +46,6 @@ const Industrial3DViewer = dynamic(loadViewer, {
 });
 
 const VIEWER_MOUNT_FALLBACK_MS = 3000;
-
-const LOW_STOCK_THRESHOLD = 5;
-const CRITICAL_STOCK_THRESHOLD = 2;
 
 interface CompactKpi {
   label: string;
@@ -122,6 +126,7 @@ function useAfterFirstPaintData(dataReady: boolean) {
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
     key: "requestNumber",
+    headerIcon: <Box className="size-4" />,
     header: "Захиалсан материал",
     sortable: true,
     accessor: (r) => requestTitle(r),
@@ -129,6 +134,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
   {
     key: "department",
+    headerIcon: <Factory className="size-4" />,
     header: "Цех, тасаг",
     sortable: true,
     accessor: (r) => r.department,
@@ -136,6 +142,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
   {
     key: "requestedBy",
+    headerIcon: <User className="size-4" />,
     header: "Үүсгэсэн",
     sortable: true,
     accessor: (r) => r.requestedBy,
@@ -143,6 +150,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
   {
     key: "createdAt",
+    headerIcon: <CalendarDays className="size-4" />,
     header: "Огноо",
     sortable: true,
     accessor: (r) => r.createdAt,
@@ -150,6 +158,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
   {
     key: "totalAmount",
+    headerIcon: <Coins className="size-4" />,
     header: "Дүн",
     sortable: true,
     accessor: (r) => r.totalAmount,
@@ -158,6 +167,7 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
   {
     key: "status",
+    headerIcon: <Activity className="size-4" />,
     header: "Төлөв",
     sortable: true,
     accessor: (r) => r.status,
@@ -170,12 +180,7 @@ export default function DashboardPage() {
   const isDesktop = useIsDesktopViewport();
   const requests = useRequestStore((s) => s.requests);
   const loading = useRequestStore((s) => s.requestsLoading);
-  const activity = useRequestStore((s) => s.activity);
   const kpis = useMemo(() => selectKpis(requests), [requests]);
-  const [materials, setMaterials] = useState<MaterialCatalogEntry[]>([]);
-  
-  const [materialsTick, setMaterialsTick] = useState(0);
-  useLiveRefresh(() => setMaterialsTick((t) => t + 1));
   const mountViewer = useAfterFirstPaintData(!loading);
 
 
@@ -191,28 +196,7 @@ export default function DashboardPage() {
     };
   }, [isDesktop]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/materials")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: MaterialCatalogEntry[]) => {
-        if (!cancelled) setMaterials(data);
-      })
-      .catch(() => {
-        if (!cancelled) setMaterials([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [materialsTick]);
 
-  const lowStockAlerts = useMemo(
-    () =>
-      materials
-        .filter((m) => m.warehouseBalance <= LOW_STOCK_THRESHOLD)
-        .sort((a, b) => a.warehouseBalance - b.warehouseBalance),
-    [materials]
-  );
 
   const pendingApproval = useMemo(
     () =>
@@ -251,114 +235,67 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle>Сүүлийн захиалгууд</CardTitle>
-            <Link href="/requests" className="flex items-center gap-1 text-xs text-accent hover:underline">
-              Бүгдийг харах <ArrowUpRight className="size-3" />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[69fr_31fr]">
+        <DashPanel
+          tone="cyan"
+          icon={Layers}
+          title="Сүүлийн захиалгууд"
+          stripes
+          right={
+            <Link href="/requests" className="focus-ring ml-auto flex items-center gap-1 text-sm font-semibold text-accent hover:underline">
+              Бүгдийг харах <ArrowUpRight className="size-3.5" />
             </Link>
-          </CardHeader>
+          }
+          className="min-h-[340px]"
+        >
           {loading ? (
             <SkeletonTable />
           ) : (
-            <DataTable
-              data={requests}
-              columns={columns}
-              getRowId={(r) => r.id}
-              searchPlaceholder="Захиалга хайх..."
-            />
+            <div className="dh-table">
+              <DataTable
+                data={requests}
+                columns={columns}
+                getRowId={(r) => r.id}
+                searchPlaceholder="Захиалга хайх..."
+              />
+            </div>
           )}
-        </Card>
+        </DashPanel>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Батлах хүлээлттэй</CardTitle>
-            <span className="text-xs text-text-muted">{pendingApproval.length}</span>
-          </CardHeader>
-          <CardBody className="space-y-3">
-            {!loading && pendingApproval.length === 0 && (
-              <p className="py-6 text-center text-xs text-text-muted">Батлах хүсэлт алга</p>
-            )}
-            {pendingApproval.map((r) => (
-              <Link
-                key={r.id}
-                href={`/requests/${r.id}`}
-                className="pending-recede focus-ring block rounded-lg border border-border bg-bg-elevated/50 p-3 hover:[animation-play-state:paused]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-                  <span className="text-sm font-medium text-text">{requestTitle(r)}</span>
-                  <StatusBadge status={r.status} />
-                </div>
-                <p className="mt-1 text-xs text-text-muted">
-                  {r.department} · {formatCurrency(r.totalAmount)}
-                </p>
-              </Link>
-            ))}
-          </CardBody>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Үйл ажиллагааны лог</CardTitle>
-          </CardHeader>
-          <CardBody>
-            <ol className="space-y-4">
-              {activity.map((a) => (
-                <li key={a.id} className="flex gap-3 text-sm">
-                  <span className="w-10 shrink-0 text-xs text-text-muted">{a.time}</span>
-                  <span
-                    className={
-                      a.type === "approve"
-                        ? "text-success"
-                        : a.type === "reject"
-                        ? "text-danger"
-                        : "text-text-muted"
-                    }
-                  >
-                    ●
-                  </span>
-                  <span className="text-text-muted">{a.text}</span>
-                </li>
-              ))}
-            </ol>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Шаардлагатай материалын анхааруулга</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-3">
-            {lowStockAlerts.length === 0 && (
-              <p className="py-6 text-center text-xs text-text-muted">Нөөц хүрэлцэхгүй материал алга</p>
-            )}
-            {lowStockAlerts.map((m) => {
-              const critical = m.warehouseBalance <= CRITICAL_STOCK_THRESHOLD;
-              return (
-                <div
-                  key={m.id}
-                  className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-xs ${
-                    critical ? "border-danger/30 bg-danger/10 text-danger" : "border-warning/30 bg-warning/10 text-warning"
-                  }`}
+        <DashPanel
+          tone="amber"
+          icon={ShieldCheck}
+          title="Батлах хүлээлттэй"
+          right={<span className="dh-badge">{pendingApproval.length}</span>}
+          className="min-h-[340px]"
+        >
+          {!loading && pendingApproval.length === 0 ? (
+            <EmptyHologram
+              icon={ClipboardCheck}
+              tone="amber"
+              title="Батлах хүсэлт алга"
+              description="Одоогоор батлах шаардлагатай хүсэлт байхгүй."
+            />
+          ) : (
+            <div className="space-y-3 p-5">
+              {pendingApproval.map((r) => (
+                <Link
+                  key={r.id}
+                  href={`/requests/${r.id}`}
+                  className="pending-recede focus-ring block rounded-lg border border-border bg-bg-elevated/50 p-3 hover:[animation-play-state:paused]"
                 >
-                  <span>
-                    {m.name} — агуулахад {m.warehouseBalance}
-                    {m.unit} үлдсэн
-                  </span>
-                  <Link href={`/requests/new?material=${m.id}&urgent=1`} className="shrink-0">
-                    <Button size="sm" variant={critical ? "danger" : "secondary"}>
-                      <Zap className="size-3.5" />
-                      Яаралтай захиалга
-                    </Button>
-                  </Link>
-                </div>
-              );
-            })}
-          </CardBody>
-        </Card>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                    <span className="text-sm font-semibold text-text">{requestTitle(r)}</span>
+                    <StatusBadge status={r.status} />
+                  </div>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {r.department} · {formatCurrency(r.totalAmount)}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          )}
+        </DashPanel>
       </div>
     </div>
   );

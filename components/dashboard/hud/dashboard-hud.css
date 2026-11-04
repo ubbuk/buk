@@ -1,0 +1,274 @@
+/* Dashboard lower panels (Сүүлийн захиалгууд, Батлах хүлээлттэй, Үйл ажиллагааны лог,
+   Шаардлагатай материалын анхааруулга) -- angular HUD skin.
+   Everything lives under .dh-shell so the 3D scene, KPI cards and other pages
+   are untouched. The shell re-points the theme tokens at the HUD palette, so the
+   shared StatusBadge / Button / DataTable inside it pick the look up. */
+
+.dh-shell {
+  --dh-edge: 0 217 255;
+  --color-bg: 6 16 24;
+  --color-bg-surface: 7 23 34;
+  --color-bg-elevated: 11 34 48;
+  --color-border: 22 74 96;
+  --color-accent: 255 174 0;
+  --color-accent-hover: 255 196 64;
+  --color-tech: 0 217 255;
+  --color-success: 0 223 130;
+  --color-warning: 255 150 40;
+  --color-danger: 255 73 63;
+  --color-text: 245 248 252;
+  --color-text-muted: 145 175 193;
+  color: rgb(var(--color-text));
+  position: relative;
+  min-width: 0;
+  filter: drop-shadow(0 0 9px rgb(var(--dh-edge) / 0.3)) drop-shadow(0 12px 16px rgb(0 0 0 / 0.5));
+}
+.dh-shell--amber {
+  --dh-edge: 255 174 0;
+}
+.dh-shell--red {
+  --dh-edge: 255 73 63;
+}
+
+/* Four chamfered corners; the outer layer paints the edge, the inner the fill. */
+.dh-panel {
+  --dh-c: 18px;
+  height: 100%;
+  padding: 1.5px;
+  background: linear-gradient(150deg, rgb(var(--dh-edge) / 0.95), rgb(var(--dh-edge) / 0.28) 38%, rgb(var(--dh-edge) / 0.5) 70%, rgb(var(--dh-edge) / 0.95));
+  clip-path: polygon(var(--dh-c) 0, calc(100% - var(--dh-c)) 0, 100% var(--dh-c), 100% calc(100% - var(--dh-c)), calc(100% - var(--dh-c)) 100%, var(--dh-c) 100%, 0 calc(100% - var(--dh-c)), 0 var(--dh-c));
+}
+.dh-inner {
+  --dh-ci: calc(var(--dh-c) - 0.62px);
+  position: relative;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  /* layers: tone glow from the lower edge, faint tech grid, deep base */
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 108%, rgb(var(--dh-edge) / 0.13), transparent 70%),
+    linear-gradient(rgb(var(--dh-edge) / 0.035) 1px, transparent 1px) 0 0 / 100% 24px,
+    linear-gradient(90deg, rgb(var(--dh-edge) / 0.03) 1px, transparent 1px) 0 0 / 24px 100%,
+    linear-gradient(170deg, rgb(9 30 44), rgb(6 19 29));
+  box-shadow: inset 0 0 50px rgb(0 0 0 / 0.4);
+  clip-path: polygon(var(--dh-ci) 0, calc(100% - var(--dh-ci)) 0, 100% var(--dh-ci), 100% calc(100% - var(--dh-ci)), calc(100% - var(--dh-ci)) 100%, var(--dh-ci) 100%, 0 calc(100% - var(--dh-ci)), 0 var(--dh-ci));
+}
+/* corner brackets: bright ticks hugging the chamfers */
+.dh-inner::before,
+.dh-inner::after {
+  content: "";
+  position: absolute;
+  width: 46px;
+  height: 3px;
+  pointer-events: none;
+  background: rgb(var(--dh-edge));
+  box-shadow: 0 0 10px rgb(var(--dh-edge) / 0.85);
+}
+.dh-inner::before {
+  top: 0;
+  left: 26px;
+}
+.dh-inner::after {
+  right: 26px;
+  bottom: 0;
+}
+
+.dh-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem 1.6rem 0.9rem;
+  border-bottom: 1px solid rgb(var(--dh-edge) / 0.3);
+  background: linear-gradient(180deg, rgb(var(--dh-edge) / 0.07), transparent);
+}
+.dh-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: rgb(var(--color-text));
+}
+.dh-head-icon {
+  color: rgb(var(--dh-edge));
+  filter: drop-shadow(0 0 7px rgb(var(--dh-edge) / 0.7));
+}
+/* header decoration: slanted bars that fade out */
+.dh-stripes {
+  width: 120px;
+  height: 20px;
+  background: repeating-linear-gradient(115deg, rgb(var(--dh-edge) / 0.75) 0 9px, transparent 9px 17px);
+  -webkit-mask-image: linear-gradient(90deg, #000, transparent);
+  mask-image: linear-gradient(90deg, #000, transparent);
+}
+.dh-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.dh-badge {
+  margin-left: auto;
+  min-width: 3.4rem;
+  border: 1px solid rgb(255 174 0 / 0.8);
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.9rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: rgb(255 174 0);
+  background: rgb(255 174 0 / 0.08);
+  box-shadow: 0 0 12px rgb(255 174 0 / 0.3);
+}
+
+/* ---- DataTable restyle (scoped; the shared component is unchanged) ---- */
+.dh-table table {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  padding: 0 1rem;
+}
+.dh-table > div:first-child {
+  border-bottom: 1px solid rgb(var(--dh-edge) / 0.18);
+  padding: 1.05rem 1.6rem;
+}
+.dh-table .max-w-xs {
+  max-width: 31rem;
+}
+.dh-table input {
+  height: 2.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgb(var(--dh-edge) / 0.6);
+  background: rgb(5 18 28 / 0.9);
+  font-size: 1rem;
+  padding-left: 2.6rem;
+  color: rgb(var(--color-text));
+  box-shadow: 0 0 10px rgb(var(--dh-edge) / 0.12), inset 0 0 10px rgb(0 0 0 / 0.4);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.dh-table input:focus {
+  outline: none;
+  border-color: rgb(255 174 0 / 0.9);
+  box-shadow: 0 0 0 3px rgb(255 174 0 / 0.15), 0 0 16px rgb(255 174 0 / 0.25);
+}
+.dh-table input + *,
+.dh-table .relative > svg {
+  color: rgb(var(--color-text));
+}
+.dh-table .relative > svg {
+  left: 0.95rem;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+.dh-table .ml-auto {
+  font-size: 1rem;
+  color: rgb(var(--color-text));
+}
+.dh-table thead tr {
+  border: 0;
+}
+.dh-table thead th {
+  padding: 0.7rem 1.25rem 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: rgb(var(--color-text-muted));
+  border: 0;
+}
+.dh-table tbody tr {
+  border: 0;
+  transition: background-color 0.15s;
+}
+.dh-table tbody td {
+  padding: 1.05rem 1.25rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: rgb(var(--color-text));
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  background: rgb(11 34 48 / 0.35);
+}
+.dh-table tbody td:first-child {
+  border-left: 1px solid transparent;
+  border-radius: 0.4rem 0 0 0.4rem;
+}
+.dh-table tbody td:last-child {
+  border-right: 1px solid transparent;
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+/* active (first / hovered) row: amber outline with glow */
+.dh-table tbody tr:first-child td,
+.dh-table tbody tr:hover td {
+  border-color: rgb(255 174 0 / 0.85);
+  background: linear-gradient(180deg, rgb(255 174 0 / 0.14), rgb(255 174 0 / 0.04));
+  box-shadow: 0 0 14px rgb(255 174 0 / 0.22);
+}
+.dh-table tbody tr:first-child td:not(:first-child),
+.dh-table tbody tr:hover td:not(:first-child) {
+  border-left-color: transparent;
+}
+.dh-table tbody tr:first-child td:not(:last-child),
+.dh-table tbody tr:hover td:not(:last-child) {
+  border-right-color: transparent;
+}
+.dh-table tbody td span.rounded-full {
+  box-shadow: 0 0 14px -2px currentColor;
+}
+
+/* ---- empty states ---- */
+.dh-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 1rem 1.5rem 1.8rem;
+  text-align: center;
+}
+.dh-empty-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: rgb(var(--color-text));
+}
+.dh-empty-sub {
+  font-size: 0.95rem;
+  color: rgb(var(--color-text-muted));
+}
+
+@keyframes dh-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.dh-float {
+  animation: dh-float 4.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dh-float {
+    animation: none;
+  }
+  .dh-table input {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dh-title {
+    font-size: 1.1rem;
+  }
+  .dh-stripes {
+    display: none;
+  }
+  .dh-table tbody td {
+    padding: 0.8rem 0.8rem;
+    font-size: 0.95rem;
+  }
+}
+
+@media print {
+  .dh-shell {
+    filter: none;
+  }
+}

@@ -7,6 +7,7 @@ import { EmptyState } from "./EmptyState";
 export interface DataTableColumn<T> {
   key: string;
   header: string;
+  headerIcon?: React.ReactNode;
   sortable?: boolean;
   accessor: (row: T) => string | number | null;
   render: (row: T) => React.ReactNode;
@@ -99,6 +100,7 @@ export function DataTable<T>({
                         onClick={() => toggleSort(col.key)}
                         className="focus-ring flex items-center gap-1 hover:text-text"
                       >
+                        {col.headerIcon}
                         {col.header}
                         {sortKey === col.key ? (
                           sortDir === "asc" ? (
@@ -111,7 +113,10 @@ export function DataTable<T>({
                         )}
                       </button>
                     ) : (
-                      col.header
+                      <span className="flex items-center gap-1">
+                        {col.headerIcon}
+                        {col.header}
+                      </span>
                     )}
                   </th>
                 ))}
