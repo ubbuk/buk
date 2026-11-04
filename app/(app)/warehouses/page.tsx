@@ -6,13 +6,17 @@ import { ChevronDown, Warehouse as WarehouseIcon } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { WAREHOUSE_GROUPS } from "@/lib/warehouse-structure";
+import { PrintButton } from "@/components/ui/PrintButton";
 
 export default function WarehousesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(WAREHOUSE_GROUPS[0]?.id ?? null);
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-text">Агуулахын жагсаалт</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-text">Агуулахын жагсаалт</h2>
+        <PrintButton />
+      </div>
 
       <div className="space-y-3">
         {WAREHOUSE_GROUPS.map((group) => {

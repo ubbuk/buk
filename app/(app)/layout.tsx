@@ -9,10 +9,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <ToastProvider>
       <RequestsLoader />
       <div className="min-h-screen bg-bg">
-        <CommandBar />
-        <FloatingOrderButton />
+        <div className="no-print">
+          <CommandBar />
+          <FloatingOrderButton />
+        </div>
         <main className="px-4 pb-24 pt-4 sm:px-6 md:pb-6">{children}</main>
-        <MobileBottomNav />
+        <div className="no-print">
+          <MobileBottomNav />
+        </div>
       </div>
     </ToastProvider>
   );

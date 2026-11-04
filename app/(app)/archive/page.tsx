@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
+import { PrintButton } from "@/components/ui/PrintButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { useRequestStore } from "@/lib/store";
@@ -68,6 +69,7 @@ export default function ArchivePage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">Захиалгын архив</h2>
+        <PrintButton />
       </div>
 
       <div className="flex gap-2">

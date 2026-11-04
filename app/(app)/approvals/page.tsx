@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
+import { PrintButton } from "@/components/ui/PrintButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
@@ -75,7 +76,10 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-text">Батлах хүсэлтүүд</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-text">Батлах хүсэлтүүд</h2>
+        <PrintButton />
+      </div>
 
       <Card>
         {loading ? (

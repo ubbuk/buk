@@ -12,6 +12,7 @@ import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
+import { PrintButton } from "@/components/ui/PrintButton";
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
@@ -62,7 +63,10 @@ export default function MyRequestsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">Миний захиалгууд</h2>
+        <PrintButton />
+      </div>
         <Link href="/requests/new">
           <Button>
             <FilePlus2 className="size-4" />

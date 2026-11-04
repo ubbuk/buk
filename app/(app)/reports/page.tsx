@@ -5,6 +5,7 @@ import { HorizontalBarChart } from "@/components/ui/HorizontalBarChart";
 import { useRequestStore } from "@/lib/store";
 import { REQUEST_STATUS_LABEL, REQUEST_STATUS_TONE, type RequestStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { PrintButton } from "@/components/ui/PrintButton";
 
 const toneDot: Record<string, string> = {
   neutral: "bg-text-muted",
@@ -40,7 +41,10 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-text">Тайлан</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-text">Тайлан</h2>
+        <PrintButton />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>

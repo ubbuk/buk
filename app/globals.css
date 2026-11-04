@@ -162,4 +162,30 @@
   .no-print {
     display: none !important;
   }
+
+  /* Always print on white paper with dark text, whatever theme is active. */
+  :root,
+  html.dark {
+    color-scheme: light;
+    --color-bg: 255 255 255;
+    --color-bg-sidebar: 255 255 255;
+    --color-bg-surface: 255 255 255;
+    --color-bg-elevated: 245 245 245;
+    --color-border: 200 200 200;
+    --color-accent: 180 83 9;
+    --color-success: 21 128 61;
+    --color-warning: 194 65 12;
+    --color-danger: 220 38 38;
+    --color-text: 0 0 0;
+    --color-text-muted: 70 70 70;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  tr,
+  li {
+    break-inside: avoid;
+  }
 }

@@ -8,6 +8,7 @@ import { CheckCircle2, PenLine, Receipt, ShieldAlert, Undo2, Warehouse } from "l
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { PrintButton } from "@/components/ui/PrintButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -184,6 +185,9 @@ export default function RequestDetailPage() {
 
   return (
     <div className="space-y-6">
+      <p className="hidden text-sm font-semibold print:block">
+        УБ БҮК ХК — Материалын захиалга (Маягт №1) · Хэвлэсэн: {formatDateTime(new Date().toISOString())}
+      </p>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -194,6 +198,8 @@ export default function RequestDetailPage() {
             {request.department} · {request.requestedBy} · {formatDateTime(request.createdAt)}
           </p>
         </div>
+        <div className="no-print flex flex-wrap items-start gap-2">
+        <PrintButton />
         {pendingStep && pendingStep.type === "WAREHOUSE_CHECK" && isAuthorizedApprover && (
           <Link href={`/warehouse/${request.id}`}>
             <Button>
@@ -248,6 +254,7 @@ export default function RequestDetailPage() {
             Засварлаж дахин илгээх
           </Button>
         )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
