@@ -55,3 +55,10 @@ export function formatDateTime(value: string | Date): string {
     minute: "2-digit",
   }).format(d);
 }
+
+/** What was ordered, for list rows: first material name, plus "+N" when there are more lines. */
+export function requestTitle(r: { items: { materialName: string }[]; requestNumber: string }): string {
+  if (r.items.length === 0) return `№${r.requestNumber}`;
+  const extra = r.items.length - 1;
+  return extra > 0 ? `${r.items[0].materialName} +${extra}` : r.items[0].materialName;
+}

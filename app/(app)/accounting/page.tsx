@@ -12,7 +12,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 
 const inputClass =
@@ -83,10 +83,10 @@ function AccountingPageInner() {
   const columns: DataTableColumn<MaterialRequestView>[] = [
     {
       key: "requestNumber",
-      header: "Дугаар",
+      header: "Захиалсан материал",
       sortable: true,
-      accessor: (r) => r.requestNumber,
-      render: (r) => <span className="font-medium text-text">№{r.requestNumber}</span>,
+      accessor: (r) => requestTitle(r),
+      render: (r) => <span className="font-medium text-text">{requestTitle(r)}</span>,
     },
     { key: "department", header: "Цех, тасаг", sortable: true, accessor: (r) => r.department, render: (r) => r.department },
     { key: "requestedBy", header: "Үүсгэсэн", sortable: true, accessor: (r) => r.requestedBy, render: (r) => r.requestedBy },

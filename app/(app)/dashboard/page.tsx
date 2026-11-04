@@ -24,7 +24,7 @@ import { IndustrialCommandCenter } from "@/components/dashboard/IndustrialComman
 import { ForkliftPreview } from "@/components/dashboard/ForkliftPreview";
 import { selectKpis, useRequestStore } from "@/lib/store";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
 import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
 
 // Heavy (three.js) -- dynamically imported with no SSR, and only ever
@@ -122,10 +122,10 @@ function useAfterFirstPaintData(dataReady: boolean) {
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
     key: "requestNumber",
-    header: "Дугаар",
+    header: "Захиалсан материал",
     sortable: true,
-    accessor: (r) => r.requestNumber,
-    render: (r) => <span className="font-medium text-text">№{r.requestNumber}</span>,
+    accessor: (r) => requestTitle(r),
+    render: (r) => <span className="font-medium text-text">{requestTitle(r)}</span>,
   },
   {
     key: "department",
@@ -287,7 +287,7 @@ export default function DashboardPage() {
                 className="pending-recede focus-ring block rounded-lg border border-border bg-bg-elevated/50 p-3 hover:[animation-play-state:paused]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-                  <span className="text-sm font-medium text-text">№{r.requestNumber}</span>
+                  <span className="text-sm font-medium text-text">{requestTitle(r)}</span>
                   <StatusBadge status={r.status} />
                 </div>
                 <p className="mt-1 text-xs text-text-muted">

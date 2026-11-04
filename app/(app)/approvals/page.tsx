@@ -8,17 +8,17 @@ import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useRequestStore } from "@/lib/store";
 import { APPROVAL_STEP_LABEL, type ApprovalStepView, type MaterialRequestView } from "@/lib/types";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
 
 type Row = MaterialRequestView & { pendingStep: ApprovalStepView };
 
 const columns: DataTableColumn<Row>[] = [
   {
     key: "requestNumber",
-    header: "Дугаар",
+    header: "Захиалсан материал",
     sortable: true,
-    accessor: (r) => r.requestNumber,
-    render: (r) => <span className="font-medium text-text">№{r.requestNumber}</span>,
+    accessor: (r) => requestTitle(r),
+    render: (r) => <span className="font-medium text-text">{requestTitle(r)}</span>,
   },
   {
     key: "department",

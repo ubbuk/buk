@@ -7,16 +7,16 @@ import { PrintButton } from "@/components/ui/PrintButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { useRequestStore } from "@/lib/store";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, requestTitle } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
   {
     key: "requestNumber",
-    header: "Дугаар",
+    header: "Захиалсан материал",
     sortable: true,
-    accessor: (r) => r.requestNumber,
-    render: (r) => <span className="font-medium text-text">№{r.requestNumber}</span>,
+    accessor: (r) => requestTitle(r),
+    render: (r) => <span className="font-medium text-text">{requestTitle(r)}</span>,
   },
   {
     key: "department",
