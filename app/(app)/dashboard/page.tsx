@@ -242,11 +242,11 @@ export default function DashboardPage() {
           title="Сүүлийн захиалгууд"
           stripes
           right={
-            <Link href="/requests" className="focus-ring ml-auto flex items-center gap-1 text-sm font-semibold text-accent hover:underline">
-              Бүгдийг харах <ArrowUpRight className="size-3.5" />
+            <Link href="/requests" className="focus-ring ml-auto flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+              Бүгдийг харах <ArrowUpRight className="size-3" />
             </Link>
           }
-          className="min-h-[340px]"
+          className="min-h-[280px]"
         >
           {loading ? (
             <SkeletonTable />
@@ -267,7 +267,7 @@ export default function DashboardPage() {
           icon={ShieldCheck}
           title="Батлах хүлээлттэй"
           right={<span className="dh-badge">{pendingApproval.length}</span>}
-          className="min-h-[340px]"
+          className="min-h-[280px]"
         >
           {!loading && pendingApproval.length === 0 ? (
             <EmptyHologram

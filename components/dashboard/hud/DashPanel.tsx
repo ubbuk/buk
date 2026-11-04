@@ -29,7 +29,7 @@ export function DashPanel({
       <div className="dh-panel">
         <div className="dh-inner">
           <header className="dh-head">
-            <Icon className="dh-head-icon size-7 shrink-0" strokeWidth={1.75} aria-hidden />
+            <Icon className="dh-head-icon size-5 shrink-0" strokeWidth={1.75} aria-hidden />
             <h3 className="dh-title">{title}</h3>
             {stripes && <span className="dh-stripes" aria-hidden />}
             {right}

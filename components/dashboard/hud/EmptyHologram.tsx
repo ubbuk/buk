@@ -21,7 +21,7 @@ export function EmptyHologram({
   const c = TONES[tone];
   return (
     <div className="dh-empty">
-      <div className="relative h-[150px] w-[260px]" aria-hidden>
+      <div className="relative h-[138px] w-[240px]" aria-hidden>
         <svg viewBox="0 0 260 150" className="absolute inset-0 size-full">
           <defs>
             <linearGradient id={`beam-${tone}`} x1="0" x2="0" y1="0" y2="1">
@@ -39,7 +39,7 @@ export function EmptyHologram({
           <ellipse cx="130" cy="122" rx="62" ry="10" fill={`rgb(${c} / 0.18)`} stroke={`rgb(${c})`} strokeWidth="2" style={{ filter: `drop-shadow(0 0 6px rgb(${c}))` }} />
         </svg>
         <Icon
-          className="dh-float absolute left-1/2 top-[6px] size-[92px] -translate-x-1/2"
+          className="dh-float absolute left-1/2 top-[6px] size-[82px] -translate-x-1/2"
           strokeWidth={1.1}
           style={{ color: `rgb(${c})`, filter: `drop-shadow(0 0 12px rgb(${c} / 0.75))` }}
         />
