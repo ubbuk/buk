@@ -1,0 +1,285 @@
+/* "Шинэ захиалга" page only: cinematic industrial HUD skin.
+   Everything is scoped under .hud-form (or .hud-* helpers) so no other page is
+   affected. The scope re-points the app's theme tokens at the HUD palette, so
+   the shared Button/inputs inside it pick the look up automatically. */
+
+.hud-form {
+  color-scheme: dark;
+  --color-bg: 6 16 24;
+  --color-bg-sidebar: 11 29 41;
+  --color-bg-surface: 11 29 41;
+  --color-bg-elevated: 19 43 58;
+  --color-border: 38 82 104;
+  --color-accent: 255 170 0;
+  --color-accent-hover: 255 191 56;
+  --color-tech: 54 201 244;
+  --color-tech-hover: 120 224 250;
+  --color-success: 34 197 94;
+  --color-warning: 255 140 40;
+  --color-danger: 239 68 68;
+  --color-text: 242 247 250;
+  --color-text-muted: 140 175 195;
+  color: rgb(var(--color-text));
+  background-color: rgb(var(--color-bg));
+  background-image:
+    linear-gradient(rgb(54 201 244 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(54 201 244 / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Chamfered panel: outer layer paints the 1px edge, inner layer the fill. */
+.hud-panel {
+  --hud-c: 16px;
+  --hud-edge: 54 201 244;
+  position: relative;
+  padding: 1px;
+  background: linear-gradient(135deg, rgb(var(--hud-edge) / 0.65), rgb(var(--hud-edge) / 0.18) 45%, rgb(var(--hud-edge) / 0.5));
+  clip-path: polygon(var(--hud-c) 0, 100% 0, 100% calc(100% - var(--hud-c)), calc(100% - var(--hud-c)) 100%, 0 100%, 0 var(--hud-c));
+}
+.hud-panel--amber {
+  --hud-edge: 255 170 0;
+}
+.hud-shell {
+  filter: drop-shadow(0 0 7px rgb(54 201 244 / 0.16)) drop-shadow(0 10px 14px rgb(0 0 0 / 0.45));
+  transition: filter 0.25s;
+}
+.hud-shell--amber {
+  filter: drop-shadow(0 0 9px rgb(255 170 0 / 0.3)) drop-shadow(0 10px 14px rgb(0 0 0 / 0.45));
+}
+.hud-shell:focus-within:not(.hud-shell--amber) {
+  filter: drop-shadow(0 0 11px rgb(54 201 244 / 0.3)) drop-shadow(0 10px 14px rgb(0 0 0 / 0.45));
+}
+.hud-panel__inner {
+  --hud-ci: calc(var(--hud-c) - 0.42px);
+  position: relative;
+  height: 100%;
+  /* layers: top sheen, faint technical grid, base gradient */
+  background:
+    linear-gradient(180deg, rgb(54 201 244 / 0.07), transparent 56px),
+    linear-gradient(rgb(54 201 244 / 0.028) 1px, transparent 1px) 0 0 / 100% 22px,
+    linear-gradient(160deg, rgb(16 44 62 / 0.97), rgb(7 22 33 / 0.98));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), inset 0 0 44px rgb(0 0 0 / 0.38);
+  clip-path: polygon(var(--hud-ci) 0, 100% 0, 100% calc(100% - var(--hud-ci)), calc(100% - var(--hud-ci)) 100%, 0 100%, 0 var(--hud-ci));
+}
+/* Technical corner ticks on the two square corners. */
+.hud-panel__inner::before,
+.hud-panel__inner::after {
+  content: "";
+  position: absolute;
+  width: 34px;
+  height: 2px;
+  pointer-events: none;
+  background: rgb(var(--hud-edge) / 0.85);
+  box-shadow: 0 0 8px rgb(var(--hud-edge) / 0.6);
+}
+.hud-panel__inner::before {
+  top: 0;
+  right: 14px;
+}
+.hud-panel__inner::after {
+  bottom: 0;
+  left: 14px;
+}
+.hud-panel--active > .hud-panel__inner {
+  background: linear-gradient(160deg, rgb(80 52 6 / 0.9), rgb(30 20 6 / 0.95));
+}
+
+.hud-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  color: rgb(var(--color-text-muted));
+}
+
+/* Inputs inside the HUD: dark well, cyan edge, amber focus glow. */
+.hud-input {
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(54 201 244 / 0.28);
+  background: rgb(6 20 30 / 0.85);
+  min-width: 0;
+  padding: 0 0.625rem;
+  font-size: 1rem;
+  color: rgb(var(--color-text));
+  box-shadow: inset 0 1px 6px rgb(0 0 0 / 0.45);
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+/* the datalist arrow would otherwise eat the already narrow unit field */
+.hud-input::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  margin-left: 0;
+}
+.hud-input::placeholder {
+  color: rgb(var(--color-text-muted) / 0.75);
+}
+.hud-input:hover {
+  border-color: rgb(54 201 244 / 0.5);
+}
+.hud-input:focus {
+  outline: none;
+  border-color: rgb(255 170 0 / 0.85);
+  box-shadow: 0 0 0 3px rgb(255 170 0 / 0.14), 0 0 14px rgb(255 170 0 / 0.22);
+}
+.hud-input[aria-invalid="true"] {
+  border-color: rgb(239 68 68 / 0.7);
+}
+.hud-input[type="number"]::-webkit-inner-spin-button {
+  opacity: 0.5;
+}
+
+/* Table rows: thin cyan separators, amber outline on the active row. */
+.hud-table thead th {
+  white-space: nowrap;
+}
+.hud-row {
+  position: relative;
+  border-bottom: 1px solid rgb(54 201 244 / 0.14);
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+.hud-row:focus-within {
+  background: rgb(255 170 0 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 170 0 / 0.55), inset 0 0 24px rgb(255 170 0 / 0.07);
+}
+
+/* Angular buttons. Secondary/outline variants fake a 1px edge with a ::before fill. */
+.hud-btn {
+  --hud-c: 9px;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding: 0 1.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  clip-path: polygon(var(--hud-c) 0, 100% 0, 100% calc(100% - var(--hud-c)), calc(100% - var(--hud-c)) 100%, 0 100%, 0 var(--hud-c));
+  transition: filter 0.2s, background-color 0.2s;
+}
+.hud-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-tech));
+  outline-offset: 2px;
+}
+.hud-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.hud-btn--primary {
+  background: linear-gradient(180deg, #ffb52e, #f59e0b);
+  color: #1a1004;
+}
+.hud-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.hud-btn--secondary,
+.hud-btn--outline-amber {
+  color: rgb(var(--color-text));
+}
+.hud-btn--secondary {
+  background: rgb(54 201 244 / 0.45);
+}
+.hud-btn--outline-amber {
+  --hud-c: 8px;
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  color: rgb(255 191 56);
+  background: rgb(255 170 0 / 0.8);
+}
+.hud-btn--secondary::before,
+.hud-btn--outline-amber::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  clip-path: inherit;
+}
+.hud-btn--secondary::before {
+  background: rgb(10 30 43);
+}
+.hud-btn--outline-amber::before {
+  background: rgb(26 18 6);
+}
+.hud-btn--secondary:hover:not(:disabled) {
+  background: rgb(54 201 244 / 0.85);
+}
+.hud-btn--outline-amber:hover:not(:disabled) {
+  background: rgb(255 191 56);
+}
+/* drop-shadow on a wrapper: clip-path on the button itself would clip its own glow. */
+.hud-glow {
+  filter: drop-shadow(0 0 9px rgb(255 170 0 / 0.35));
+  transition: filter 0.2s;
+}
+.hud-glow:hover {
+  filter: drop-shadow(0 0 16px rgb(255 170 0 / 0.6));
+}
+
+/* Dropzone: dashed cyan frame with a faint wireframe grid. */
+.hud-dropzone {
+  border: 1px dashed rgb(54 201 244 / 0.55);
+  background-color: rgb(6 20 30 / 0.7);
+  background-image:
+    radial-gradient(ellipse at 50% 120%, rgb(54 201 244 / 0.12), transparent 60%),
+    linear-gradient(rgb(54 201 244 / 0.05) 1px, transparent 1px);
+  background-size: auto, 100% 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.hud-dropzone:hover,
+.hud-dropzone[data-drag="true"] {
+  border-color: rgb(255 170 0 / 0.85);
+  box-shadow: inset 0 0 28px rgb(255 170 0 / 0.1), 0 0 16px rgb(255 170 0 / 0.14);
+}
+
+@keyframes hud-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.hud-pop {
+  animation: hud-pop 0.14s ease-out;
+}
+
+.hud-ring-progress {
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-pop {
+    animation: none;
+  }
+  .hud-ring-progress,
+  .hud-row,
+  .hud-input,
+  .hud-btn,
+  .hud-glow,
+  .hud-dropzone {
+    transition: none;
+  }
+}
+
+@media print {
+  .hud-form {
+    --color-bg: 255 255 255;
+    --color-bg-surface: 255 255 255;
+    --color-bg-elevated: 245 245 245;
+    --color-border: 200 200 200;
+    --color-text: 0 0 0;
+    --color-text-muted: 70 70 70;
+    background-image: none;
+  }
+  .hud-panel,
+  .hud-panel__inner,
+  .hud-btn {
+    clip-path: none;
+  }
+  .hud-panel__inner {
+    background: #fff;
+  }
+}

@@ -1,33 +1,40 @@
 "use client";
 
 import {
-  AlertCircle,
+  Boxes,
   CheckCircle2,
+  Info,
+  Loader2,
   Paperclip,
   Plus,
   Save,
   Send,
   Trash2,
-  X,
+  Warehouse,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card, CardBody } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
-import { formatCurrency, formatDate, formatFileSize, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { validateItem, type FieldErrors } from "@/lib/validation";
 import {
-  ALLOWED_ATTACHMENT_EXTENSIONS,
   ALLOWED_ATTACHMENT_MIME_TYPES,
   MAX_ATTACHMENTS_PER_REQUEST,
   MAX_ATTACHMENT_SIZE_BYTES,
 } from "@/lib/attachment-rules";
 import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
 import { MaterialCombobox } from "./MaterialCombobox";
+import { AttachmentDropzone } from "./hud/AttachmentDropzone";
+import { HudHeader } from "./hud/HudHeader";
+import { HudPanel } from "./hud/HudPanel";
+import { OrderTelemetry } from "./hud/OrderTelemetry";
+import { WorkflowStrip, type StepState } from "./hud/WorkflowStrip";
+import "./hud/hud.css";
 
 interface DepartmentOption {
   id: string;
@@ -83,7 +90,6 @@ export function MaterialRequestForm() {
   } | null>(null);
   const createRequest = useRequestStore((s) => s.createRequest);
   const resubmitDepartment = useRequestStore((s) => s.resubmitDepartment);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const restoredRef = useRef(false);
   const draftFoundRef = useRef(false);
   const prefilledRef = useRef(false);
@@ -443,55 +449,88 @@ export function MaterialRequestForm() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <CardTitle>{isEditMode ? "Захиалгыг засварлаж дахин илгээх" : "Маягт №1 — Материалын захиалгын хуудас"}</CardTitle>
-            {urgent && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger">
-                Яаралтай
-              </span>
-            )}
-          </div>
-          <span className="text-xs text-text-muted">
-            Огноо: <span suppressHydrationWarning>{formatDate(new Date())}</span>
-          </span>
-        </CardHeader>
-        <CardBody>
-          <div className="max-w-xs">
-            <Field label="Захиалгын чиглэл">
-              <div className="flex h-9 items-center rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text-muted">
-                {departments.find((d) => d.id === departmentId)?.type === "OFFICE" ? "Оффис" : "Үйлдвэр"}
-                <span className="ml-1.5 text-xs text-text-muted/70">(цехийн ангиллаар автоматаар тодорхойлогдоно)</span>
-              </div>
-            </Field>
-          </div>
-        </CardBody>
-      </Card>
+  // --- HUD view-model: everything below is derived from the form state above ---
+  const isOffice = departments.find((d) => d.id === departmentId)?.type === "OFFICE";
+  const materialCount = rows.filter((r) => r.materialName.trim()).length;
+  const totalQty = rows.reduce((sum, r) => sum + (typeof r.requestedQuantity === "number" ? r.requestedQuantity : 0), 0);
+  const touched = rows.some((r) => r.materialName.trim() || r.unit.trim() || r.requestedQuantity !== "");
+  const rowsComplete = rows.every(
+    (r) => r.materialName.trim() && r.unit.trim() && typeof r.requestedQuantity === "number" && r.requestedQuantity > 0
+  );
+  const filledFields = rows.reduce(
+    (sum, r) =>
+      sum +
+      (r.materialName.trim() ? 1 : 0) +
+      (r.unit.trim() ? 1 : 0) +
+      (typeof r.requestedQuantity === "number" && r.requestedQuantity > 0 ? 1 : 0),
+    0
+  );
+  const progress = Math.round((filledFields / (rows.length * 3)) * 100);
+  const existingAttachmentCount = isEditMode ? editRequest?.attachments.length ?? 0 : 0;
+  const hasAttachments = attachments.length + existingAttachmentCount > 0;
+  const stepStates: [StepState, StepState, StepState, StepState] = [
+    touched ? "done" : "active",
+    !touched ? "todo" : rowsComplete ? "done" : "active",
+    hasAttachments ? "done" : "todo",
+    touched && rowsComplete ? "active" : "todo",
+  ];
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Захиалах материал</CardTitle>
-          <Button variant="secondary" size="sm" onClick={addRow}>
-            <Plus className="size-3.5" />
-            Мөр нэмэх
-          </Button>
-        </CardHeader>
+  return (
+    <div className="hud-form -mx-4 -mt-4 min-h-[calc(100vh-4rem)] max-w-[100vw] space-y-4 overflow-x-clip px-4 pb-6 pt-4 sm:-mx-6 sm:px-6">
+      <HudHeader
+        title={isEditMode ? "Захиалгыг засварлаж дахин илгээх" : "Шинэ материалын захиалга"}
+        subtitle="Маягт №1 — Материалын захиалгын хуудас"
+        dateLabel={formatDate(new Date())}
+        statusLabel={isEditMode ? "Засвар" : "Ноорог"}
+        urgent={urgent}
+      />
+
+      <WorkflowStrip states={stepStates} />
+
+      <OrderTelemetry
+        directionLabel={isOffice ? "Оффис" : "Үйлдвэр"}
+        isOffice={!!isOffice}
+        materialCount={materialCount}
+        totalQuantity={new Intl.NumberFormat("mn-MN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalQty)}
+        totalPriceLabel={formatCurrency(total)}
+        priceKnown={total !== null}
+        progress={progress}
+      />
+
+      <HudPanel chamfer={16} innerClassName="pb-2">
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 items-center justify-center rounded-lg border border-accent/50 bg-accent/10 text-accent">
+              <Boxes className="size-5" />
+            </span>
+            <h2 className="text-lg font-semibold text-text">Захиалах материал</h2>
+          </div>
+          <span className="hud-glow">
+            <button type="button" onClick={addRow} className="hud-btn hud-btn--outline-amber">
+              <Plus className="size-4" />
+              Мөр нэмэх
+            </button>
+          </span>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] border-collapse text-base">
+          <table className="hud-table w-full min-w-[1200px] border-collapse text-base">
             <thead>
-              <tr className="border-b border-border text-left text-sm text-text-muted">
-                <th className="w-12 px-4 py-3.5 font-medium">№</th>
-                <th className="min-w-[360px] px-3 py-3.5 text-base font-semibold text-text">Захиалах сэлбэг, материалын нэр</th>
-                <th className="w-32 px-3 py-3.5 font-medium">Агуулахын үлдэгдэл</th>
-                <th className="w-24 px-3 py-3.5 font-medium">Хэмжих нэгж</th>
-                <th className="w-28 px-3 py-3.5 font-medium">Тоо</th>
-                <th className="w-32 px-3 py-3.5 font-medium">Нэгж үнэ</th>
-                <th className="w-32 px-3 py-3.5 font-medium">Бүгд үнэ</th>
-                <th className="min-w-[160px] px-3 py-3.5 font-medium">Тайлбар</th>
-                <th className="w-10 px-3 py-3.5" />
+              <tr className="border-y border-tech/25 bg-tech/[0.04] text-left text-sm text-text-muted">
+                <th className="w-14 px-3 py-3 font-medium">№</th>
+                <th className="min-w-[300px] px-2 py-3 text-base font-semibold text-text">
+                  Захиалах сэлбэг, материалын нэр <span className="text-accent">*</span>
+                </th>
+                <th className="w-[8.5rem] px-2 py-3 font-medium">Агуулахын үлдэгдэл</th>
+                <th className="w-32 px-2 py-3 font-medium">Хэмжих нэгж</th>
+                <th className="w-36 px-2 py-3 font-medium">
+                  Тоо хэмжээ <span className="text-accent">*</span>
+                </th>
+                <th className="w-40 px-2 py-3 font-medium">Нэгж үнэ</th>
+                <th className="w-36 px-2 py-3 font-medium">Бүгд үнэ</th>
+                <th className="min-w-[200px] px-2 py-3 font-medium">Тайлбар</th>
+                <th className="w-14 px-2 py-3">
+                  <span className="sr-only">Устгах</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -499,15 +538,19 @@ export function MaterialRequestForm() {
                 const rowErrors = errors[row.id] ?? {};
                 const qty = typeof row.requestedQuantity === "number" ? row.requestedQuantity : 0;
                 const price = typeof row.unitPrice === "number" ? row.unitPrice : null;
-                const shortfall =
-                  row.warehouseBalance !== null && qty > row.warehouseBalance;
+                const shortfall = row.warehouseBalance !== null && qty > row.warehouseBalance;
                 return (
-                  <tr key={row.id} className="border-b border-border/60 align-top last:border-0">
-                    <td className="px-4 py-4 text-text-muted">{idx + 1}</td>
-                    <td className="px-3 py-4">
+                  <tr key={row.id} className="hud-row align-top">
+                    <td className="px-3 py-3.5">
+                      <span className="flex size-9 items-center justify-center rounded-md border border-tech/30 bg-bg/60 text-sm font-semibold tabular-nums text-text">
+                        {idx + 1}
+                      </span>
+                    </td>
+                    <td className="px-2 py-3.5">
                       <MaterialCombobox
                         value={row.materialName}
                         materials={materials}
+                        invalid={!!rowErrors.materialName}
                         onSelect={(m) => onMaterialSelect(row.id, m)}
                         onManualChange={(name) =>
                           updateRow(row.id, { materialName: name, materialId: null, warehouseBalance: null })
@@ -515,69 +558,96 @@ export function MaterialRequestForm() {
                       />
                       {rowErrors.materialName && <FieldError>{rowErrors.materialName}</FieldError>}
                     </td>
-                    <td className="px-3 py-4 text-text-muted">
-                      {row.warehouseBalance !== null ? (
-                        <span className={shortfall ? "font-medium text-warning" : ""}>
-                          {formatNumber(row.warehouseBalance)}
-                        </span>
-                      ) : (
-                        <span className="text-text-muted/60">—</span>
-                      )}
+                    <td className="px-2 py-3.5">
+                      <div
+                        className={`flex h-11 items-center justify-center gap-1.5 rounded-lg border px-2 text-sm tabular-nums ${
+                          shortfall
+                            ? "border-warning/60 bg-warning/10 font-semibold text-warning"
+                            : "border-tech/20 bg-bg/60 text-text-muted"
+                        }`}
+                        title={shortfall ? "Агуулахын үлдэгдэл хүрэлцэхгүй" : undefined}
+                      >
+                        {row.warehouseBalance !== null ? (
+                          <>
+                            <Warehouse className="size-3.5" />
+                            {formatNumber(row.warehouseBalance)}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3.5">
                       <input
                         value={row.unit}
+                        list="hud-units"
+                        aria-label="Хэмжих нэгж"
+                        aria-invalid={!!rowErrors.unit || undefined}
                         onChange={(e) => updateRow(row.id, { unit: e.target.value })}
                         placeholder="тн, м³..."
-                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text placeholder:text-text-muted"
+                        className="hud-input"
                       />
                       {rowErrors.unit && <FieldError>{rowErrors.unit}</FieldError>}
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3.5">
                       <input
                         type="number"
                         min={0}
                         step="any"
+                        aria-label="Тоо хэмжээ"
+                        aria-invalid={!!rowErrors.requestedQuantity || undefined}
+                        placeholder="0.00"
                         value={row.requestedQuantity}
                         onChange={(e) =>
                           updateRow(row.id, {
                             requestedQuantity: e.target.value === "" ? "" : Number(e.target.value),
                           })
                         }
-                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text"
+                        className="hud-input"
                       />
                       {rowErrors.requestedQuantity && <FieldError>{rowErrors.requestedQuantity}</FieldError>}
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3.5">
                       <input
                         type="number"
                         min={0}
                         step="any"
+                        aria-label="Нэгж үнэ"
+                        aria-invalid={!!rowErrors.unitPrice || undefined}
                         value={row.unitPrice}
                         placeholder="Заавал биш"
                         onChange={(e) =>
                           updateRow(row.id, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })
                         }
-                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text placeholder:text-text-muted"
+                        className="hud-input"
                       />
                       {rowErrors.unitPrice && <FieldError>{rowErrors.unitPrice}</FieldError>}
                     </td>
-                    <td className="px-3 py-4 font-medium text-text">
-                      {formatCurrency(price === null ? null : qty * price)}
+                    <td className="px-2 py-3.5">
+                      <div
+                        className={`flex h-11 items-center text-base font-semibold tabular-nums ${
+                          price === null ? "text-accent" : "text-text"
+                        }`}
+                      >
+                        {formatCurrency(price === null ? null : qty * price)}
+                      </div>
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3.5">
                       <input
                         value={row.note}
+                        aria-label="Тайлбар"
+                        placeholder="Тайлбар оруулах..."
                         onChange={(e) => updateRow(row.id, { note: e.target.value })}
-                        className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-2.5 text-base text-text"
+                        className="hud-input"
                       />
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3.5">
                       <button
                         type="button"
                         onClick={() => removeRow(row.id)}
                         disabled={rows.length === 1}
-                        className="focus-ring rounded text-text-muted hover:text-danger disabled:opacity-30"
+                        aria-label={`${idx + 1}-р мөрийг устгах`}
+                        className="focus-ring flex size-11 items-center justify-center rounded-lg border border-danger/40 bg-danger/10 text-danger transition-colors hover:bg-danger/25 disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         <Trash2 className="size-5" />
                       </button>
@@ -586,116 +656,68 @@ export function MaterialRequestForm() {
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={6} className="px-3 py-4 text-right text-base font-medium text-text-muted">
-                  Нийт дүн
-                </td>
-                <td colSpan={3} className="px-3 py-4 text-lg font-semibold text-text">
-                  {formatCurrency(total)}
-                </td>
-              </tr>
-            </tfoot>
           </table>
+          <datalist id="hud-units">
+            {["ш", "кг", "тн", "л", "м", "м²", "м³", "багц", "комплект"].map((u) => (
+              <option key={u} value={u} />
+            ))}
+          </datalist>
         </div>
-      </Card>
+        <div className="flex justify-end px-4 pb-2 pt-3 sm:px-5">
+          <HudPanel tone="amber" chamfer={10} innerClassName="flex items-center gap-4 px-4 py-2 !bg-[linear-gradient(160deg,rgba(78,50,5,0.85),rgba(26,17,5,0.95))]">
+            <span className="text-sm font-medium text-text-muted">Нийт дүн</span>
+            <span
+              className={`text-xl font-bold tabular-nums ${total === null ? "text-accent" : "text-text"} [text-shadow:0_0_14px_rgba(255,170,0,0.55)]`}
+            >
+              {formatCurrency(total)}
+            </span>
+          </HudPanel>
+        </div>
+      </HudPanel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Хавсралт (заавал биш)</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-3">
-          <p className="text-xs text-text-muted">
-            JPG, PNG, WEBP, PDF, XLSX, DOCX · файл тус бүр 10 MB хүртэл · нэг захиалгад {MAX_ATTACHMENTS_PER_REQUEST} файл хүртэл
-          </p>
+      <section aria-labelledby="hud-attach-title" className="space-y-2">
+        <h2 id="hud-attach-title" className="flex items-center gap-2 text-lg font-semibold text-text">
+          <Paperclip className="size-5 text-accent" />
+          Хавсралт <span className="text-sm font-normal text-text-muted">(заавал биш)</span>
+        </h2>
+        <AttachmentDropzone
+          files={attachments}
+          existing={
+            isEditMode && editRequest
+              ? editRequest.attachments.map((a) => ({
+                  id: a.id,
+                  fileName: a.fileName,
+                  sizeBytes: a.sizeBytes,
+                  href: `/api/requests/${editRequest.id}/attachments/${a.id}`,
+                }))
+              : []
+          }
+          onSelect={onFilesSelected}
+          onRemove={(i) => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+        />
+      </section>
 
-          {isEditMode && editRequest && editRequest.attachments.length > 0 && (
-            <ul className="space-y-1.5">
-              {editRequest.attachments.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs"
-                >
-                  <a
-                    href={`/api/requests/${editRequest.id}/attachments/${a.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="focus-ring truncate text-text underline decoration-dotted hover:text-accent"
-                  >
-                    {a.fileName}
-                  </a>
-                  <span className="shrink-0 text-text-muted">{formatFileSize(a.sizeBytes)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={ALLOWED_ATTACHMENT_EXTENSIONS}
-            className="hidden"
-            onChange={(e) => {
-              onFilesSelected(Array.from(e.target.files ?? []));
-              e.target.value = "";
-            }}
-          />
-          <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Paperclip className="size-3.5" />
-            Файл хавсаргах
-          </Button>
-          {attachments.length > 0 && (
-            <ul className="space-y-1.5">
-              {attachments.map((f, i) => (
-                <li
-                  key={`${f.name}-${i}`}
-                  className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs"
-                >
-                  <span className="truncate text-text">
-                    {f.name} <span className="text-text-muted">({formatFileSize(f.size)})</span>
-                  </span>
-                  <button
-                    onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="focus-ring text-text-muted hover:text-danger"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardBody>
-      </Card>
-
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-bg-surface p-4">
-        <div className="flex items-center gap-2 text-xs text-text-muted">
-          <AlertCircle className="size-3.5" />
+      <HudPanel chamfer={18} className="sticky bottom-20 z-30 md:bottom-3" innerClassName="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5 !bg-[linear-gradient(160deg,rgba(14,38,54,0.98),rgba(6,18,28,0.99))]">
+        <div className="flex items-center gap-2 text-sm text-text-muted">
+          <Info className="size-4 shrink-0 text-tech" />
           Илгээхийн өмнө бүх мөрийг шалгана уу. Илгээсний дараа цехийн дарга баталгаажуулна.
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
           {!isEditMode && (
-            <Button variant="secondary" onClick={saveDraft}>
+            <button type="button" onClick={saveDraft} className="hud-btn hud-btn--secondary">
               <Save className="size-4" />
               Ноорог хадгалах
-            </Button>
+            </button>
           )}
-          <Button onClick={submit} loading={submitting} disabled={submitting}>
-            <Send className="size-4" />
-            {isEditMode ? "Дахин илгээх" : "Илгээх"}
-          </Button>
+          <span className="hud-glow">
+            <button type="button" onClick={submit} disabled={submitting} aria-busy={submitting} className="hud-btn hud-btn--primary min-w-[9.5rem]">
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              {isEditMode ? "Дахин илгээх" : "Илгээх"}
+            </button>
+          </span>
         </div>
-      </div>
+      </HudPanel>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-medium text-text-muted">{label}</span>
-      {children}
-    </label>
   );
 }
 
