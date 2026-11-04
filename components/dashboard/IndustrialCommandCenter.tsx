@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import Crosshair from "@/components/ui/Crosshair";
 import StrokeText from "@/components/ui/StrokeText";
 import {
+  Archive,
   BarChart3,
   ClipboardCheck,
   ListChecks,
@@ -41,6 +42,7 @@ const IMAGE_HOTSPOTS: Record<string, { leftPct: number; topPct: number }> = {
   "/approvals": { leftPct: 56.8, topPct: 27.6 }, // Батлах төв -- дээврийн skylight
   "/requests": { leftPct: 73.6, topPct: 61.6 }, // Хангамж -- ачааны буудал
   "/reports": { leftPct: 82.5, topPct: 17.0 }, // Тайлан -- яндан/силос
+  "/archive": { leftPct: 17.0, topPct: 84.0 }, // Архив -- зүүн доод конейнерын талбай
 };
 
 export interface CommandCenterTile {
@@ -58,6 +60,7 @@ export const COMMAND_CENTER_TILES: CommandCenterTile[] = [
   { href: "/approvals", label: "Батлах төв", short: "Батлах", icon: ClipboardCheck, badgeKey: "pendingApproval" },
   { href: "/warehouses", label: "Агуулахын төв", short: "Агуулах", icon: Warehouse },
   { href: "/reports", label: "Тайлангийн төв", short: "Тайлан", icon: BarChart3 },
+  { href: "/archive", label: "Захиалгын архив", short: "Архив", icon: Archive },
   { href: "/admin", label: "Удирдлагын төв", short: "Админ", icon: ShieldCheck },
 ];
 

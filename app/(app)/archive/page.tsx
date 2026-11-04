@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { useRequestStore } from "@/lib/store";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import type { MaterialRequestView } from "@/lib/types";
 
 const columns: DataTableColumn<MaterialRequestView>[] = [
@@ -47,15 +48,45 @@ const columns: DataTableColumn<MaterialRequestView>[] = [
   },
 ];
 
+const APPROVED_STATUSES = ["COMPLETED", "PARTIALLY_COMPLETED"];
+const REJECTED_STATUSES = ["CANCELLED"];
+
+const FILTERS = [
+  { key: "all", label: "Бүгд", statuses: [...APPROVED_STATUSES, ...REJECTED_STATUSES] },
+  { key: "approved", label: "Батлагдсан", statuses: APPROVED_STATUSES },
+  { key: "rejected", label: "Цуцалсан", statuses: REJECTED_STATUSES },
+] as const;
+
 export default function ArchivePage() {
   const router = useRouter();
   const requests = useRequestStore((s) => s.requests);
-  const archived = requests.filter((r) => ["COMPLETED", "CANCELLED", "PARTIALLY_COMPLETED"].includes(r.status));
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
+  const active = FILTERS.find((f) => f.key === filter)!;
+  const archived = requests.filter((r) => (active.statuses as readonly string[]).includes(r.status));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">Захиалгын архив</h2>
+      </div>
+
+      <div className="flex gap-2">
+        {FILTERS.map((f) => {
+          const count = requests.filter((r) => (f.statuses as readonly string[]).includes(r.status)).length;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(f.key)}
+              className={cn(
+                "focus-ring rounded-lg border px-3 py-1.5 text-sm",
+                filter === f.key ? "border-accent bg-accent/10 text-accent" : "border-border text-text-muted hover:text-text"
+              )}
+            >
+              {f.label} <span className="text-xs opacity-70">{count}</span>
+            </button>
+          );
+        })}
       </div>
 
       <Card>
@@ -64,7 +95,7 @@ export default function ArchivePage() {
           columns={columns}
           getRowId={(r) => r.id}
           onRowClick={(r) => router.push(`/requests/${r.id}`)}
-          emptyTitle="Дууссан захиалга алга"
+          emptyTitle="Архивт захиалга алга"
         />
       </Card>
     </div>
