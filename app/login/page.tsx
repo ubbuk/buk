@@ -48,88 +48,63 @@ function LoginForm() {
 
   return (
     <main className="lg-root">
-      {/* small screens: the factory is only a dimmed backdrop (CSS) */}
-      <div className="lg-backdrop" aria-hidden="true" />
-
-      {/* desktop: one 16:9 stage holds the picture, the branding and the card in a single coordinate system */}
-      <div className="lg-stage">
-        <div className="lg-art" aria-hidden="true">
-          <div className="lg-holo" />
-          <div className="lg-dim">
-            <span>Ø1000</span>
-          </div>
-          <div className="lg-dust" />
+      <section className="lg-card" aria-labelledby="login-title">
+        <div className="lg-card-head">
+          <Image src="/images/ubbuk-logo-mark.webp" alt="" width={120} height={102} priority className="lg-card-mark" />
+          <h1 id="login-title" className="lg-card-title">Улаанбаатар БҮК ХК</h1>
+          <p className="lg-card-sub">Худалдан авалтын систем рүү нэвтрэх</p>
         </div>
 
-        <header className="lg-brand">
-          <div className="lg-brand-row">
-            <Image src="/images/ubbuk-logo-mark.webp" alt="" width={120} height={102} priority className="lg-brand-mark" />
-            <h1 className="lg-wordmark">
-              <span>Улаанбаатар</span> <span>БҮК ХК</span>
-            </h1>
-          </div>
-          <div className="lg-rule" />
-          <p className="lg-tagline">Худалдан авалтын систем рүү нэвтрэх</p>
-        </header>
+        <form onSubmit={handleSubmit}>
+          <label className="lg-field">
+            <span className="lg-sr">Хэрэглэгчийн и-мэйл</span>
+            <User className="lg-icon" aria-hidden="true" />
+            <input
+              type="email"
+              required
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Хэрэглэгчийн и-мэйл"
+              className="lg-input"
+            />
+          </label>
+          <label className="lg-field">
+            <span className="lg-sr">Нууц үг</span>
+            <Lock className="lg-icon" aria-hidden="true" />
+            <input
+              type={showPassword ? "text" : "password"}
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Нууц үг"
+              className="lg-input"
+            />
+            <button
+              type="button"
+              className="lg-eye"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Нууц үгийг нуух" : "Нууц үгийг харуулах"}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? <EyeOff /> : <Eye />}
+            </button>
+          </label>
 
-        <section className="lg-card" aria-labelledby="login-title">
-          <div className="lg-card-head">
-            <Image src="/images/ubbuk-logo-mark.webp" alt="" width={120} height={102} className="lg-card-mark" />
-            <h2 id="login-title" className="lg-card-title">Улаанбаатар БҮК ХК</h2>
-            <p className="lg-card-sub">Худалдан авалтын систем рүү нэвтрэх</p>
-          </div>
+          {error && (
+            <p role="alert" className="lg-error">
+              {error}
+            </p>
+          )}
 
-            <form onSubmit={handleSubmit}>
-              <label className="lg-field">
-                <span className="lg-sr">Хэрэглэгчийн и-мэйл</span>
-                <User className="lg-icon" aria-hidden="true" />
-                <input
-                  type="email"
-                  required
-                  autoComplete="username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Хэрэглэгчийн и-мэйл"
-                  className="lg-input"
-                />
-              </label>
-              <label className="lg-field">
-                <span className="lg-sr">Нууц үг</span>
-                <Lock className="lg-icon" aria-hidden="true" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Нууц үг"
-                  className="lg-input"
-                />
-                <button
-                  type="button"
-                  className="lg-eye"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "Нууц үгийг нуух" : "Нууц үгийг харуулах"}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? <EyeOff /> : <Eye />}
-                </button>
-              </label>
-
-              {error && (
-                <p role="alert" className="lg-error">
-                  {error}
-                </p>
-              )}
-
-              <button type="submit" className="lg-submit" disabled={loading} aria-busy={loading}>
-                {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-                Нэвтрэх
-                {!loading && <ArrowRight aria-hidden="true" />}
-              </button>
-            </form>
-        </section>
-      </div>
+          <button type="submit" className="lg-submit" disabled={loading} aria-busy={loading}>
+            {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+            Нэвтрэх
+            {!loading && <ArrowRight aria-hidden="true" />}
+          </button>
+        </form>
+      </section>
     </main>
   );
 }
