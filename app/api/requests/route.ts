@@ -4,8 +4,8 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { canCreateRequestForDepartment, departmentHeadError } from "@/lib/department-access";
-import { isRequestHiddenFrom } from "@/lib/request-visibility";
-import { requestInclude, serializeRequest } from "@/lib/serialize";
+import { isRequestHiddenFrom, requestScopeWhere } from "@/lib/request-visibility";
+import { requestInclude, requestListSelect, serializeRequest } from "@/lib/serialize";
 import { apiCreateRequestSchema } from "@/lib/validation";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { withTiming } from "@/lib/api-timing";
@@ -19,8 +19,11 @@ export const GET = withTiming("GET /api/requests", async () => {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
+  // requestScopeWhere is the coarse DB-side cut of isRequestHiddenFrom (covered by security.test.ts), so
+  // EMPLOYEE / BOSS stop loading every request in the company; the exact check below still decides.
   const all = await prisma.materialRequest.findMany({
-    include: requestInclude,
+    where: requestScopeWhere(session.user.id, session.user.role),
+    select: requestListSelect,
     orderBy: { createdAt: "desc" },
   });
   const requests = all.filter((r) => !isRequestHiddenFrom(r, session.user.id, session.user.role));

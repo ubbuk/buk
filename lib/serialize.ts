@@ -29,22 +29,30 @@ function decOrNull(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value);
 }
 
-type ItemWithMaterial = MaterialRequestItem & {
-  material: Material | null;
-  warehouseCheckItems: WarehouseCheckItem[];
+// Structural on purpose: serializeRequest only reads these fields, so the list endpoint can load
+// exactly them (requestListSelect) while the detail/workflow paths keep passing full rows.
+type ItemWithMaterial = Pick<
+  MaterialRequestItem,
+  "id" | "lineNo" | "materialId" | "manualMaterialName" | "warehouseBalanceAtRequest" | "unit" | "requestedQuantity" | "unitPrice" | "totalPrice" | "note"
+> & {
+  material: Pick<Material, "name"> | null;
+  warehouseCheckItems: Pick<WarehouseCheckItem, "allocatedQuantity" | "missingQuantity">[];
 };
-type StepWithUser = ApprovalStep & {
-  assignedUser: User | null;
-  actions: (ApprovalAction & { actor: User })[];
+type StepWithUser = Pick<ApprovalStep, "type" | "status" | "assignedUserId" | "decidedAt" | "comment"> & {
+  assignedUser: Pick<User, "name"> | null;
+  actions: (Pick<ApprovalAction, "documentHash"> & { actor: Pick<User, "role"> })[];
 };
-type AccountingRecordWithUser = AccountingRecord & { recordedBy: User };
+type AccountingRecordWithUser = Pick<AccountingRecord, "ledgerNumber" | "recordDate" | "note" | "recordedAt"> & { recordedBy: Pick<User, "name"> };
 // storageKey is deliberately left out of requestInclude's attachment
 // select below -- the client never needs it, every download goes through
 // the authenticated route instead.
 type AttachmentMeta = Pick<Attachment, "id" | "fileName" | "mimeType" | "sizeBytes" | "uploadedAt" | "uploadedById">;
-type RequestWithRelations = MaterialRequest & {
-  department: Department;
-  requestedBy: User;
+type RequestWithRelations = Pick<
+  MaterialRequest,
+  "id" | "requestNumber" | "createdAt" | "completedAt" | "departmentId" | "requestedById" | "status" | "version" | "note"
+> & {
+  department: Pick<Department, "name" | "type" | "headId">;
+  requestedBy: Pick<User, "name">;
   items: ItemWithMaterial[];
   approvalSteps: StepWithUser[];
   attachments: AttachmentMeta[];
@@ -171,4 +179,50 @@ export const requestInclude = {
   approvalSteps: { include: { assignedUser: true, actions: { include: { actor: true }, orderBy: { createdAt: "desc" as const }, take: 1 } } },
   attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true } },
   accountingRecord: { include: { recordedBy: true } },
+} as const;
+
+// What GET /api/requests loads: the fields serializeRequest reads plus those isRequestHiddenFrom needs
+// (decidedById) -- not whole User/Material/Department rows (passwordHash, prices, ...) per step and item.
+export const requestListSelect = {
+  id: true,
+  requestNumber: true,
+  createdAt: true,
+  completedAt: true,
+  departmentId: true,
+  requestedById: true,
+  status: true,
+  version: true,
+  note: true,
+  department: { select: { name: true, type: true, headId: true } },
+  requestedBy: { select: { name: true } },
+  items: {
+    select: {
+      id: true,
+      lineNo: true,
+      materialId: true,
+      manualMaterialName: true,
+      warehouseBalanceAtRequest: true,
+      unit: true,
+      requestedQuantity: true,
+      unitPrice: true,
+      totalPrice: true,
+      note: true,
+      material: { select: { name: true } },
+      warehouseCheckItems: { select: { allocatedQuantity: true, missingQuantity: true } },
+    },
+  },
+  approvalSteps: {
+    select: {
+      type: true,
+      status: true,
+      assignedUserId: true,
+      decidedById: true,
+      decidedAt: true,
+      comment: true,
+      assignedUser: { select: { name: true } },
+      actions: { select: { documentHash: true, actor: { select: { role: true } } }, orderBy: { createdAt: "desc" as const }, take: 1 },
+    },
+  },
+  attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true } },
+  accountingRecord: { select: { ledgerNumber: true, recordDate: true, note: true, recordedAt: true, recordedBy: { select: { name: true } } } },
 } as const;

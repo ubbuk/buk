@@ -267,6 +267,8 @@ model WarehouseCheckItem {
   requestItem    MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
 
   @@unique([warehouseCheckId, requestItemId])
+  // "latest warehouse check of an item" filters by requestItemId alone (procurement workload/monitoring)
+  @@index([requestItemId])
 }
 
 enum ReservationStatus {
