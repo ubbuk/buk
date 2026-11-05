@@ -35,6 +35,9 @@ enum ApprovalPosition {
   EXECUTIVE_DIRECTOR
   STOREKEEPER_LEAD
   CHIEF_ACCOUNTANT_LEAD
+  // Stage 7 responsibilities (both held by users with the MANAGER role).
+  DOMESTIC_PROCUREMENT_MANAGER
+  INTERNATIONAL_PROCUREMENT_MANAGER
 }
 
 model User {
@@ -64,6 +67,10 @@ model User {
   approvalAssignments     ApprovalRoleAssignment[]
   attachments             Attachment[]
   approvalPinCredential   ApprovalPinCredential?
+  procurementPurchases    ProcurementPurchase[] @relation("PurchaseBy")
+  procurementVoids        ProcurementPurchase[] @relation("PurchaseVoidedBy")
+  procurementAssignments  ProcurementItemAssignment[] @relation("ProcurementAssignee")
+  procurementClassifications ProcurementClassification[] @relation("ClassificationConfirmedBy")
 
   @@index([departmentId])
 }
@@ -163,6 +170,7 @@ enum RequestStatus {
   RETURNED_BY_FINANCE
   PENDING_EXECUTIVE_APPROVAL
   RETURNED_BY_EXECUTIVE
+  PENDING_PROCUREMENT
   PENDING_ACCOUNTING
   ACCOUNTING_COMPLETED
   PARTIALLY_COMPLETED
@@ -199,6 +207,7 @@ model MaterialRequest {
   attachments      Attachment[]
   notifications    Notification[]
   accountingRecord AccountingRecord?
+  procurementClassification ProcurementClassification?
 
   @@index([departmentId])
   @@index([requestedById])
@@ -224,6 +233,8 @@ model MaterialRequestItem {
   material           Material?            @relation(fields: [materialId], references: [id])
   warehouseCheckItems WarehouseCheckItem[]
   reservations        StockReservation[]
+  purchases           ProcurementPurchase[]
+  procurementAssignment ProcurementItemAssignment?
 
   @@unique([requestId, lineNo])
   @@index([materialId])
@@ -300,6 +311,7 @@ enum ApprovalStepType {
   BRANCH_APPROVAL
   FINANCE_APPROVAL
   EXECUTIVE_APPROVAL
+  MANAGER_PROCUREMENT
   ACCOUNTING_RECORD
 }
 
@@ -353,6 +365,73 @@ model ApprovalAction {
   @@index([createdAt])
 }
 
+// Stage 7 (Manager procurement): one row per purchase of an outstanding
+// request item. Append-only -- a mistake is corrected by voiding the row (it is
+// kept, with who/when/why) and, for a changed quantity or price, recording a
+// replacement that points back at it via `replacesId`. The purchased quantity
+// of an item is the sum over its non-voided rows; "item is fully purchased" is
+// derived from that against the warehouse shortfall, never stored as a flag.
+// `clientRequestId` makes a retried submission idempotent.
+model ProcurementPurchase {
+  id              String    @id @default(cuid())
+  requestItemId   String
+  quantity        Decimal   @db.Decimal(14, 3)
+  unitPrice       Decimal   @db.Decimal(14, 2)
+  note            String?
+  clientRequestId String?
+  purchasedById   String
+  purchasedAt     DateTime  @default(now())
+  replacesId      String?   @unique
+  voidedAt        DateTime?
+  voidedById      String?
+  voidReason      String?
+
+  requestItem MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
+  purchasedBy User                 @relation("PurchaseBy", fields: [purchasedById], references: [id])
+  voidedBy    User?                @relation("PurchaseVoidedBy", fields: [voidedById], references: [id])
+  replaces    ProcurementPurchase? @relation("PurchaseCorrection", fields: [replacesId], references: [id])
+  replacedBy  ProcurementPurchase? @relation("PurchaseCorrection")
+
+  @@unique([requestItemId, clientRequestId])
+  @@index([requestItemId, voidedAt])
+  @@index([purchasedAt])
+}
+
+// Stage 7 coordination. When a request reaches procurement the International
+// manager (ApprovalPosition INTERNATIONAL_PROCUREMENT_MANAGER) confirms, once,
+// which of its outstanding items are bought abroad; every other outstanding item
+// goes to the Domestic manager. `ProcurementClassification` records who confirmed
+// and when (one per request); `ProcurementItemAssignment` is the per-item
+// classification and its responsible manager. Items fully covered by the
+// warehouse never get an assignment. Reassigning is a separate audited action
+// (AuditLog PROCUREMENT_REASSIGN, with the reason) -- never a silent update.
+enum ProcurementKind {
+  DOMESTIC
+  INTERNATIONAL
+}
+
+model ProcurementClassification {
+  requestId     String   @id
+  confirmedById String
+  confirmedAt   DateTime @default(now())
+
+  request     MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  confirmedBy User            @relation("ClassificationConfirmedBy", fields: [confirmedById], references: [id])
+}
+
+model ProcurementItemAssignment {
+  requestItemId     String          @id
+  kind              ProcurementKind
+  assignedManagerId String
+  assignedAt        DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  requestItem     MaterialRequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  assignedManager User                @relation("ProcurementAssignee", fields: [assignedManagerId], references: [id])
+
+  @@index([assignedManagerId])
+}
+
 // Stage 7 output -- Chief Accountant's financial record of a fully
 // approved request. Terminal: this is a data-entry action, not an
 // approve/reject decision, so it carries no ApprovalAction row.
@@ -391,6 +470,7 @@ enum NotificationType {
   REQUEST_APPROVED
   WAREHOUSE_CHECK_NEEDED
   REQUEST_COMPLETED
+  PROCUREMENT_REQUIRED
   GENERIC
 }
 
@@ -433,6 +513,11 @@ enum AuditAction {
   ATTACHMENT_UPLOAD
   VIEW_MONITORING
   MONITORING_ACCESS_DENIED
+  PROCUREMENT_PURCHASE
+  PROCUREMENT_VOID
+  PROCUREMENT_COMPLETE
+  PROCUREMENT_CLASSIFY
+  PROCUREMENT_REASSIGN
 }
 
 model AuditLog {

@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getAttachmentFile } from "@/lib/attachments";
+import { prisma } from "@/lib/prisma";
+import { isRequestHiddenFrom, visibilitySelect } from "@/lib/request-visibility";
 
 // Images and PDFs render inline (for preview); everything else downloads —
 // matches how browsers already treat these MIME types, no override needed
@@ -14,13 +16,17 @@ function contentDisposition(disposition: "inline" | "attachment", fileName: stri
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string; attachmentId: string }> }) {
-  // Any authenticated user may view/download an attachment -- matches this
-  // app's existing precedent that any authenticated user can view any
-  // request (GET /api/requests has no per-row access filtering).
+  // An attachment is as visible as the request it belongs to (same rule as
+  // GET /api/requests/[id]): employees only get their own requests' files.
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
   const { id, attachmentId } = await params;
+  const request = await prisma.materialRequest.findUnique({ where: { id }, select: visibilitySelect });
+  if (!request || isRequestHiddenFrom(request, session.user.id, session.user.role)) {
+    return NextResponse.json({ error: "Хавсралт олдсонгүй" }, { status: 404 });
+  }
+
   const result = await getAttachmentFile(id, attachmentId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 

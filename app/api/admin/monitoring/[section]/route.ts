@@ -13,11 +13,17 @@ import {
   getReturned,
   parsePaging,
 } from "@/lib/monitoring/queries";
+import { parseThresholdHours } from "@/lib/monitoring/procurement-calc";
+import { getProcurementList, getProcurementOverview, getProcurementRequestDetail } from "@/lib/monitoring/procurement";
+import type { ProcurementFilter, ProcurementScope } from "@/lib/monitoring/procurement-types";
 import { parseRangeKey, resolveRange } from "@/lib/monitoring/time";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ section: string }> };
+
+const PROCUREMENT_SCOPES = new Set<ProcurementScope>(["active", "accounting", "completed"]);
+const PROCUREMENT_FILTERS = new Set<ProcurementFilter>(["all", "classification", "domestic", "international", "partial", "ready", "delayed"]);
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: NO_STORE });
@@ -63,6 +69,30 @@ export const GET = withTiming("GET /api/admin/monitoring", async (req: Request, 
             entityType: url.searchParams.get("entityType"),
           })
         );
+      // Procurement monitoring: read-only, same ADMIN/DIRECTOR guard and `asOf` convention as above.
+      case "procurement":
+        return json(await getProcurementOverview(range, asOf, parseThresholdHours(url.searchParams.get("thresholdHours"))));
+      case "procurement-requests": {
+        const scope = url.searchParams.get("scope") as ProcurementScope;
+        const filter = url.searchParams.get("filter") as ProcurementFilter;
+        return json(
+          await getProcurementList(asOf, {
+            scope: PROCUREMENT_SCOPES.has(scope) ? scope : "active",
+            filter: PROCUREMENT_FILTERS.has(filter) ? filter : "all",
+            q: url.searchParams.get("q")?.slice(0, 100) ?? undefined,
+            page,
+            pageSize,
+            thresholdHours: parseThresholdHours(url.searchParams.get("thresholdHours")),
+            range,
+          })
+        );
+      }
+      case "procurement-detail": {
+        const id = url.searchParams.get("id") ?? "";
+        if (!id || id.length > 64) return json({ error: "Олдсонгүй" }, 404);
+        const detail = await getProcurementRequestDetail(id, asOf, parseThresholdHours(url.searchParams.get("thresholdHours")));
+        return detail ? json(detail) : json({ error: "Энэ захиалга худалдан авалтын шатанд ороогүй байна" }, 404);
+      }
       default:
         return json({ error: "Олдсонгүй" }, 404);
     }

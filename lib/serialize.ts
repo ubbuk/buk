@@ -117,12 +117,17 @@ export function serializeAccountingRecord(record: AccountingRecordWithUser): Acc
   };
 }
 
-const STEP_ORDER = [
+// The workflow's effective order. Stored `sequence` is NOT authoritative for it: a request created
+// before the procurement stage existed has ACCOUNTING_RECORD at 6 and gets MANAGER_PROCUREMENT
+// appended at 7 when the CEO approves (existing rows are never renumbered). Anything that has to
+// know "which step comes first" must go by type through this list.
+export const STEP_ORDER = [
   "DEPARTMENT_HEAD",
   "WAREHOUSE_CHECK",
   "BRANCH_APPROVAL",
   "FINANCE_APPROVAL",
   "EXECUTIVE_APPROVAL",
+  "MANAGER_PROCUREMENT",
   "ACCOUNTING_RECORD",
 ];
 
@@ -140,6 +145,7 @@ export function serializeRequest(request: RequestWithRelations): MaterialRequest
     department: request.department.name,
     departmentId: request.departmentId,
     departmentType: request.department.type,
+    departmentHeadId: request.department.headId,
     requestedById: request.requestedById,
     requestedBy: request.requestedBy.name,
     status: request.status,

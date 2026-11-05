@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { invalidate } from "@/lib/cache";
+import { orphanableWork } from "@/lib/procurement-handover";
 import { USER_ROLES } from "@/lib/types";
 
 const patchSchema = z.object({
@@ -14,6 +15,8 @@ const patchSchema = z.object({
   title: z.string().trim().min(1).nullable().optional(),
   departmentId: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
+  // deliberate override when the person still holds unfinished procurement work (see below)
+  acknowledgeUnfinishedProcurement: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -28,6 +31,31 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
 
+  // Deactivating a procurement manager, or taking away the MANAGER role, would strand the
+  // items assigned to them (nobody else may buy them) and, for the International manager,
+  // the classification queue. Refuse unless the ADMIN explicitly acknowledges it; the
+  // safe path is the handover first (it works for an already inactive manager too).
+  const leavesWork = (parsed.data.isActive === false && user.isActive) || (parsed.data.role !== undefined && parsed.data.role !== "MANAGER" && user.role === "MANAGER");
+  let acknowledged: { items: number; requests: number; classification: number } | null = null;
+  if (leavesWork) {
+    const work = await orphanableWork(id);
+    if (work.items > 0 || work.classification > 0) {
+      if (!parsed.data.acknowledgeUnfinishedProcurement) {
+        return NextResponse.json(
+          {
+            error: `Энэ менежерт ${work.requests} захиалгын ${work.items} дуусаагүй материал${work.classification > 0 ? `, ${work.classification} ангилах захиалга` : ""} байна. Эхлээд «Дуусаагүй ажлыг шилжүүлэх» үйлдлийг хийнэ үү`,
+            code: "HANDOVER_REQUIRED",
+            affectedRequests: work.requests,
+            affectedItems: work.items,
+            pendingClassification: work.classification,
+          },
+          { status: 409 }
+        );
+      }
+      acknowledged = work;
+    }
+  }
+
   const updated = await prisma.user.update({
     where: { id },
     data: {
@@ -38,7 +66,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     },
   });
   await prisma.auditLog.create({
-    data: { entityType: "User", entityId: id, action: "UPDATE_USER", actorId: session.user.id },
+    data: {
+      entityType: "User",
+      entityId: id,
+      action: "UPDATE_USER",
+      actorId: session.user.id,
+      ...(acknowledged ? { afterJson: JSON.stringify({ acknowledgedUnfinishedProcurement: acknowledged }) } : {}),
+    },
   });
   invalidate(userSessionCacheKey(id));
 

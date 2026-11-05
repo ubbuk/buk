@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { CheckCircle2, PenLine, Receipt, ShieldAlert, Undo2, Warehouse } from "lucide-react";
+import { CheckCircle2, PenLine, Receipt, ShieldAlert, Undo2, Warehouse, ShoppingCart } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -19,6 +19,7 @@ import { AttachmentsPanel } from "@/components/workflow/AttachmentsPanel";
 import { MaterialDetailModal } from "@/components/workflow/MaterialDetailModal";
 import { PinModal } from "@/components/workflow/PinModal";
 import { ResubmitShortfallModal } from "@/components/workflow/ResubmitShortfallModal";
+import { isStepAssignedTo } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
 import { USER_ROLE_LABEL } from "@/lib/types";
 import { formatDateTime, formatNumber, formatPriceOrPending } from "@/lib/utils";
@@ -70,7 +71,7 @@ export default function RequestDetailPage() {
 
   const pendingStep = request.approvalSteps.find((s) => s.status === "PENDING");
   const hasAllocation = request.items.some((i) => i.allocatedQuantity !== undefined);
-  const isAuthorizedApprover = session?.user?.id === pendingStep?.assignedUserId;
+  const isAuthorizedApprover = !!pendingStep && isStepAssignedTo(request, pendingStep, session?.user?.id);
   const isRequester = session?.user?.id === request.requestedById;
   const canResubmit = isRequester && RETURNED_STATUSES.has(request.status);
   const canEditPrice = session?.user?.role === "MANAGER" && !TERMINAL_STATUSES.has(request.status);
@@ -216,7 +217,21 @@ export default function RequestDetailPage() {
             </Button>
           </Link>
         )}
-        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && pendingStep.type !== "ACCOUNTING_RECORD" && isAuthorizedApprover && (
+        {pendingStep && pendingStep.type === "MANAGER_PROCUREMENT" && (session?.user?.role === "MANAGER" || session?.user?.role === "ADMIN") && (
+          <Link href={`/procurement/${request.id}`}>
+            <Button>
+              <ShoppingCart className="size-4" />
+              Худалдан авалт
+            </Button>
+          </Link>
+        )}
+        {pendingStep && pendingStep.type === "MANAGER_PROCUREMENT" && session?.user?.role !== "MANAGER" && session?.user?.role !== "ADMIN" && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs text-text-muted">
+            <ShieldAlert className="size-3.5" />
+            Менежерийн худалдан авалт хийгдэж байна
+          </div>
+        )}
+        {pendingStep && pendingStep.type !== "WAREHOUSE_CHECK" && pendingStep.type !== "ACCOUNTING_RECORD" && pendingStep.type !== "MANAGER_PROCUREMENT" && isAuthorizedApprover && (
           <div className="flex gap-2">
             <Button variant="danger" onClick={() => setReturnOpen(true)} disabled={processing}>
               <Undo2 className="size-4" />
@@ -234,7 +249,7 @@ export default function RequestDetailPage() {
             </Button>
           </div>
         )}
-        {pendingStep && !isAuthorizedApprover && (
+        {pendingStep && pendingStep.type !== "MANAGER_PROCUREMENT" && !isAuthorizedApprover && (
           <div className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs text-text-muted">
             <ShieldAlert className="size-3.5" />
             Зөвхөн {pendingStep.assignedUserName} баталгаажуулах боломжтой

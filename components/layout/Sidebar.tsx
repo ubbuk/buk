@@ -11,6 +11,7 @@ import {
   Receipt,
   Settings,
   ShieldCheck,
+  ShoppingCart,
   Factory,
   Warehouse,
 } from "lucide-react";
@@ -18,7 +19,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useState } from "react";
+import { approvalQueueFor } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
+import { useProcurementBadge } from "@/lib/use-procurement-badge";
 
 const NAV_ITEMS = [
   { href: "/requests/new", label: "Шинэ захиалга", icon: FilePlus2 },
@@ -30,6 +33,7 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Тохиргоо", icon: Settings },
 ] as const;
 
+const PROCUREMENT_NAV_ITEM = { href: "/procurement", label: "Худалдан авалт", icon: ShoppingCart, badgeKey: "procurement" } as const;
 const ACCOUNTING_NAV_ITEM = { href: "/accounting", label: "Санхүүгийн бүртгэл", icon: Receipt, badgeKey: "accounting" } as const;
 const ADMIN_NAV_ITEM = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck } as const;
 
@@ -42,17 +46,18 @@ export function Sidebar() {
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const requests = useRequestStore((s) => s.requests);
+  const procurementBadge = useProcurementBadge(session?.user?.role, session?.user?.id);
 
   const badgeCounts: Record<string, number> = {
-    approvals: requests.filter(
-      (r) => r.approvalSteps.some((s) => s.status === "PENDING" && s.type !== "WAREHOUSE_CHECK")
-    ).length,
+    approvals: approvalQueueFor(requests, session?.user?.id, session?.user?.role).length,
     accounting: requests.filter((r) => r.status === "PENDING_ACCOUNTING").length,
+    procurement: procurementBadge,
   };
 
   const role = session?.user?.role;
   let navItems: readonly { href: string; label: string; icon: typeof FilePlus2; badgeKey?: string }[] =
     role === "EMPLOYEE" ? NAV_ITEMS.filter((item) => EMPLOYEE_NAV_HREFS.has(item.href)) : NAV_ITEMS;
+  if (role === "MANAGER" || role === "ADMIN") navItems = [...navItems, PROCUREMENT_NAV_ITEM];
   if (role === "CHIEF_ACCOUNTANT" || role === "ADMIN") navItems = [...navItems, ACCOUNTING_NAV_ITEM];
   if (role === "ADMIN") navItems = [...navItems, ADMIN_NAV_ITEM];
 

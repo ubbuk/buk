@@ -1,11 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Card } from "@/components/ui/Card";
 import { PrintButton } from "@/components/ui/PrintButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { approvalQueueFor } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
 import { APPROVAL_STEP_LABEL, type ApprovalStepView, type MaterialRequestView } from "@/lib/types";
 import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
@@ -67,12 +69,12 @@ const columns: DataTableColumn<Row>[] = [
 
 export default function ApprovalsPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const requests = useRequestStore((s) => s.requests);
   const loading = useRequestStore((s) => s.requestsLoading);
 
-  const queue: Row[] = requests
-    .map((r) => ({ ...r, pendingStep: r.approvalSteps.find((s) => s.status === "PENDING") }))
-    .filter((r): r is Row => r.pendingStep !== undefined && r.pendingStep.type !== "WAREHOUSE_CHECK");
+  // Only requests whose current step is waiting on this user (ADMIN sees all).
+  const queue: Row[] = approvalQueueFor(requests, session?.user?.id, session?.user?.role);
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,6 @@
 import { AuditAction, Prisma, type RequestStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { STEP_ORDER } from "@/lib/serialize";
 import { createdAtFilter, MONITORING_TZ, type Range } from "./time";
 import type {
   ActivityRow,
@@ -28,6 +29,7 @@ export const PENDING_STATUSES: RequestStatus[] = [
   "PENDING_BRANCH_APPROVAL",
   "PENDING_FINANCE_APPROVAL",
   "PENDING_EXECUTIVE_APPROVAL",
+  "PENDING_PROCUREMENT",
   "PENDING_ACCOUNTING",
 ];
 export const RETURNED_STATUSES: RequestStatus[] = [
@@ -41,7 +43,12 @@ export const COMPLETED_STATUSES: RequestStatus[] = ["COMPLETED", "ACCOUNTING_COM
 
 // Audit actions that move a request into a new status (see lib/workflow.ts and
 // app/api/requests/route.ts) -- the latest of these is "pending since".
-const TRANSITION_ACTIONS = ["SUBMIT", "APPROVE", "RETURN", "REJECT", "RESUBMIT", "RESERVE_STOCK", "ACCOUNTING_RECORD"];
+const TRANSITION_ACTIONS = ["SUBMIT", "APPROVE", "RETURN", "REJECT", "RESUBMIT", "RESERVE_STOCK", "ACCOUNTING_RECORD", "PROCUREMENT_COMPLETE"];
+
+// "Current step" of a request = its first PENDING step in the workflow's effective order (by type,
+// see STEP_ORDER), not by stored sequence: legacy requests have the procurement step stored after
+// the accounting step. Built from a constant list, so Prisma.raw is safe.
+const STEP_RANK = Prisma.raw(`CASE s.type::text ${STEP_ORDER.map((t, i) => `WHEN '${t}' THEN ${i}`).join(" ")} ELSE ${STEP_ORDER.length} END`);
 
 /** Upper bound on pending rows loaded for the aggregates (bottlenecks). */
 export const PENDING_AGGREGATE_CAP = 5000;
@@ -231,7 +238,7 @@ async function loadPending(asOf: Date): Promise<{ rows: PendingWithAssignee[]; t
       SELECT s."assignedUserId"
       FROM "ApprovalStep" s
       WHERE s."requestId" = r.id AND s.status = 'PENDING'
-      ORDER BY s.sequence
+      ORDER BY ${STEP_RANK}, s.sequence
       LIMIT 1
     ) st ON TRUE
     LEFT JOIN "User" au ON au.id = st."assignedUserId"

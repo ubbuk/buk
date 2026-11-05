@@ -43,6 +43,7 @@ export function RequestsLoader() {
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveFailures = 0;
+    let needsCatchUp = false;
     let stopped = false;
 
     function onSignal() {
@@ -69,6 +70,15 @@ export function RequestsLoader() {
       if (stopped) return;
       es = new EventSource("/api/events");
 
+      // A reconnect means signals may have been missed while the stream was down
+      // (they are not replayed): refresh once so every live view catches up.
+      es.onopen = () => {
+        if (needsCatchUp) {
+          needsCatchUp = false;
+          onSignal();
+        }
+      };
+
       es.onmessage = () => {
         consecutiveFailures = 0;
         stopPolling();
@@ -77,6 +87,7 @@ export function RequestsLoader() {
 
       es.onerror = () => {
         es?.close();
+        needsCatchUp = true;
         consecutiveFailures += 1;
         if (consecutiveFailures >= FAILURES_BEFORE_POLLING) startPolling();
 

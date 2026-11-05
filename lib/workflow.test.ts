@@ -14,6 +14,7 @@ import {
   resubmitPositionStepReturn,
   warehouseCheck,
 } from "./workflow";
+import { completeProcurement, getProcurementDetail, recordPurchase } from "./procurement";
 
 const DEPT_ID = "vitest-dept"; // FACTORY -> branch goes to ENGINEERING
 const OFFICE_DEPT_ID = "vitest-office-dept"; // OFFICE -> branch goes to OPERATIONS_DIRECTOR (a DIRECTOR)
@@ -33,6 +34,7 @@ const OPERATIONS_DIRECTOR_ID = "u-khuntsengel";
 const FINANCE_DIRECTOR_ID = "u-magomed";
 const EXECUTIVE_DIRECTOR_ID = "u-ganbold";
 const CHIEF_ACCOUNTANT_ID = "u-bayarmaa";
+const MANAGER_ID = "u-tuvshin";
 
 let requestCounter = 0;
 
@@ -90,6 +92,19 @@ beforeAll(async () => {
     });
   }
 });
+
+// Stage 7: the Manager buys whatever the warehouse could not supply, then completes
+// procurement. Returns the request version for the Chief Accountant's registration.
+async function finishProcurement(requestId: string): Promise<number> {
+  const detail = await getProcurementDetail(requestId);
+  for (const item of detail!.items.filter((i) => i.remainingQuantity > 0)) {
+    const bought = await recordPurchase(requestId, MANAGER_ID, { itemId: item.itemId, quantity: item.remainingQuantity, unitPrice: 1200 });
+    if (!bought.ok) throw new Error(`setup failed: ${bought.error}`);
+  }
+  const done = await completeProcurement(requestId, MANAGER_ID);
+  if (!done.ok) throw new Error(`setup failed: ${done.error}`);
+  return (await prisma.materialRequest.findUniqueOrThrow({ where: { id: requestId } })).version;
+}
 
 async function setBalance(quantityOnHand: number) {
   await prisma.inventoryBalance.upsert({
@@ -374,13 +389,17 @@ describe("Stage 5-7: Finance -> Executive -> Chief Accountant", () => {
     const executed = await executiveApprove(requestId, EXECUTIVE_DIRECTOR_ID, PIN, financed.request.version);
     expect(executed.ok).toBe(true);
     if (!executed.ok) return;
-    expect(executed.request.status).toBe("PENDING_ACCOUNTING");
+    // CEO approval hands over to the Manager's procurement stage, not to accounting.
+    expect(executed.request.status).toBe("PENDING_PROCUREMENT");
+    const blocked = await recordAccountingEntry(requestId, CHIEF_ACCOUNTANT_ID, { ledgerNumber: "TOO-EARLY", recordDate: new Date() }, executed.request.version);
+    expect(blocked).toMatchObject({ ok: false, status: 409 });
 
+    const accountingVersion = await finishProcurement(requestId);
     const recorded = await recordAccountingEntry(
       requestId,
       CHIEF_ACCOUNTANT_ID,
       { ledgerNumber: "LEDGER-001", recordDate: new Date("2026-11-02") },
-      executed.request.version
+      accountingVersion
     );
     expect(recorded.ok).toBe(true);
     if (!recorded.ok) return;
@@ -395,13 +414,15 @@ describe("Stage 5-7: Finance -> Executive -> Chief Accountant", () => {
     const executed = await executiveApprove(requestId, EXECUTIVE_DIRECTOR_ID, PIN, financed.request.version);
     if (!executed.ok) throw new Error("setup failed");
 
+    const accountingVersion = await finishProcurement(requestId);
+
     // recordAccountingEntry's signature takes no pin parameter at all --
     // this call's success (vs. a 401 PIN error) is itself the assertion.
     const recorded = await recordAccountingEntry(
       requestId,
       CHIEF_ACCOUNTANT_ID,
       { ledgerNumber: "LEDGER-002", recordDate: new Date() },
-      executed.request.version
+      accountingVersion
     );
     expect(recorded.ok).toBe(true);
   });
@@ -413,7 +434,8 @@ describe("Stage 5-7: Finance -> Executive -> Chief Accountant", () => {
     const executed = await executiveApprove(requestId, EXECUTIVE_DIRECTOR_ID, PIN, financed.request.version);
     if (!executed.ok) throw new Error("setup failed");
 
-    const result = await recordAccountingEntry(requestId, EMPLOYEE_ID, { ledgerNumber: "X", recordDate: new Date() }, executed.request.version);
+    const accountingVersion = await finishProcurement(requestId);
+    const result = await recordAccountingEntry(requestId, EMPLOYEE_ID, { ledgerNumber: "X", recordDate: new Date() }, accountingVersion);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(403);
   });
@@ -644,7 +666,8 @@ describe("audit log", () => {
     if (!financed.ok) throw new Error("setup failed");
     const executed = await executiveApprove(request.id, EXECUTIVE_DIRECTOR_ID, PIN, financed.request.version);
     if (!executed.ok) throw new Error("setup failed");
-    await recordAccountingEntry(request.id, CHIEF_ACCOUNTANT_ID, { ledgerNumber: "LEDGER-AUDIT", recordDate: new Date() }, executed.request.version);
+    const accountingVersion = await finishProcurement(request.id);
+    await recordAccountingEntry(request.id, CHIEF_ACCOUNTANT_ID, { ledgerNumber: "LEDGER-AUDIT", recordDate: new Date() }, accountingVersion);
 
     const entry = await prisma.auditLog.findFirst({
       where: { entityType: "MaterialRequest", entityId: request.id, action: "ACCOUNTING_RECORD" },

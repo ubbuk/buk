@@ -23,8 +23,15 @@ export const STATUS_CODES = [
 export const STATUS_UNKNOWN = 15;
 export type ReconstructedStatus = RequestStatus | "UNKNOWN";
 
+// The compiled C++/WASM engine has no PENDING_PROCUREMENT state (its code table is
+// fixed and 15 means UNKNOWN). A request waiting on the Manager is, for history
+// purposes, one that has passed the CEO and has not been registered yet -- the
+// same place the engine puts PENDING_ACCOUNTING -- so the two share a code until
+// the engine is rebuilt with a dedicated stage.
+const ENGINE_ALIAS: Record<string, string> = { PENDING_PROCUREMENT: "PENDING_ACCOUNTING" };
+
 export const statusToCode = (s: string): number => {
-  const i = (STATUS_CODES as readonly string[]).indexOf(s);
+  const i = (STATUS_CODES as readonly string[]).indexOf(ENGINE_ALIAS[s] ?? s);
   return i < 0 ? STATUS_UNKNOWN : i;
 };
 export const codeToStatus = (c: number): ReconstructedStatus => (c >= 0 && c < STATUS_CODES.length ? STATUS_CODES[c] : "UNKNOWN");

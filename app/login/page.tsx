@@ -3,26 +3,9 @@
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Factory, LogIn } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody } from "@/components/ui/Card";
-import StrokeText from "@/components/ui/StrokeText";
-
-const DEMO_ACCOUNTS = [
-  { email: "tumurbaatar@ubbuk.mn", label: "Ажилтан — Б.Төмөрбаатар" },
-  { email: "bold@ubbuk.mn", label: "Цехийн дарга — Ц.Болд (Бетон цех)" },
-  { email: "sarnai@ubbuk.mn", label: "Нярав — Г.Сарнай" },
-  { email: "narmandakh@ubbuk.mn", label: "Ерөнхий инженер — Б.Нармандах" },
-  { email: "khuntsengel@ubbuk.mn", label: "Үйл ажиллагаа эрхэлсэн захирал — Н.Хүнцэнгэл" },
-  { email: "magomed@ubbuk.mn", label: "Санхүү эрхэлсэн захирал — Хамхоев Магомед" },
-  { email: "ganbold@ubbuk.mn", label: "Гүйцэтгэх захирал — Ганболд" },
-  { email: "nomintuya@ubbuk.mn", label: "Ерөнхий нягтлан бодогч — Номинтуяа" },
-];
-
-// The demo account list (and the prefilled shared password) is a development/staging
-// convenience: hidden in production builds unless NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true.
-const SHOW_DEMO = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === "true";
-const DEMO_PASSWORD = "ubbuk2026";
+import Image from "next/image";
+import { ArrowRight, Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
+import "./login.css";
 
 export default function LoginPage() {
   return (
@@ -36,9 +19,10 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState(SHOW_DEMO ? DEMO_PASSWORD : "");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,87 +47,89 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-accent/15 text-accent">
-            <Factory className="size-6" />
+    <main className="lg-root">
+      {/* small screens: the factory is only a dimmed backdrop (CSS) */}
+      <div className="lg-backdrop" aria-hidden="true" />
+
+      {/* desktop: one 16:9 stage holds the picture, the branding and the card in a single coordinate system */}
+      <div className="lg-stage">
+        <div className="lg-art" aria-hidden="true">
+          <div className="lg-holo" />
+          <div className="lg-dim">
+            <span>Ø1000</span>
           </div>
-          <StrokeText
-            text="УБ БҮК ХК"
-            trigger="mount"
-            fillMode="wipe"
-            wipeFrom="left"
-            strokeColor="#F59E0B"
-            fontSize={32}
-            fontWeight={700}
-            letterSpacing={-0.5}
-            drawDuration={1.1}
-            fillDelay={0.1}
-            className="max-w-[220px]"
-          />
-          <p className="text-sm text-text-muted">Худалдан авалтын систем рүү нэвтрэх</p>
+          <div className="lg-dust" />
         </div>
 
-        <Card>
-          <CardBody className="space-y-4">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-text-muted">И-мэйл</span>
+        <header className="lg-brand">
+          <div className="lg-brand-row">
+            <Image src="/images/ubbuk-logo-mark.webp" alt="" width={120} height={102} priority className="lg-brand-mark" />
+            <h1 className="lg-wordmark">
+              <span>Улаанбаатар</span> <span>БҮК ХК</span>
+            </h1>
+          </div>
+          <div className="lg-rule" />
+          <p className="lg-tagline">Худалдан авалтын систем рүү нэвтрэх</p>
+        </header>
+
+        <section className="lg-card" aria-labelledby="login-title">
+          <div className="lg-card-head">
+            <Image src="/images/ubbuk-logo-mark.webp" alt="" width={120} height={102} className="lg-card-mark" />
+            <h2 id="login-title" className="lg-card-title">Улаанбаатар БҮК ХК</h2>
+            <p className="lg-card-sub">Худалдан авалтын систем рүү нэвтрэх</p>
+          </div>
+
+            <form onSubmit={handleSubmit}>
+              <label className="lg-field">
+                <span className="lg-sr">Хэрэглэгчийн и-мэйл</span>
+                <User className="lg-icon" aria-hidden="true" />
                 <input
                   type="email"
                   required
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ажилтны@ubbuk.mn"
-                  className="focus-ring h-10 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted"
+                  placeholder="Хэрэглэгчийн и-мэйл"
+                  className="lg-input"
                 />
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-text-muted">Нууц үг</span>
+              <label className="lg-field">
+                <span className="lg-sr">Нууц үг</span>
+                <Lock className="lg-icon" aria-hidden="true" />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="focus-ring h-10 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
+                  placeholder="Нууц үг"
+                  className="lg-input"
                 />
+                <button
+                  type="button"
+                  className="lg-eye"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Нууц үгийг нуух" : "Нууц үгийг харуулах"}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff /> : <Eye />}
+                </button>
               </label>
-              {error && <p className="text-xs text-danger">{error}</p>}
-              <Button type="submit" className="w-full" loading={loading}>
-                <LogIn className="size-4" />
-                Нэвтрэх
-              </Button>
-            </form>
-          </CardBody>
-        </Card>
 
-        {SHOW_DEMO && (
-        <Card>
-          <CardBody className="space-y-2">
-            <p className="text-xs font-medium text-text-muted">
-              Жишээ бүртгэлүүд (нууц үг бүгдэд адил: <span className="text-text">{DEMO_PASSWORD}</span>)
-            </p>
-            <ul className="space-y-1">
-              {DEMO_ACCOUNTS.map((a) => (
-                <li key={a.email}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail(a.email);
-                      setPassword(DEMO_PASSWORD);
-                    }}
-                    className="focus-ring w-full rounded-lg px-2 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-bg-elevated hover:text-text"
-                  >
-                    <span className="text-text">{a.email}</span> — {a.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </CardBody>
-        </Card>
-        )}
+              {error && (
+                <p role="alert" className="lg-error">
+                  {error}
+                </p>
+              )}
+
+              <button type="submit" className="lg-submit" disabled={loading} aria-busy={loading}>
+                {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+                Нэвтрэх
+                {!loading && <ArrowRight aria-hidden="true" />}
+              </button>
+            </form>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

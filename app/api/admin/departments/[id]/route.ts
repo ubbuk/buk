@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { emitBroadcast } from "@/lib/events";
-import { prisma } from "@/lib/prisma";
+import { assignDepartmentHead } from "@/lib/department-head";
+import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { invalidate } from "@/lib/cache";
 
 const bodySchema = z.object({ headId: z.string().nullable() });
@@ -18,17 +18,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!parsed.success) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
 
   const { id } = await params;
-  const department = await prisma.department.findUnique({ where: { id } });
-  if (!department) return NextResponse.json({ error: "Цех, тасаг олдсонгүй" }, { status: 404 });
+  const result = await assignDepartmentHead(id, parsed.data.headId, session.user.id);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  if (!result.changed) return NextResponse.json({ id: result.id, headId: result.headId, reassignedRequests: 0 });
 
-  const updated = await prisma.department.update({ where: { id }, data: { headId: parsed.data.headId } });
-  await prisma.auditLog.create({
-    data: { entityType: "Department", entityId: id, action: "UPDATE", actorId: session.user.id },
-  });
   invalidate("departments:list");
 
   // Admin edits change what other open sessions show (user lists, department
   // heads, approvers) -- tell them to refetch instead of waiting for a reload.
   emitBroadcast({ type: "data-changed" });
-  return NextResponse.json({ id: updated.id, headId: updated.headId });
+  if (result.reassignedRequests > 0) {
+    emitBroadcast({ type: "request-changed" });
+    if (result.headId) emitUserEvent(result.headId, { type: "notification" });
+  }
+  return NextResponse.json({ id: result.id, headId: result.headId, reassignedRequests: result.reassignedRequests });
 }

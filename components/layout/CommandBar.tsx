@@ -8,7 +8,9 @@ import { signOut, useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { USER_ROLE_LABEL, type RequestStatus } from "@/lib/types";
 import { PAGE_TITLES, resolveNavItems } from "@/lib/nav";
+import { approvalQueueFor } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
+import { useProcurementBadge } from "@/lib/use-procurement-badge";
 import { cn, formatDateTime } from "@/lib/utils";
 import BlurText from "@/components/ui/BlurText";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -63,10 +65,12 @@ export function CommandBar() {
   const { data: session } = useSession();
   const user = session?.user;
   const requests = useRequestStore((s) => s.requests);
+  const procurementBadge = useProcurementBadge(session?.user?.role, session?.user?.id);
 
   const badgeCounts: Record<string, number> = {
-    approvals: requests.filter((r) => r.approvalSteps.some((s) => s.status === "PENDING" && s.type !== "WAREHOUSE_CHECK")).length,
+    approvals: approvalQueueFor(requests, session?.user?.id, session?.user?.role).length,
     accounting: requests.filter((r) => r.status === "PENDING_ACCOUNTING").length,
+    procurement: procurementBadge,
   };
 
   const navItems = resolveNavItems(user?.role);

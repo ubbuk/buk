@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { canCreateRequestForDepartment, departmentHeadError } from "@/lib/department-access";
 import { isRequestHiddenFrom } from "@/lib/request-visibility";
 import { requestInclude, serializeRequest } from "@/lib/serialize";
 import { apiCreateRequestSchema } from "@/lib/validation";
@@ -54,13 +55,30 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
   }
   const input = parsed.data;
 
-  const department = await prisma.department.findUnique({ where: { id: input.departmentId } });
+  // The requester files for their own department; ADMIN is the only exception.
+  // Checked before the department lookup so a foreign id can't be probed.
+  if (!canCreateRequestForDepartment(session.user, input.departmentId)) {
+    return NextResponse.json({ error: "Та зөвхөн өөрийн цех, тасгийн нэрийн өмнөөс захиалга үүсгэх боломжтой" }, { status: 403 });
+  }
+
+  const department = await prisma.department.findUnique({
+    where: { id: input.departmentId },
+    include: { head: { select: { role: true, isActive: true } } },
+  });
   if (!department) {
     return NextResponse.json({ error: "Цех, тасаг олдсонгүй" }, { status: 400 });
   }
   if (!department.headId) {
     return NextResponse.json(
       { error: "Энэ цэхийн дарга тохируулагдаагүй байна. Тохиргоо хуудаснаас тохируулна уу." },
+      { status: 400 }
+    );
+  }
+  // A head who was deactivated or demoted after being appointed can't approve,
+  // so don't start a request that would sit unactionable.
+  if (departmentHeadError(department.head)) {
+    return NextResponse.json(
+      { error: "Энэ цэхийн даргын эрх хүчингүй болсон байна. Админаар шинэ дарга томилуулна уу." },
       { status: 400 }
     );
   }
@@ -167,7 +185,9 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
                 { type: "BRANCH_APPROVAL", sequence: 3, status: "PENDING", assignedUserId: branchAssignment.userId },
                 { type: "FINANCE_APPROVAL", sequence: 4, status: "PENDING", assignedUserId: financeAssignment.userId },
                 { type: "EXECUTIVE_APPROVAL", sequence: 5, status: "PENDING", assignedUserId: executiveAssignment.userId },
-                { type: "ACCOUNTING_RECORD", sequence: 6, status: "PENDING", assignedUserId: accountantAssignment.userId },
+                // Stage 7: any active MANAGER buys the shortfall (no single assignee), then Stage 8 registers it.
+                { type: "MANAGER_PROCUREMENT", sequence: 6, status: "PENDING", assignedUserId: null },
+                { type: "ACCOUNTING_RECORD", sequence: 7, status: "PENDING", assignedUserId: accountantAssignment.userId },
               ],
             },
           },

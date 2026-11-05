@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
+import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -27,7 +28,12 @@ const APPROVAL_ROLES = [
   { role: "EXECUTIVE_DIRECTOR", label: "Гүйцэтгэх захирал", requiredRole: "DIRECTOR" },
   { role: "STOREKEEPER_LEAD", label: "Нярав", requiredRole: "STOREKEEPER" },
   { role: "CHIEF_ACCOUNTANT_LEAD", label: "Ерөнхий нягтлан бодогч", requiredRole: "CHIEF_ACCOUNTANT" },
+  { role: "DOMESTIC_PROCUREMENT_MANAGER", label: "Дотоодын худалдан авалтын менежер", requiredRole: "MANAGER" },
+  { role: "INTERNATIONAL_PROCUREMENT_MANAGER", label: "Олон улсын худалдан авалтын менежер", requiredRole: "MANAGER" },
 ] as const;
+
+type ProcurementPosition = "DOMESTIC_PROCUREMENT_MANAGER" | "INTERNATIONAL_PROCUREMENT_MANAGER";
+const isProcurementPosition = (role: string): role is ProcurementPosition => role === "DOMESTIC_PROCUREMENT_MANAGER" || role === "INTERNATIONAL_PROCUREMENT_MANAGER";
 
 interface AdminUser {
   id: string;
@@ -76,6 +82,7 @@ export default function AdminPage() {
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
+  const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -130,11 +137,24 @@ export default function AdminPage() {
     if (!editUser) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/admin/users/${editUser.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: editUser.role, title: editUser.title, departmentId: editUser.departmentId, isActive: editUser.isActive }),
-      });
+      const send = (acknowledgeUnfinishedProcurement: boolean) =>
+        fetch(`/api/admin/users/${editUser.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: editUser.role, title: editUser.title, departmentId: editUser.departmentId, isActive: editUser.isActive, acknowledgeUnfinishedProcurement }),
+        });
+      let res = await send(false);
+      if (res.status === 409) {
+        const body = await res.clone().json().catch(() => ({}));
+        if (body.code === "HANDOVER_REQUIRED") {
+          // the safe path is a handover first; deactivating anyway needs a deliberate second confirmation
+          const proceed = window.confirm(`${body.error}
+
+Хамгаалалтын шалтгаанаар ямар ч тохиолдолд идэвхгүй болгох бол OK дарна уу (ажил шилжихгүй, Админ дараа нь «Дуусаагүй ажлыг шилжүүлэх» үйлдлийг хийнэ).`);
+          if (!proceed) return;
+          res = await send(true);
+        }
+      }
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error);
       setEditUser(null);
       push({ kind: "success", title: "Хадгалагдлаа" });
@@ -179,13 +199,19 @@ export default function AdminPage() {
   }
 
   async function setApprovalRole(role: string, userId: string) {
+    if (isProcurementPosition(role)) {
+      // procurement managers are replaced through the reviewed handover dialog, never blindly
+      setHandover({ position: role, label: APPROVAL_ROLES.find((r) => r.role === role)?.label ?? role, managerId: userId });
+      return;
+    }
     const res = await fetch("/api/admin/approval-roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, userId }),
     });
     if (!res.ok) {
-      push({ kind: "error", title: "Хуваарилж чадсангүй" });
+      const body = await res.json().catch(() => ({}));
+      push({ kind: "error", title: "Хуваарилж чадсангүй", description: body.error });
       return;
     }
     push({ kind: "success", title: "Хуваарилагдлаа" });
@@ -199,10 +225,16 @@ export default function AdminPage() {
       body: JSON.stringify({ headId: headId || null }),
     });
     if (!res.ok) {
-      push({ kind: "error", title: "Хуваарилж чадсангүй" });
+      const body = await res.json().catch(() => ({}));
+      push({ kind: "error", title: "Хуваарилж чадсангүй", description: body.error });
       return;
     }
-    push({ kind: "success", title: "Цехийн дарга хуваарилагдлаа" });
+    const { reassignedRequests } = await res.json().catch(() => ({ reassignedRequests: 0 }));
+    push({
+      kind: "success",
+      title: "Цехийн дарга хуваарилагдлаа",
+      description: reassignedRequests > 0 ? `Хүлээгдэж буй ${reassignedRequests} захиалга шинэ даргад шилжлээ` : undefined,
+    });
     await load();
   }
 
@@ -323,6 +355,11 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-text">{r.label}</p>
                   <p className="text-[11px] text-text-muted">Одоогийн: {current?.userName ?? "Тохируулагдаагүй"}</p>
                 </div>
+                {isProcurementPosition(r.role) && (
+                  <Button variant="secondary" size="sm" onClick={() => setHandover({ position: r.role as ProcurementPosition, label: r.label, managerId: current?.userId ?? "" })}>
+                    Дуусаагүй ажлыг шилжүүлэх
+                  </Button>
+                )}
                 <select
                   value={current?.userId ?? ""}
                   onChange={(e) => e.target.value && setApprovalRole(r.role, e.target.value)}
@@ -345,6 +382,18 @@ export default function AdminPage() {
           </p>
         </CardBody>
       </Card>
+
+      {handover && (
+        <ProcurementHandoverDialog
+          open
+          position={handover.position}
+          label={handover.label}
+          initialManagerId={handover.managerId}
+          managers={users.filter((u) => u.isActive && u.role === "MANAGER").map((u) => ({ id: u.id, name: u.name }))}
+          onClose={() => setHandover(null)}
+          onDone={() => void load()}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -374,7 +423,7 @@ export default function AdminPage() {
                 className="focus-ring h-9 w-56 rounded-lg border border-border bg-bg-surface px-3 text-sm text-text"
               >
                 <option value="">— Тохируулагдаагүй —</option>
-                {users.filter((u) => u.isActive).map((u) => (
+                {users.filter((u) => u.isActive && u.role === "BOSS").map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
                   </option>

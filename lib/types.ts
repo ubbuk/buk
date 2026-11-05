@@ -15,6 +15,7 @@ export type RequestStatus =
   | "RETURNED_BY_FINANCE"
   | "PENDING_EXECUTIVE_APPROVAL"
   | "RETURNED_BY_EXECUTIVE"
+  | "PENDING_PROCUREMENT"
   | "PENDING_ACCOUNTING"
   | "ACCOUNTING_COMPLETED"
   | "PARTIALLY_COMPLETED"
@@ -32,6 +33,7 @@ export const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
   RETURNED_BY_FINANCE: "Санхүү эрхэлсэн захирал буцаасан",
   PENDING_EXECUTIVE_APPROVAL: "Гүйцэтгэх захирлын баталгаа хүлээж байна",
   RETURNED_BY_EXECUTIVE: "Гүйцэтгэх захирал буцаасан",
+  PENDING_PROCUREMENT: "Менежерийн худалдан авалт хүлээж байна",
   PENDING_ACCOUNTING: "Санхүүгийн бүртгэл хүлээж байна",
   ACCOUNTING_COMPLETED: "Санхүүгийн бүртгэл хийгдсэн",
   PARTIALLY_COMPLETED: "Хэсэгчлэн дууссан",
@@ -53,6 +55,7 @@ export const REQUEST_STATUS_TONE: Record<
   RETURNED_BY_FINANCE: "danger",
   PENDING_EXECUTIVE_APPROVAL: "accent",
   RETURNED_BY_EXECUTIVE: "danger",
+  PENDING_PROCUREMENT: "accent",
   PENDING_ACCOUNTING: "warning",
   ACCOUNTING_COMPLETED: "success",
   PARTIALLY_COMPLETED: "warning",
@@ -66,6 +69,7 @@ export type ApprovalStepType =
   | "BRANCH_APPROVAL"
   | "FINANCE_APPROVAL"
   | "EXECUTIVE_APPROVAL"
+  | "MANAGER_PROCUREMENT"
   | "ACCOUNTING_RECORD";
 
 export const APPROVAL_STEP_LABEL: Record<ApprovalStepType, string> = {
@@ -74,6 +78,7 @@ export const APPROVAL_STEP_LABEL: Record<ApprovalStepType, string> = {
   BRANCH_APPROVAL: "Инженер / Үйл ажиллагаа эрхэлсэн захирал",
   FINANCE_APPROVAL: "Санхүү эрхэлсэн захирал",
   EXECUTIVE_APPROVAL: "Гүйцэтгэх захирал",
+  MANAGER_PROCUREMENT: "Менежер (худалдан авалт)",
   ACCOUNTING_RECORD: "Ерөнхий нягтлан бодогч",
 };
 
@@ -130,6 +135,9 @@ export interface MaterialRequestView {
   department: string;
   departmentId: string;
   departmentType: DepartmentType;
+  // Live head of the department (Stage 2 approver). Stage 2 gating uses this
+  // rather than the step's assignedUserId so a reassignment is recognised at once.
+  departmentHeadId?: string | null;
   requestedById: string;
   requestedBy: string;
   status: RequestStatus;

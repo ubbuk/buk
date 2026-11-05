@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withTiming } from "@/lib/api-timing";
+import { isRequestHiddenFrom, requestScopeWhere } from "@/lib/request-visibility";
 
 const RESULT_LIMIT = 6;
 const MIN_QUERY_LENGTH = 2;
@@ -21,25 +22,39 @@ export const GET = withTiming("GET /api/search", async (req: Request) => {
     return NextResponse.json({ requests: [], materials: [] });
   }
 
-  const [requests, materials] = await Promise.all([
+  // Search only surfaces requests the caller could open (same rule as
+  // GET /api/requests/[id]): a DB-side scope first so the limit applies to
+  // visible rows, then the exact per-row check. Over-fetch a little because
+  // the exact check can still drop rows.
+  const { id: userId, role } = session.user;
+  const scope = requestScopeWhere(userId, role);
+
+  const [rawRequests, materials] = await Promise.all([
     prisma.materialRequest.findMany({
       where: {
-        OR: [
-          { requestNumber: { contains: q, mode: "insensitive" } },
-          { note: { contains: q, mode: "insensitive" } },
-          { department: { name: { contains: q, mode: "insensitive" } } },
-          { requestedBy: { name: { contains: q, mode: "insensitive" } } },
+        AND: [
+          {
+            OR: [
+              { requestNumber: { contains: q, mode: "insensitive" } },
+              { note: { contains: q, mode: "insensitive" } },
+              { department: { name: { contains: q, mode: "insensitive" } } },
+              { requestedBy: { name: { contains: q, mode: "insensitive" } } },
+            ],
+          },
+          ...(scope ? [scope] : []),
         ],
       },
       select: {
         id: true,
         requestNumber: true,
         status: true,
-        department: { select: { name: true } },
+        requestedById: true,
+        department: { select: { name: true, headId: true } },
         requestedBy: { select: { name: true } },
+        approvalSteps: { select: { type: true, status: true, assignedUserId: true, decidedById: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: RESULT_LIMIT,
+      take: RESULT_LIMIT * 3,
     }),
     prisma.material.findMany({
       where: {
@@ -55,6 +70,8 @@ export const GET = withTiming("GET /api/search", async (req: Request) => {
       take: RESULT_LIMIT,
     }),
   ]);
+
+  const requests = rawRequests.filter((r) => !isRequestHiddenFrom(r, userId, role)).slice(0, RESULT_LIMIT);
 
   return NextResponse.json({
     requests: requests.map((r) => ({

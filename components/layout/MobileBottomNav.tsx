@@ -7,7 +7,9 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { resolveNavItems, type NavItem } from "@/lib/nav";
+import { approvalQueueFor } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
+import { useProcurementBadge } from "@/lib/use-procurement-badge";
 import { cn } from "@/lib/utils";
 
 // Preference order for the 3 slots next to Home -- the rest fold into "Бусад".
@@ -17,10 +19,12 @@ export function MobileBottomNav() {
   const pathname = usePathname() ?? "";
   const { data: session } = useSession();
   const requests = useRequestStore((s) => s.requests);
+  const procurementBadge = useProcurementBadge(session?.user?.role, session?.user?.id);
 
   const badgeCounts: Record<string, number> = {
-    approvals: requests.filter((r) => r.approvalSteps.some((s) => s.status === "PENDING" && s.type !== "WAREHOUSE_CHECK")).length,
+    approvals: approvalQueueFor(requests, session?.user?.id, session?.user?.role).length,
     accounting: requests.filter((r) => r.status === "PENDING_ACCOUNTING").length,
+    procurement: procurementBadge,
   };
 
   const navItems = resolveNavItems(session?.user?.role);

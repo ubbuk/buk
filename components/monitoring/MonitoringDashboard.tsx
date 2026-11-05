@@ -25,6 +25,7 @@ import {
 } from "./format";
 import { HudOverview, LiveClock } from "./hud/HudOverview";
 import { DataGrid, Pager, Panel, Td, Th } from "./Panel";
+import { ProcurementMonitoring } from "./ProcurementMonitoring";
 import { REFRESH_INTERVAL_MS, useLiveData, useRefreshTick } from "./useLiveData";
 
 const API = "/api/admin/monitoring";
@@ -94,6 +95,7 @@ export function MonitoringDashboard() {
       </div>
 
       <HudOverview overview={overview} pending={pending.data} range={range} tick={tick} refresh={refresh} />
+      <ProcurementMonitoring range={range} tick={tick} refresh={refresh} />
       <PendingSection s={pending} setPage={setPendingPage} refresh={refresh} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <DepartmentsSection range={range} tick={tick} refresh={refresh} />
