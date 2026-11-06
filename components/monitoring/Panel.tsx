@@ -36,7 +36,7 @@ export function Panel({
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 max-w-full items-center gap-3">
           {state.updatedAt && (
             <span className="hidden text-[11px] text-text-muted sm:inline" title="Улаанбаатарын цаг">
               {formatUBTime(state.updatedAt)}

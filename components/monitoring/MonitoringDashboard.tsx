@@ -69,7 +69,7 @@ export function MonitoringDashboard() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <LiveClock />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <div role="group" aria-label="Хугацааны муж" className="flex overflow-hidden rounded-lg border border-border">
             {RANGES.map((r) => (
               <button
@@ -372,7 +372,7 @@ function ActivitySection({ range, tick, refresh }: RangeProps) {
           value={action}
           onChange={(e) => setAction(e.target.value)}
           aria-label="Үйлдлээр шүүх"
-          className="focus-ring h-8 rounded-lg border border-border bg-bg-elevated px-2 text-xs text-text"
+          className="focus-ring h-8 min-w-0 max-w-full rounded-lg border border-border bg-bg-elevated px-2 text-xs text-text max-md:h-11"
         >
           <option value="">Бүх үйлдэл</option>
           {FILTER_ACTIONS.map((a) => (

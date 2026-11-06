@@ -30,7 +30,7 @@ export function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={isDark ? "Өдрийн горимд шилжих" : "Шөнийн горимд шилжих"}
       title={isDark ? "Өдрийн горим" : "Шөнийн горим"}
-      className="focus-ring relative flex h-9 w-16 shrink-0 items-center overflow-hidden rounded-full border border-border p-1 transition-colors"
+      className="focus-ring relative flex h-9 w-16 shrink-0 max-sm:h-11 max-[359px]:w-12 items-center overflow-hidden rounded-full border border-border p-1 transition-colors"
     >
       <span
         aria-hidden

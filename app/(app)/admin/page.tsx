@@ -315,9 +315,9 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-text">Хэрэглэгч, эрхийн удирдлага</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/admin/audit">
             <Button variant="secondary">
               <FileClock className="size-4" />

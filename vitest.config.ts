@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    exclude: ["**/node_modules/**", "e2e/**"],
     // Every test file shares one isolated database and several suites count rows
     // across the whole table (monitoring queries, history reconstruction), so files
     // must not run at the same time.

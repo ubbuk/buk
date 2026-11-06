@@ -62,7 +62,7 @@ export default function MyRequestsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold text-text">Миний захиалгууд</h2>
         <PrintButton />

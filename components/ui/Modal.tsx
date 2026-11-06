@@ -35,7 +35,7 @@ export function Modal({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -53,22 +53,26 @@ export function Modal({
             exit={{ opacity: 0, scale: 0.97 }}
             transition={{ duration: 0.16 }}
             className={cn(
-              "relative z-10 w-full max-w-md rounded-2xl border border-border bg-bg-surface shadow-elevated",
+              "relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col rounded-t-2xl border border-border bg-bg-surface shadow-elevated sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl",
               className
             )}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-              <div>
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div className="min-w-0 break-words">
                 <h2 id="modal-title" className="text-sm font-semibold text-text">
                   {title}
                 </h2>
                 {description && <p className="mt-1 text-xs text-text-muted">{description}</p>}
               </div>
-              <button onClick={onClose} className="focus-ring rounded text-text-muted hover:text-text">
+              <button
+                onClick={onClose}
+                aria-label="Хаах"
+                className="focus-ring -m-3 flex size-11 shrink-0 items-center justify-center rounded text-text-muted hover:text-text"
+              >
                 <X className="size-4" />
               </button>
             </div>
-            <div className="p-5">{children}</div>
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">{children}</div>
           </motion.div>
         </div>
       )}

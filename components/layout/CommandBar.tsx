@@ -1,11 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Bell, Boxes, Factory, LayoutGrid, ListChecks, LogOut, Search } from "lucide-react";
+import { ArrowLeft, Bell, Boxes, Factory, LayoutGrid, ListChecks, LogOut, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { USER_ROLE_LABEL, type RequestStatus } from "@/lib/types";
 import { PAGE_TITLES, resolveNavItems } from "@/lib/nav";
 import { approvalQueueFor } from "@/lib/approval-queue";
@@ -46,6 +47,76 @@ interface NotificationItem {
   relatedRequestId: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+function SearchResultsBody({
+  loading,
+  results,
+  onRequest,
+  onMaterial,
+}: {
+  loading: boolean;
+  results: SearchResults | null;
+  onRequest: (id: string) => void;
+  onMaterial: (id: string) => void;
+}) {
+  return (
+    <>
+      {loading && !results ? (
+        <p className="px-3 py-6 text-center text-xs text-text-muted">Хайж байна...</p>
+      ) : !results || (results.requests.length === 0 && results.materials.length === 0) ? (
+        <p className="px-3 py-6 text-center text-xs text-text-muted">Илэрц олдсонгүй</p>
+      ) : (
+        <>
+          {results.requests.length > 0 && (
+            <div className="p-1.5">
+              <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                Захиалга
+              </p>
+              {results.requests.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => onRequest(r.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-bg-elevated"
+                >
+                  <ListChecks className="size-4 shrink-0 text-tech" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-text">
+                      №{r.requestNumber} · {r.requestedBy}
+                    </span>
+                    <span className="block truncate text-[11px] text-text-muted">{r.department}</span>
+                  </span>
+                  <StatusBadge status={r.status} className="shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+          {results.materials.length > 0 && (
+            <div className="border-t border-border p-1.5">
+              <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                Материал
+              </p>
+              {results.materials.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => onMaterial(m.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-bg-elevated"
+                >
+                  <Boxes className="size-4 shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-text">{m.name}</span>
+                    <span className="block truncate text-[11px] text-text-muted">
+                      {m.code} · {m.unit}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
 }
 
 function initials(name: string) {
@@ -89,6 +160,8 @@ export function CommandBar() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  // Phones: the same search (same state, /api/search call and navigation) in a full-width overlay.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -112,6 +185,7 @@ export function CommandBar() {
   }, [searchQuery]);
 
   function closeSearch() {
+    setMobileSearchOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
     setSearchResults(null);
@@ -180,29 +254,31 @@ export function CommandBar() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-bg-sidebar/90 px-4 backdrop-blur sm:px-6">
-      <Link href="/dashboard" className="flex shrink-0 items-center gap-2.5">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-border bg-bg-sidebar/90 px-3 backdrop-blur max-[359px]:gap-1.5 max-[359px]:px-2 sm:gap-3 sm:px-6">
+      <Link href="/dashboard" className="hidden shrink-0 items-center gap-2.5 min-[400px]:flex">
         <div className="flex size-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
           <Factory className="size-5" />
         </div>
-        <span className="hidden text-sm font-semibold text-text lg:inline">УБ БҮК ХК</span>
+        <span className="hidden text-sm font-semibold text-text xl:inline">УБ БҮК ХК</span>
       </Link>
 
       {pathname !== "/dashboard" && (
         <button
           onClick={() => router.back()}
-          className="focus-ring flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-bg-surface px-3 text-xs font-medium text-text-muted transition-colors hover:text-text"
+          aria-label="Буцах"
+          className="focus-ring flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-surface px-3 text-xs sm:h-9 sm:min-w-0 font-medium text-text-muted transition-colors hover:text-text"
         >
           <ArrowLeft className="size-4" />
           <span className="hidden sm:inline">Буцах</span>
         </button>
       )}
 
-      <div ref={launcherRef} className="relative shrink-0">
+      <div ref={launcherRef} className="shrink-0 sm:relative">
         <button
           onClick={() => setLauncherOpen((o) => !o)}
+          aria-label="Модулиуд"
           className={cn(
-            "focus-ring relative flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors",
+            "focus-ring relative flex h-11 min-w-11 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors sm:h-9 sm:min-w-0",
             launcherOpen
               ? "border-tech/50 bg-tech/10 text-tech"
               : "border-border bg-bg-surface text-text-muted hover:text-text"
@@ -222,7 +298,7 @@ export function CommandBar() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.14 }}
-              className="absolute left-0 z-20 mt-2 w-72 overflow-hidden rounded-xl border border-border bg-bg-surface p-1.5 shadow-elevated"
+              className="absolute inset-x-2 top-full z-20 mt-1 max-h-[calc(100dvh-5rem)] overflow-y-auto overflow-x-hidden sm:inset-x-auto sm:left-0 sm:mt-2 sm:w-72 rounded-xl border border-border bg-bg-surface p-1.5 shadow-elevated"
             >
               {navItems.map((item) => {
                 const active = pathname === item.href || pathname?.startsWith(item.href + "/");
@@ -254,7 +330,7 @@ export function CommandBar() {
       </div>
 
       <div className="mx-1 hidden h-6 w-px bg-border md:block" />
-      <div className="hidden md:block">
+      <div className="hidden min-w-0 md:block">
         <BlurText
           key={pathname}
           text={title}
@@ -269,8 +345,8 @@ export function CommandBar() {
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-3">
-        <div ref={searchRef} className="relative hidden w-64 lg:block">
+      <div className="ml-auto flex items-center gap-2 max-[359px]:gap-1.5 sm:gap-3">
+        <div ref={searchRef} className="relative hidden w-44 lg:block xl:w-64">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
           <input
             value={searchQuery}
@@ -300,70 +376,33 @@ export function CommandBar() {
                 transition={{ duration: 0.14 }}
                 className="absolute right-0 top-full z-20 mt-2 max-h-96 w-96 overflow-y-auto rounded-xl border border-border bg-bg-surface shadow-elevated"
               >
-                {searchLoading && !searchResults ? (
-                  <p className="px-3 py-6 text-center text-xs text-text-muted">Хайж байна...</p>
-                ) : !searchResults || (searchResults.requests.length === 0 && searchResults.materials.length === 0) ? (
-                  <p className="px-3 py-6 text-center text-xs text-text-muted">Илэрц олдсонгүй</p>
-                ) : (
-                  <>
-                    {searchResults.requests.length > 0 && (
-                      <div className="p-1.5">
-                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                          Захиалга
-                        </p>
-                        {searchResults.requests.map((r) => (
-                          <button
-                            key={r.id}
-                            onClick={() => goToSearchRequest(r.id)}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-bg-elevated"
-                          >
-                            <ListChecks className="size-4 shrink-0 text-tech" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium text-text">
-                                №{r.requestNumber} · {r.requestedBy}
-                              </span>
-                              <span className="block truncate text-[11px] text-text-muted">{r.department}</span>
-                            </span>
-                            <StatusBadge status={r.status} className="shrink-0" />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {searchResults.materials.length > 0 && (
-                      <div className="border-t border-border p-1.5">
-                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                          Материал
-                        </p>
-                        {searchResults.materials.map((m) => (
-                          <button
-                            key={m.id}
-                            onClick={() => goToSearchMaterial(m.id)}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-bg-elevated"
-                          >
-                            <Boxes className="size-4 shrink-0 text-accent" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium text-text">{m.name}</span>
-                              <span className="block truncate text-[11px] text-text-muted">
-                                {m.code} · {m.unit}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
+                <SearchResultsBody
+                  loading={searchLoading}
+                  results={searchResults}
+                  onRequest={goToSearchRequest}
+                  onMaterial={goToSearchMaterial}
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
+        <button
+          type="button"
+          onClick={() => setMobileSearchOpen(true)}
+          aria-label="Хайх"
+          className="focus-ring flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text lg:hidden"
+        >
+          <Search className="size-4" />
+        </button>
+
         <ThemeToggle />
 
-        <div ref={notifRef} className="relative">
+        <div ref={notifRef} className="sm:relative">
           <button
             onClick={() => setNotifOpen((o) => !o)}
-            className="focus-ring relative flex size-9 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text"
+            aria-label="Мэдэгдэл"
+            className="focus-ring relative flex size-11 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text sm:size-9"
           >
             <Bell className="size-4" />
             {unreadCount > 0 && (
@@ -374,7 +413,7 @@ export function CommandBar() {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-bg-surface shadow-elevated">
+            <div className="absolute inset-x-2 top-full z-20 mt-1 max-h-[calc(100dvh-5rem)] overflow-y-auto sm:inset-x-auto sm:right-0 sm:mt-2 sm:w-80 rounded-xl border border-border bg-bg-surface shadow-elevated">
               <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <p className="text-xs font-semibold text-text">Мэдэгдэл</p>
                 {unreadCount > 0 && (
@@ -408,24 +447,125 @@ export function CommandBar() {
         </div>
 
         {user && (
-          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-2">
-            <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent">
+          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-2 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
+            <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent max-sm:hidden">
               {initials(user.name ?? "?")}
             </div>
-            <div className="hidden text-left leading-tight md:block">
+            <div className="hidden text-left leading-tight lg:block">
               <p className="text-xs font-medium text-text">{user.name}</p>
               <p className="text-[11px] text-text-muted">{USER_ROLE_LABEL[user.role] ?? user.role}</p>
             </div>
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               title="Гарах"
-              className="focus-ring ml-1 flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-bg-elevated hover:text-danger"
+              aria-label="Гарах"
+              className="focus-ring ml-1 flex size-7 max-sm:ml-0 max-sm:size-11 max-sm:border max-sm:border-border max-sm:bg-bg-surface items-center justify-center rounded-md text-text-muted hover:bg-bg-elevated hover:text-danger"
             >
               <LogOut className="size-3.5" />
             </button>
           </div>
         )}
       </div>
+      {mobileSearchOpen &&
+        createPortal(
+          <MobileSearchOverlay
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            onClose={closeSearch}
+            loading={searchLoading}
+            results={searchResults}
+            onRequest={goToSearchRequest}
+            onMaterial={goToSearchMaterial}
+          />,
+          document.body
+        )}
     </header>
+  );
+}
+
+function MobileSearchOverlay({
+  query,
+  onQuery,
+  onClose,
+  loading,
+  results,
+  onRequest,
+  onMaterial,
+}: {
+  query: string;
+  onQuery: (q: string) => void;
+  onClose: () => void;
+  loading: boolean;
+  results: SearchResults | null;
+  onRequest: (id: string) => void;
+  onMaterial: (id: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  // The on-screen keyboard shrinks the *visual* viewport (iOS leaves the layout viewport alone),
+  // so size the overlay to it to keep the result list above the keyboard.
+  const [viewHeight, setViewHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => setViewHeight(vv.height);
+    sync();
+    vv.addEventListener("resize", sync);
+    return () => vv.removeEventListener("resize", sync);
+  }, []);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Хайлт"
+      className="fixed inset-x-0 top-0 z-[60] flex h-dvh flex-col bg-bg"
+      style={{ height: viewHeight ?? undefined, paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            type="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            placeholder="Захиалга, материал хайх..."
+            className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-surface pl-9 pr-3 text-base text-text placeholder:text-text-muted"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Хайлтыг хаах"
+          className="focus-ring flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-bg-surface text-text-muted hover:text-text"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {query.trim().length < SEARCH_MIN_LENGTH ? (
+          <p className="px-3 py-6 text-center text-xs text-text-muted">Дор хаяж {SEARCH_MIN_LENGTH} тэмдэгт бичнэ үү</p>
+        ) : (
+          <SearchResultsBody loading={loading} results={results} onRequest={onRequest} onMaterial={onMaterial} />
+        )}
+      </div>
+    </div>
   );
 }

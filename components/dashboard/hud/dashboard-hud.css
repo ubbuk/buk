@@ -124,10 +124,12 @@
 }
 
 /* ---- DataTable restyle (scoped; the shared component is unchanged) ---- */
-/* Fit the panel: no horizontal scrolling. The table is border-box so its own
-   side padding no longer pushes it past 100% width, and long cells wrap. */
+/* Fit the panel. The table is border-box so its own side padding no longer
+   pushes it past 100% width. On wide panels it fits and no scrollbar shows; on
+   phones the table scrolls inside its own box instead of stretching the page. */
 .dh-table .overflow-x-auto {
-  overflow-x: visible;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .dh-table table {
   width: 100%;
