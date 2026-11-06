@@ -14,7 +14,7 @@ export function StatusBadge({ status, className }: { status: RequestStatus; clas
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium",
+        "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full max-sm:whitespace-normal border px-2.5 py-1 text-xs font-medium",
         toneClasses[tone],
         className
       )}

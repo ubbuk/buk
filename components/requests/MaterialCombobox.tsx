@@ -25,7 +25,7 @@ export function MaterialCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
   const [active, setActive] = useState(-1);
-  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ left: number; top: number; width: number; maxHeight: number; flip: boolean } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -36,7 +36,17 @@ export function MaterialCombobox({
     const el = containerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 360) });
+    // Keep the list inside the *visual* viewport (shrinks when the mobile keyboard opens).
+    const vv = window.visualViewport;
+    const vw = vv?.width ?? window.innerWidth;
+    const vh = vv?.height ?? window.innerHeight;
+    const width = Math.min(Math.max(r.width, 360), vw - 16);
+    const left = Math.max(8, Math.min(r.left, vw - width - 8));
+    const below = vh - r.bottom - 12;
+    const above = r.top - 12;
+    const flip = below < 160 && above > below;
+    const maxHeight = Math.max(120, Math.min(288, flip ? above : below));
+    setRect({ left, top: flip ? r.top - 4 : r.bottom + 4, width, maxHeight, flip });
   }, []);
 
   useLayoutEffect(() => {
@@ -44,9 +54,11 @@ export function MaterialCombobox({
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
+    window.visualViewport?.addEventListener("resize", place);
     return () => {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
+      window.visualViewport?.removeEventListener("resize", place);
     };
   }, [open, place]);
 
@@ -130,8 +142,15 @@ export function MaterialCombobox({
             ref={listRef}
             id={listId}
             role="listbox"
-            className="hud-form hud-pop fixed z-50 max-h-72 overflow-y-auto rounded-lg border border-tech/40 !bg-[rgb(9,26,38)] shadow-[0_12px_32px_rgba(0,0,0,0.6),0_0_18px_rgba(54,201,244,0.12)]"
-            style={{ left: rect.left, top: rect.top, width: rect.width, backgroundImage: "none" }}
+            className="hud-form hud-pop fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-tech/40 !bg-[rgb(9,26,38)] shadow-[0_12px_32px_rgba(0,0,0,0.6),0_0_18px_rgba(54,201,244,0.12)]"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              maxHeight: rect.maxHeight,
+              transform: rect.flip ? "translateY(-100%)" : undefined,
+              backgroundImage: "none",
+            }}
           >
             {filtered.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-3 text-sm text-text-muted">

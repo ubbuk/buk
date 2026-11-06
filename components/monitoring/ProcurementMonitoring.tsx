@@ -236,10 +236,10 @@ function Lifecycle({ o }: { o: ProcurementOverview }) {
       {note && <p className="mt-0.5 text-[10px] text-text-muted">{note}</p>}
     </div>
   );
-  const Arrow = () => <ChevronRight className="hidden size-4 shrink-0 self-center text-text-muted md:block" aria-hidden />;
+  const Arrow = () => <ChevronRight className="hidden size-4 shrink-0 self-center text-text-muted xl:block" aria-hidden />;
   return (
     <div className="rounded-xl border border-border bg-bg-surface p-4" role="group" aria-label="Худалдан авалтын амьдралын мөчлөг">
-      <div className="flex flex-col gap-2 md:flex-row">
+      <div className="flex flex-col gap-2 md:grid md:grid-cols-3 xl:flex xl:flex-row">
         <Box title="Гүйцэтгэх захирал баталсан" n={o.requests.awaitingProcurement} note="одоо худалдан авалтын шатанд" />
         <Arrow />
         <Box title="Ангилал хүлээж буй" n={o.requests.awaitingClassification} tone={o.requests.awaitingClassification > 0 ? "border-warning/40" : undefined} />

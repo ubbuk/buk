@@ -21,6 +21,7 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { validateItem, type FieldErrors } from "@/lib/validation";
 import {
   ALLOWED_ATTACHMENT_MIME_TYPES,
@@ -69,6 +70,10 @@ function emptyRow(): Row {
 }
 
 export function MaterialRequestForm() {
+  // Wide screens keep the dense table; narrow ones get one card per material.
+  // Both render from the same rows/handlers -- only the markup differs.
+  const isDesktop = useMediaQuery("(min-width: 1025px)");
+
   const { push } = useToast();
   const { data: session } = useSession();
   const searchParams = useSearchParams();
@@ -476,7 +481,7 @@ export function MaterialRequestForm() {
   ];
 
   return (
-    <div className="hud-form -mx-4 -mt-4 min-h-[calc(100vh-4rem)] max-w-[100vw] space-y-4 overflow-x-clip px-4 pb-6 pt-4 sm:-mx-6 sm:px-6">
+    <div className="hud-form -mx-4 -mt-4 min-h-[calc(100dvh-4rem)] min-w-0 space-y-4 px-4 pb-6 pt-4 sm:-mx-6 sm:px-6">
       <HudHeader
         title={isEditMode ? "Захиалгыг засварлаж дахин илгээх" : "Шинэ материалын захиалга"}
         subtitle="Маягт №1 — Материалын захиалгын хуудас"
@@ -498,9 +503,9 @@ export function MaterialRequestForm() {
       />
 
       <HudPanel chamfer={16} innerClassName="pb-2">
-        <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-lg border border-accent/50 bg-accent/10 text-accent">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 bg-accent/10 text-accent">
               <Boxes className="size-5" />
             </span>
             <h2 className="text-lg font-semibold text-text">Захиалах материал</h2>
@@ -512,7 +517,150 @@ export function MaterialRequestForm() {
             </button>
           </span>
         </div>
-        <div className="overflow-x-auto">
+        {!isDesktop && (
+          <ul className="space-y-3 px-3 pb-1 pt-1" aria-label="Захиалах материалууд">
+            {rows.map((row, idx) => {
+              const rowErrors = errors[row.id] ?? {};
+              const qty = typeof row.requestedQuantity === "number" ? row.requestedQuantity : 0;
+              const price = typeof row.unitPrice === "number" ? row.unitPrice : null;
+              const shortfall = row.warehouseBalance !== null && qty > row.warehouseBalance;
+              return (
+                <li key={row.id} className="hud-row min-w-0 space-y-3 rounded-lg border border-tech/25 bg-bg/40 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-tech/30 bg-bg/60 text-sm font-semibold tabular-nums text-text">
+                      {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(row.id)}
+                      disabled={rows.length === 1}
+                      aria-label={`${idx + 1}-р мөрийг устгах`}
+                      className="focus-ring flex size-11 shrink-0 items-center justify-center rounded-lg border border-danger/40 bg-danger/10 text-danger transition-colors hover:bg-danger/25 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <Trash2 className="size-5" />
+                    </button>
+                  </div>
+
+                  <div className="min-w-0 space-y-1">
+                    <span className="hud-label block">
+                      Захиалах сэлбэг, материалын нэр <span className="text-accent">*</span>
+                    </span>
+                    <MaterialCombobox
+                      value={row.materialName}
+                      materials={materials}
+                      invalid={!!rowErrors.materialName}
+                      onSelect={(m) => onMaterialSelect(row.id, m)}
+                      onManualChange={(name) =>
+                        updateRow(row.id, { materialName: name, materialId: null, warehouseBalance: null })
+                      }
+                    />
+                    {rowErrors.materialName && <FieldError>{rowErrors.materialName}</FieldError>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <span className="hud-label block">Агуулахын үлдэгдэл</span>
+                      <div
+                        className={`flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-sm tabular-nums ${
+                          shortfall
+                            ? "border-warning/60 bg-warning/10 font-semibold text-warning"
+                            : "border-tech/20 bg-bg/60 text-text-muted"
+                        }`}
+                        title={shortfall ? "Агуулахын үлдэгдэл хүрэлцэхгүй" : undefined}
+                      >
+                        {row.warehouseBalance !== null ? (
+                          <>
+                            <Warehouse className="size-3.5 shrink-0" />
+                            <span className="truncate">{formatNumber(row.warehouseBalance)}</span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-1">
+                      <label className="hud-label block" htmlFor={`m-unit-${row.id}`}>Хэмжих нэгж</label>
+                      <input
+                        id={`m-unit-${row.id}`}
+                        value={row.unit}
+                        list="hud-units"
+                        aria-invalid={!!rowErrors.unit || undefined}
+                        onChange={(e) => updateRow(row.id, { unit: e.target.value })}
+                        placeholder="тн, м³..."
+                        className="hud-input"
+                      />
+                      {rowErrors.unit && <FieldError>{rowErrors.unit}</FieldError>}
+                    </div>
+                    <div className="min-w-0 space-y-1">
+                      <label className="hud-label block" htmlFor={`m-qty-${row.id}`}>
+                        Тоо хэмжээ <span className="text-accent">*</span>
+                      </label>
+                      <input
+                        id={`m-qty-${row.id}`}
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="any"
+                        aria-invalid={!!rowErrors.requestedQuantity || undefined}
+                        placeholder="0.00"
+                        value={row.requestedQuantity}
+                        onChange={(e) =>
+                          updateRow(row.id, {
+                            requestedQuantity: e.target.value === "" ? "" : Number(e.target.value),
+                          })
+                        }
+                        className="hud-input"
+                      />
+                      {rowErrors.requestedQuantity && <FieldError>{rowErrors.requestedQuantity}</FieldError>}
+                    </div>
+                    <div className="min-w-0 space-y-1">
+                      <label className="hud-label block" htmlFor={`m-price-${row.id}`}>Нэгж үнэ</label>
+                      <input
+                        id={`m-price-${row.id}`}
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="any"
+                        aria-invalid={!!rowErrors.unitPrice || undefined}
+                        value={row.unitPrice}
+                        placeholder="Заавал биш"
+                        onChange={(e) =>
+                          updateRow(row.id, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })
+                        }
+                        className="hud-input"
+                      />
+                      {rowErrors.unitPrice && <FieldError>{rowErrors.unitPrice}</FieldError>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-tech/20 bg-bg/60 px-3 py-2">
+                    <span className="hud-label">Бүгд үнэ</span>
+                    <span
+                      className={`min-w-0 break-words text-right text-base font-semibold tabular-nums ${
+                        price === null ? "text-accent" : "text-text"
+                      }`}
+                    >
+                      {formatCurrency(price === null ? null : qty * price)}
+                    </span>
+                  </div>
+
+                  <div className="min-w-0 space-y-1">
+                    <label className="hud-label block" htmlFor={`m-note-${row.id}`}>Тайлбар</label>
+                    <input
+                      id={`m-note-${row.id}`}
+                      value={row.note}
+                      placeholder="Тайлбар оруулах..."
+                      onChange={(e) => updateRow(row.id, { note: e.target.value })}
+                      className="hud-input"
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className={isDesktop ? "relative overflow-x-auto" : undefined}>
+          {isDesktop && (
           <table className="hud-table w-full min-w-[1200px] border-collapse text-base">
             <thead>
               <tr className="border-y border-tech/25 bg-tech/[0.04] text-left text-sm text-text-muted">
@@ -657,6 +805,7 @@ export function MaterialRequestForm() {
               })}
             </tbody>
           </table>
+          )}
           <datalist id="hud-units">
             {["ш", "кг", "тн", "л", "м", "м²", "м³", "багц", "комплект"].map((u) => (
               <option key={u} value={u} />
@@ -664,7 +813,7 @@ export function MaterialRequestForm() {
           </datalist>
         </div>
         <div className="flex justify-end px-4 pb-2 pt-3 sm:px-5">
-          <HudPanel tone="amber" chamfer={10} innerClassName="flex items-center gap-4 px-4 py-2 !bg-[linear-gradient(160deg,rgba(78,50,5,0.85),rgba(26,17,5,0.95))]">
+          <HudPanel tone="amber" className="max-w-full" chamfer={10} innerClassName="flex items-center gap-4 px-4 py-2 !bg-[linear-gradient(160deg,rgba(78,50,5,0.85),rgba(26,17,5,0.95))]">
             <span className="text-sm font-medium text-text-muted">Нийт дүн</span>
             <span
               className={`text-xl font-bold tabular-nums ${total === null ? "text-accent" : "text-text"} [text-shadow:0_0_14px_rgba(255,170,0,0.55)]`}
@@ -697,20 +846,20 @@ export function MaterialRequestForm() {
         />
       </section>
 
-      <HudPanel chamfer={18} className="sticky bottom-20 z-30 md:bottom-3" innerClassName="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5 !bg-[linear-gradient(160deg,rgba(14,38,54,0.98),rgba(6,18,28,0.99))]">
-        <div className="flex items-center gap-2 text-sm text-text-muted">
+      <HudPanel chamfer={18} className="sticky bottom-20 z-30 md:bottom-3 [@media(max-height:500px)]:static" innerClassName="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5 !bg-[linear-gradient(160deg,rgba(14,38,54,0.98),rgba(6,18,28,0.99))]">
+        <div className="flex items-center gap-2 text-sm text-text-muted max-sm:hidden">
           <Info className="size-4 shrink-0 text-tech" />
           Илгээхийн өмнө бүх мөрийг шалгана уу. Илгээсний дараа цехийн дарга баталгаажуулна.
         </div>
-        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-3 [&>*]:min-w-0">
           {!isEditMode && (
-            <button type="button" onClick={saveDraft} className="hud-btn hud-btn--secondary">
+            <button type="button" onClick={saveDraft} className="hud-btn hud-btn--secondary max-sm:w-full max-sm:px-2">
               <Save className="size-4" />
               Ноорог хадгалах
             </button>
           )}
           <span className="hud-glow">
-            <button type="button" onClick={submit} disabled={submitting} aria-busy={submitting} className="hud-btn hud-btn--primary min-w-[9.5rem]">
+            <button type="button" onClick={submit} disabled={submitting} aria-busy={submitting} className="hud-btn hud-btn--primary min-w-[9.5rem] max-sm:w-full max-sm:min-w-0 max-sm:px-2">
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
               {isEditMode ? "Дахин илгээх" : "Илгээх"}
             </button>
