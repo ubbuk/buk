@@ -242,7 +242,7 @@ export default function DashboardPage() {
           title="Сүүлийн захиалгууд"
           stripes
           right={
-            <Link href="/requests" className="focus-ring ml-auto flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+            <Link href="/requests" className="focus-ring ml-auto flex items-center gap-1 text-[11px] font-medium text-accent hover:underline max-md:min-h-11">
               Бүгдийг харах <ArrowUpRight className="size-3" />
             </Link>
           }

@@ -91,11 +91,11 @@ function Kpi({ icon: Icon, label, value, sub, tone }: { icon: LucideIcon; label:
         <Icon className="size-5" strokeWidth={1.7} aria-hidden />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-[11px] text-text-muted">{label}</p>
+        <p className="truncate max-sm:whitespace-normal max-sm:break-words text-[11px] text-text-muted">{label}</p>
         <p className="text-2xl font-semibold leading-tight tabular-nums text-text">
           <AnimatedNumber value={value} />
         </p>
-        {sub && <p className="truncate text-[10px] text-text-muted">{sub}</p>}
+        {sub && <p className="truncate max-sm:whitespace-normal max-sm:break-words text-[10px] text-text-muted">{sub}</p>}
       </div>
     </div>
   );
@@ -246,7 +246,7 @@ export function HudOverview({
                         className="mh-deptrow focus-ring"
                       >
                         <span className="mb-1 flex items-baseline justify-between gap-2 text-xs">
-                          <span className="truncate text-text">{x.name}</span>
+                          <span className="truncate max-sm:whitespace-normal max-sm:break-words text-text">{x.name}</span>
                           <span className="tabular-nums text-text-muted">{pct}%</span>
                         </span>
                         <SegBar pct={pct} color={pct >= 80 ? COLOR.success : COLOR.accent} />
@@ -340,7 +340,7 @@ export function HudOverview({
                     <li key={st.status} className="mh-bn" data-sev={sev}>
                       <SevIcon className="mh-bn-icon size-4 shrink-0" aria-hidden />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-text">{statusLabel(st.status)}</span>
+                        <span className="block truncate max-sm:whitespace-normal max-sm:break-words font-medium text-text">{statusLabel(st.status)}</span>
                         <span className="block text-[10px] text-text-muted">
                           {st.count} захиалга · дундаж {formatDuration(st.avgSeconds)}
                         </span>
@@ -426,10 +426,10 @@ export function HudOverview({
                   <span className="mh-ev-dot" style={{ background: dotTone(a.action) }} />
                   <div className="min-w-0 flex-1">
                     <p className="flex items-baseline justify-between gap-2 text-xs">
-                      <span className="truncate font-medium text-text">{ACTION_LABEL[a.action] ?? a.action}</span>
+                      <span className="truncate max-sm:whitespace-normal max-sm:break-words font-medium text-text">{ACTION_LABEL[a.action] ?? a.action}</span>
                       <span className="shrink-0 text-[10px] tabular-nums text-text-muted">{formatUB(a.createdAt).slice(5)}</span>
                     </p>
-                    <p className="truncate text-[11px] text-text-muted">
+                    <p className="truncate max-sm:whitespace-normal max-sm:break-words text-[11px] text-text-muted">
                       {a.actorName}
                       {a.entityLabel ? ` · ${a.entityLabel}` : ""}
                     </p>

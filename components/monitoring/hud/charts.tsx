@@ -52,7 +52,7 @@ export function Legend({ items }: { items: { label: string; value: string | numb
       {items.map((i) => (
         <li key={i.label} className="flex items-center gap-2">
           <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: i.color }} />
-          <span className="min-w-0 flex-1 truncate text-text-muted">{i.label}</span>
+          <span className="min-w-0 flex-1 truncate max-sm:whitespace-normal max-sm:break-words text-text-muted">{i.label}</span>
           <span className="font-medium tabular-nums text-text">{i.value}</span>
         </li>
       ))}

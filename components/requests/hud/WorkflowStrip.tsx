@@ -41,7 +41,7 @@ export function WorkflowStrip({ states }: { states: [StepState, StepState, StepS
               </span>
               <span className="min-w-0">
                 <span className="block text-xs font-semibold tabular-nums text-text-muted">0{i + 1}</span>
-                <span className="block truncate text-sm font-semibold text-text">{step.label}</span>
+                <span className="block truncate max-sm:whitespace-normal max-sm:break-words text-sm font-semibold text-text">{step.label}</span>
               </span>
             </HudPanel>
             {i < STEPS.length - 1 && <ChevronsRight className="hidden size-5 text-tech/70 lg:block" aria-hidden />}

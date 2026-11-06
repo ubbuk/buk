@@ -9,8 +9,8 @@ function Metric({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: s
         <Icon className="size-5" />
       </span>
       <span className="min-w-0">
-        <span className="hud-label block truncate">{label}</span>
-        <span className={cn("block truncate text-xl font-semibold tabular-nums", tone === "amber" ? "text-accent" : "text-text")}>
+        <span className="hud-label block truncate max-sm:whitespace-normal max-sm:break-words">{label}</span>
+        <span className={cn("block truncate max-sm:whitespace-normal max-sm:break-words text-xl font-semibold tabular-nums", tone === "amber" ? "text-accent" : "text-text")}>
           {value}
         </span>
       </span>
@@ -49,7 +49,7 @@ export function OrderTelemetry({
           <span className="hud-label block">Захиалгын чиглэл</span>
           <div className="mt-1 flex h-10 items-center rounded-lg border border-tech/30 bg-bg/60 px-3 text-sm">
             <span className="font-semibold text-text">{directionLabel}</span>
-            <span className="ml-1.5 truncate text-xs text-text-muted">(цехийн ангиллаар автоматаар тодорхойлогдоно)</span>
+            <span className="ml-1.5 truncate max-sm:whitespace-normal max-sm:break-words text-xs text-text-muted">(цехийн ангиллаар автоматаар тодорхойлогдоно)</span>
           </div>
         </div>
       </HudPanel>

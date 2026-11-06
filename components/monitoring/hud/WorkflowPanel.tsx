@@ -77,7 +77,7 @@ function StageOrders({ statuses, tick }: { statuses: string[]; tick: number }) {
         <li key={r.id}>
           <Link href={`/requests/${r.id}`} className="mh-order focus-ring">
             <span className="font-medium">№{r.requestNumber}</span>
-            <span className="truncate text-text-muted">{r.department}</span>
+            <span className="truncate max-sm:whitespace-normal max-sm:break-words text-text-muted">{r.department}</span>
             <span className={cn("ml-auto shrink-0 tabular-nums", waitTone(r.waitingSeconds))}>{formatDuration(r.waitingSeconds)}</span>
           </Link>
         </li>

@@ -81,7 +81,7 @@ export function AttachmentDropzone({
             <li key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-tech/25 bg-bg/60 px-3 py-2 text-xs">
               <a href={a.href} target="_blank" rel="noreferrer" className="focus-ring flex min-w-0 items-center gap-2 text-text hover:text-accent">
                 <Files className="size-4 shrink-0 text-tech" />
-                <span className="truncate underline decoration-dotted">{a.fileName}</span>
+                <span className="truncate max-sm:whitespace-normal max-sm:break-words underline decoration-dotted">{a.fileName}</span>
               </a>
               <span className="shrink-0 text-text-muted">{formatFileSize(a.sizeBytes)}</span>
             </li>
@@ -90,7 +90,7 @@ export function AttachmentDropzone({
             <li key={`${f.name}-${i}`} className="hud-pop flex items-center justify-between gap-2 rounded-lg border border-tech/25 bg-bg/60 px-3 py-2 text-xs">
               <span className="flex min-w-0 items-center gap-2 text-text">
                 <Files className="size-4 shrink-0 text-accent" />
-                <span className="truncate">{f.name}</span>
+                <span className="truncate max-sm:whitespace-normal max-sm:break-words">{f.name}</span>
                 <span className="shrink-0 text-text-muted">({formatFileSize(f.size)})</span>
               </span>
               <button

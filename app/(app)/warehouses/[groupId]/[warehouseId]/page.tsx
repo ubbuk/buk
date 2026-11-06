@@ -31,7 +31,7 @@ export default function WarehouseDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1.5 text-sm text-text-muted">
-        <Link href="/warehouses" className="hover:text-text hover:underline">
+        <Link href="/warehouses" className="inline-flex items-center hover:text-text hover:underline max-md:min-h-11">
           Агуулахын жагсаалт
         </Link>
         <ChevronRight className="size-3.5" />

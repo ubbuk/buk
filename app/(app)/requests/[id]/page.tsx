@@ -297,7 +297,7 @@ export default function RequestDetailPage() {
                         <button
                           type="button"
                           onClick={() => setViewingItemId(item.id)}
-                          className="focus-ring rounded-md text-left underline decoration-dotted hover:text-accent"
+                          className="focus-ring rounded-md text-left underline decoration-dotted hover:text-accent max-md:min-h-11"
                         >
                           {item.materialName}
                         </button>

@@ -359,7 +359,10 @@ function Rig({
     const vFov = (camera.fov * Math.PI) / 180;
     const aspect = size.width / Math.max(1, size.height);
     const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    const byWidth = 11.4 / 2 / Math.tan(hFov / 2);
+    // The stage tags are fixed-pixel HTML, so on a narrow canvas they stick out past the platform:
+    // leave ~44px of room per side there. Wide canvases keep the original fit.
+    const labelPad = size.width < 720 ? 1 / (1 - 88 / Math.max(size.width, 140)) : 1;
+    const byWidth = (11.4 * labelPad) / 2 / Math.tan(hFov / 2);
     const byHeight = 7.2 / 2 / Math.tan(vFov / 2);
     fit.current = Math.max(byWidth, byHeight);
     const c = controls.current;

@@ -81,7 +81,7 @@ export default function ArchivePage() {
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                "focus-ring rounded-lg border px-3 py-1.5 text-sm",
+                "focus-ring rounded-lg border px-3 py-1.5 text-sm max-md:min-h-11",
                 filter === f.key ? "border-accent bg-accent/10 text-accent" : "border-border text-text-muted hover:text-text"
               )}
             >

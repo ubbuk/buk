@@ -184,14 +184,14 @@ export function ProcurementMonitoring({ range, tick, refresh }: { range: string;
         }
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
-          <div role="group" aria-label="Хамрах хүрээ" className="flex overflow-hidden rounded-lg border border-border">
+          <div role="group" aria-label="Хамрах хүрээ" className="flex max-w-full overflow-hidden rounded-lg border border-border">
             {SCOPES.map((s) => (
               <button
                 key={s.key}
                 type="button"
                 aria-pressed={scope === s.key}
                 onClick={() => setScope(s.key)}
-                className={cn("focus-ring px-3 py-1.5 text-xs", scope === s.key ? "bg-accent text-bg" : "bg-bg-surface text-text-muted hover:text-text")}
+                className={cn("focus-ring min-w-0 px-3 py-1.5 text-xs max-md:min-h-11 max-sm:flex-1 max-sm:break-words", scope === s.key ? "bg-accent text-bg" : "bg-bg-surface text-text-muted hover:text-text")}
               >
                 {s.label}
               </button>

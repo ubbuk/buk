@@ -243,6 +243,31 @@
   font-style: normal;
   color: rgb(var(--color-danger));
 }
+/* phones: compact stage tags so the eight of them do not pile on top of each other
+   (full names stay readable in the stage chips below the scene) */
+@media (max-width: 639px) {
+  .mh-plabel {
+    min-width: 2.9rem;
+    padding: 0.12rem 0.3rem 0.16rem;
+    border-radius: 5px;
+  }
+  .mh-plabel-idx {
+    top: -0.38rem;
+    left: -0.32rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    font-size: 8px;
+  }
+  .mh-plabel-name {
+    font-size: 8.5px;
+  }
+  .mh-plabel-count {
+    font-size: 0.95rem;
+  }
+  .mh-plabel-ret {
+    font-size: 8px;
+  }
+}
 
 /* stage chips: legend, keyboard access and the no-WebGL fallback */
 .mh-chips {
@@ -298,6 +323,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: rgb(var(--color-text-muted));
+}
+@media (max-width: 639px) {
+  /* phones: show the whole stage name instead of cutting it with an ellipsis */
+  .mh-chip-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 .mh-chip-count {
   font-variant-numeric: tabular-nums;
