@@ -33,3 +33,5 @@ next-env.d.ts
 /e2e/results/
 /e2e/report/
 /e2e/screenshots/
+/e2e/results-smoke/
+/e2e/results-testdb/

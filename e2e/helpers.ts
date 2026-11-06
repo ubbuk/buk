@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-export const VIEWPORTS = [320, 360, 375, 390, 430, 768, 1024, 1440] as const;
+export const VIEWPORTS = [320, 360, 375, 390, 430, 440, 768, 1024, 1440] as const;
 export const heightFor = (w: number) => (w >= 1024 ? 900 : w >= 768 ? 1024 : 800);
 
 export interface Offender {

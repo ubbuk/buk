@@ -273,8 +273,8 @@ export function IndustrialCommandCenter({
         </div>
       </div>
 
-      {/* Mobile: lightweight scrollable strip -- no SVG scene */}
-      <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
+      {/* Mobile: lightweight two-column tile grid -- no SVG scene */}
+      <div className="grid grid-cols-2 gap-2 md:hidden">
         {tiles.map((tile) => {
           const Icon = tile.icon;
           const badge = tile.badgeKey ? kpis[tile.badgeKey] : 0;
@@ -282,12 +282,12 @@ export function IndustrialCommandCenter({
             <Link
               key={tile.href}
               href={tile.href}
-              className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-bg-surface px-3 py-2.5"
+              className="focus-ring flex min-h-11 min-w-0 items-center gap-1.5 rounded-xl border border-border bg-bg-surface px-2.5 py-2 min-[360px]:gap-2 min-[360px]:px-3"
             >
-              <span className={`flex size-8 items-center justify-center rounded-lg ${badge > 0 ? "bg-accent/15 text-accent" : "bg-tech/10 text-tech"}`}>
+              <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${badge > 0 ? "bg-accent/15 text-accent" : "bg-tech/10 text-tech"}`}>
                 <Icon className="size-4" />
               </span>
-              <span className="inline-block w-16">
+              <span className="inline-block w-14 min-w-0 shrink min-[360px]:w-16">
                 <StrokeText
                   text={tile.short}
                   trigger="mount"
@@ -302,7 +302,7 @@ export function IndustrialCommandCenter({
                 />
               </span>
               {badge > 0 && (
-                <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{badge}</span>
+                <span className="ml-auto shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{badge}</span>
               )}
             </Link>
           );

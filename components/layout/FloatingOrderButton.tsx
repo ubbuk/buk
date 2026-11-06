@@ -11,7 +11,7 @@ export function FloatingOrderButton() {
   if (HIDDEN_ON.some((p) => pathname === p || pathname.startsWith(p + "/"))) return null;
 
   return (
-    <div className="pointer-events-none fixed right-2 top-16 z-40 p-10 [&>*]:pointer-events-auto">
+    <div className="pointer-events-none fixed right-2 top-16 z-40 hidden p-10 md:block [&>*]:pointer-events-auto">
       <TruckButton href="/requests/new" label="Шинэ захиалга" large />
     </div>
   );
