@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
+import { lockExecutivePosition } from "@/lib/executive-handover";
 import { isProcurementPosition, POSITION_KIND, validateProcurementManager } from "@/lib/procurement-handover";
 import { lockPositionExclusive, pendingClassificationRequestIds, unfinishedAssignedItems } from "@/lib/procurement-workload";
 
@@ -94,7 +95,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // The executive position decides who may approve procurement quantities: only an active
+  // DIRECTOR qualifies (checked here, not just in the admin UI), and the change is serialised
+  // with an executive handover (lib/executive-handover.ts) by the same lock.
+  if (role === "EXECUTIVE_DIRECTOR" && (!user.isActive || user.role !== "DIRECTOR")) {
+    return NextResponse.json({ error: "Гүйцэтгэх захирлаар зөвхөн идэвхтэй «Захирал» (DIRECTOR) эрхтэй хэрэглэгчийг томилно" }, { status: 400 });
+  }
   await prisma.$transaction(async (tx) => {
+    if (role === "EXECUTIVE_DIRECTOR") await lockExecutivePosition(tx);
     await tx.approvalRoleAssignment.updateMany({
       where: { role: parsed.data.role, isActive: true },
       data: { isActive: false, endedAt: new Date() },

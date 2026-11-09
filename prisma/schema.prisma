@@ -71,6 +71,12 @@ model User {
   procurementVoids        ProcurementPurchase[] @relation("PurchaseVoidedBy")
   procurementAssignments  ProcurementItemAssignment[] @relation("ProcurementAssignee")
   procurementClassifications ProcurementClassification[] @relation("ClassificationConfirmedBy")
+  executiveDecisions         ExecutiveApprovalDecision[]  @relation("ExecutiveDecisionBy")
+  deferredRequestsMade       DeferredApprovalRequest[]    @relation("DeferredRequestedBy")
+  deferredRequestsDecided    DeferredApprovalRequest[]    @relation("DeferredDecidedBy")
+  executiveReassignedFrom    ExecutiveApprovalReassignment[] @relation("ExecutiveReassignFrom")
+  executiveReassignedTo      ExecutiveApprovalReassignment[] @relation("ExecutiveReassignTo")
+  executiveReassignmentsMade ExecutiveApprovalReassignment[] @relation("ExecutiveReassignBy")
 
   @@index([departmentId])
 }
@@ -208,6 +214,9 @@ model MaterialRequest {
   notifications    Notification[]
   accountingRecord AccountingRecord?
   procurementClassification ProcurementClassification?
+  executiveDecisions        ExecutiveApprovalDecision[]
+  deferredApprovalRequests  DeferredApprovalRequest[]
+  executiveReassignments    ExecutiveApprovalReassignment[]
 
   @@index([departmentId])
   @@index([requestedById])
@@ -235,6 +244,8 @@ model MaterialRequestItem {
   reservations        StockReservation[]
   purchases           ProcurementPurchase[]
   procurementAssignment ProcurementItemAssignment?
+  executiveAllocations  ExecutiveApprovalAllocation[]
+  deferredRequestItems  DeferredApprovalRequestItem[]
 
   @@unique([requestId, lineNo])
   @@index([materialId])
@@ -434,6 +445,144 @@ model ProcurementItemAssignment {
   @@index([assignedManagerId])
 }
 
+// Executive partial approval & deferred procurement.
+//
+// The executive director authorises purchasing in instalments. Every decision is
+// an immutable event (a database trigger rejects UPDATE/DELETE on the decision
+// and allocation tables); the authorised quantity of an item is the sum of its
+// allocation deltas, and "deferred" is derived as required - authorised, never
+// stored. MaterialRequestItem.requestedQuantity is never touched.
+//
+// A request approved before this feature existed has no decision rows; the
+// application reads it as fully authorised (see lib/executive-approval.ts), so
+// nothing has to be backfilled and no legacy request gains extra purchasing
+// rights (the purchase cap is still the warehouse shortfall).
+enum ExecutiveDecisionKind {
+  INITIAL_FULL
+  INITIAL_PARTIAL
+  SUBSEQUENT
+  DEFERRED_RETURN
+}
+
+enum DeferredApprovalStatus {
+  PENDING
+  APPROVED
+  PARTIALLY_APPROVED
+  RETURNED
+}
+
+model ExecutiveApprovalDecision {
+  id                String                @id @default(cuid())
+  requestId         String
+  // 1, 2, 3... per request; (requestId, sequence) is unique so concurrent decisions cannot collide.
+  sequence          Int
+  kind              ExecutiveDecisionKind
+  decidedById       String
+  decidedAt         DateTime              @default(now())
+  comment           String?
+  // Idempotency key supplied by the client; a retried submission is acknowledged, not applied twice.
+  clientRequestId   String?
+  // Procurement-officer request this decision resolved, if any.
+  deferredRequestId String?               @unique
+  // Snapshot after this decision (sum over items with a purchase requirement).
+  requiredTotal      Decimal              @db.Decimal(14, 3)
+  approvedTotalAfter Decimal              @db.Decimal(14, 3)
+
+  request         MaterialRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  decidedBy       User                          @relation("ExecutiveDecisionBy", fields: [decidedById], references: [id])
+  deferredRequest DeferredApprovalRequest?      @relation("DeferredRequestResolution", fields: [deferredRequestId], references: [id], onDelete: NoAction)
+  allocations     ExecutiveApprovalAllocation[]
+
+  @@unique([requestId, sequence])
+  @@unique([requestId, clientRequestId])
+  @@index([decidedById])
+}
+
+// ADMIN-controlled transfer of a request's pending executive responsibility (the
+// EXECUTIVE_APPROVAL step's assignee) from a replaced / deactivated executive to the
+// current EXECUTIVE_DIRECTOR position holder. One immutable row per request moved;
+// earlier decisions are never touched. See lib/executive-handover.ts.
+model ExecutiveApprovalReassignment {
+  id                  String   @id @default(cuid())
+  // The client's idempotency key of the confirmed handover (shared by all rows of one handover).
+  handoverKey         String
+  requestId           String
+  fromUserId          String
+  toUserId            String
+  reassignedById      String
+  reason              String
+  // As they were when the step was moved (read under the row lock).
+  stepStatusBefore    String
+  requestStatusBefore String
+  createdAt           DateTime @default(now())
+
+  request      MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fromUser     User            @relation("ExecutiveReassignFrom", fields: [fromUserId], references: [id])
+  toUser       User            @relation("ExecutiveReassignTo", fields: [toUserId], references: [id])
+  reassignedBy User            @relation("ExecutiveReassignBy", fields: [reassignedById], references: [id])
+
+  @@unique([handoverKey, requestId])
+  @@index([requestId, createdAt])
+}
+
+model ExecutiveApprovalAllocation {
+  id            String  @id @default(cuid())
+  decisionId    String
+  requestItemId String
+  // Quantity added by this decision (> 0).
+  quantity      Decimal @db.Decimal(14, 3)
+  // Snapshots, so history stays readable even if the warehouse shortfall is later re-checked.
+  requiredQuantity Decimal @db.Decimal(14, 3)
+  cumulativeAfter  Decimal @db.Decimal(14, 3)
+
+  decision    ExecutiveApprovalDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  requestItem MaterialRequestItem       @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, requestItemId])
+  @@index([requestItemId])
+}
+
+// A procurement officer's (MANAGER's) request for more authorised quantity. It
+// carries no authority: only an executive decision turns it into allocations.
+// A partial unique index (see the migration; Prisma cannot express it) allows
+// one PENDING request per material request at a time.
+model DeferredApprovalRequest {
+  id              String                 @id @default(cuid())
+  requestId       String
+  status          DeferredApprovalStatus @default(PENDING)
+  reason          String
+  requestedById   String
+  requestedAt     DateTime               @default(now())
+  clientRequestId String?
+  decidedById     String?
+  decidedAt       DateTime?
+  decisionComment String?
+
+  request     MaterialRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestedBy User                          @relation("DeferredRequestedBy", fields: [requestedById], references: [id])
+  decidedBy   User?                         @relation("DeferredDecidedBy", fields: [decidedById], references: [id])
+  items       DeferredApprovalRequestItem[]
+  resolution  ExecutiveApprovalDecision?    @relation("DeferredRequestResolution")
+
+  @@unique([requestId, clientRequestId])
+  @@index([requestId, status])
+}
+
+model DeferredApprovalRequestItem {
+  id                String   @id @default(cuid())
+  deferredRequestId String
+  requestItemId     String
+  requestedQuantity Decimal  @db.Decimal(14, 3)
+  // Set when the executive decides (0 = declined).
+  approvedQuantity  Decimal? @db.Decimal(14, 3)
+
+  deferredRequest DeferredApprovalRequest @relation(fields: [deferredRequestId], references: [id], onDelete: Cascade)
+  requestItem     MaterialRequestItem     @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+
+  @@unique([deferredRequestId, requestItemId])
+  @@index([requestItemId])
+}
+
 // Stage 7 output -- Chief Accountant's financial record of a fully
 // approved request. Terminal: this is a data-entry action, not an
 // approve/reject decision, so it carries no ApprovalAction row.
@@ -542,4 +691,19 @@ model AuditLog {
   @@index([createdAt])
   @@index([action, createdAt])
   @@index([entityType, entityId, createdAt])
+}
+
+// Fixed-window attempt counters for credential checks (login and current-password
+// verification), shared by every app instance through PostgreSQL. `key` is an opaque
+// bucket name (see lib/login-throttle.ts): e-mail addresses and IPs are only ever stored
+// hashed. Rows are written with single atomic upserts (raw SQL); they expire by
+// themselves (a bucket whose window has passed counts as 0) and are purged by
+// purgeStaleThrottles().
+model LoginThrottle {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+  updatedAt   DateTime
+
+  @@index([windowStart])
 }

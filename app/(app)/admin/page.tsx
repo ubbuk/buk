@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
+import { ExecutiveHandoverDialog } from "@/components/admin/ExecutiveHandoverDialog";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -69,6 +70,8 @@ export default function AdminPage() {
   const [approvalRoles, setApprovalRoles] = useState<{ role: string; userId: string; userName: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null);
+  const [pinReset, setPinReset] = useState<{ user: AdminUser; reason: string; identityVerified: boolean; adminPassword: string } | null>(null);
+  const [pinResetBusy, setPinResetBusy] = useState(false);
   const [passwordCopied, setPasswordCopied] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -83,6 +86,7 @@ export default function AdminPage() {
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
   const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
+  const [executiveHandoverOpen, setExecutiveHandoverOpen] = useState(false);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -176,14 +180,28 @@ export default function AdminPage() {
     setTempPassword({ email: user.email, password: body.tempPassword });
   }
 
-  async function resetPin(user: AdminUser) {
-    const res = await fetch(`/api/admin/users/${user.id}/reset-pin`, { method: "POST" });
-    if (!res.ok) {
-      push({ kind: "error", title: "PIN цуцлаж чадсангүй" });
-      return;
+  // Resetting somebody's PIN needs a reason, the admin's attestation that the employee's identity was verified and the
+  // admin's own password. The admin never sees or chooses a PIN: the employee creates a new one with their own password.
+  async function submitPinReset() {
+    if (!pinReset) return;
+    setPinResetBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${pinReset.user.id}/reset-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: pinReset.reason, identityVerified: pinReset.identityVerified, adminPassword: pinReset.adminPassword }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        push({ kind: "error", title: "PIN цуцалж чадсангүй", description: body.error });
+        return;
+      }
+      push({ kind: "success", title: `${pinReset.user.name}-ийн PIN цуцлагдлаа`, description: "Ажилтан өөрийн нууц үгээрээ шинэ PIN тохируулах шаардлагатай" });
+      setPinReset(null);
+      await load();
+    } finally {
+      setPinResetBusy(false);
     }
-    push({ kind: "success", title: `${user.name}-ийн PIN цуцлагдлаа`, description: "Дараагийн баталгаажуулалтдаа шинэ PIN тохируулах шаардлагатай" });
-    await load();
   }
 
   async function deleteUser(user: AdminUser) {
@@ -304,7 +322,7 @@ export default function AdminPage() {
             </Button>
           )}
           {u.hasPinSet && (
-            <Button size="sm" variant="secondary" onClick={() => resetPin(u)} title="PIN цуцлах">
+            <Button size="sm" variant="secondary" onClick={() => setPinReset({ user: u, reason: "", identityVerified: false, adminPassword: "" })} title="PIN цуцлах" aria-label={`${u.name}-ийн PIN цуцлах`}>
               <KeyRound className="size-3.5" />
             </Button>
           )}
@@ -355,6 +373,11 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-text">{r.label}</p>
                   <p className="text-[11px] text-text-muted">Одоогийн: {current?.userName ?? "Тохируулагдаагүй"}</p>
                 </div>
+                {r.role === "EXECUTIVE_DIRECTOR" && (
+                  <Button variant="secondary" size="sm" onClick={() => setExecutiveHandoverOpen(true)}>
+                    Хүлээгдэж буй баталгааг шилжүүлэх
+                  </Button>
+                )}
                 {isProcurementPosition(r.role) && (
                   <Button variant="secondary" size="sm" onClick={() => setHandover({ position: r.role as ProcurementPosition, label: r.label, managerId: current?.userId ?? "" })}>
                     Дуусаагүй ажлыг шилжүүлэх
@@ -382,6 +405,74 @@ export default function AdminPage() {
           </p>
         </CardBody>
       </Card>
+
+      <Modal
+        open={!!pinReset}
+        onClose={() => setPinReset(null)}
+        title="Ажилтны PIN цуцлах"
+        description="Та PIN-ийг харах, сонгох боломжгүй. Цуцалсны дараа ажилтан өөрийн нууц үгээрээ шинэ дөрвөн оронтой PIN үүсгэнэ."
+      >
+        {pinReset && (
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-text-muted">
+              Ажилтан: <b className="text-text">{pinReset.user.name}</b> ({pinReset.user.email})
+            </p>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-bg-elevated/40 p-3 text-xs text-text">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={pinReset.identityVerified}
+                onChange={(e) => setPinReset({ ...pinReset, identityVerified: e.target.checked })}
+              />
+              <span>Би энэ ажилтны хувийн байдлыг биечлэн эсвэл найдвартай арга замаар (жишээ нь буцаж залгах) баталгаажуулсан.</span>
+            </label>
+            <label className="block space-y-1 text-xs text-text-muted">
+              Цуцлах шалтгаан, баталгаажуулсан арга (заавал)
+              <textarea
+                value={pinReset.reason}
+                onChange={(e) => setPinReset({ ...pinReset, reason: e.target.value })}
+                rows={3}
+                maxLength={500}
+                className="focus-ring w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text"
+              />
+            </label>
+            <label className="block space-y-1 text-xs text-text-muted">
+              Таны өөрийн нууц үг
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={pinReset.adminPassword}
+                onChange={(e) => setPinReset({ ...pinReset, adminPassword: e.target.value })}
+                className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setPinReset(null)}>
+                Болих
+              </Button>
+              <Button
+                variant="danger"
+                loading={pinResetBusy}
+                disabled={!pinReset.identityVerified || pinReset.reason.trim().length < 3 || pinReset.adminPassword.length === 0}
+                onClick={() => void submitPinReset()}
+              >
+                PIN цуцлах
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <ExecutiveHandoverDialog
+        open={executiveHandoverOpen}
+        currentHolder={(() => {
+          const holder = approvalRoles.find((a) => a.role === "EXECUTIVE_DIRECTOR");
+          return holder ? { id: holder.userId, name: holder.userName } : null;
+        })()}
+        directors={users.filter((u) => u.role === "DIRECTOR").map((u) => ({ id: u.id, name: u.name, isActive: u.isActive }))}
+        onClose={() => setExecutiveHandoverOpen(false)}
+        onDone={() => void load()}
+      />
 
       {handover && (
         <ProcurementHandoverDialog
