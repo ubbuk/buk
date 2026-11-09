@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { isPrivilegedRole } from "@/lib/authority-roles";
+import { isAdminRoleGrantLocked, isPrivilegedRole } from "@/lib/authority-roles";
 import { ROLE_PERMISSION_SUMMARY, USER_ROLE_LABEL, USER_ROLES } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 
@@ -664,7 +664,8 @@ export default function AdminPage() {
           <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Овог, нэр" className={inputClass} />
           <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Албан тушаал (жиш: Цехийн дарга)" className={inputClass} />
           <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className={inputClass}>
-            {USER_ROLES.map((r) => (
+            {/* the ADMIN role is never created through the application (one administrator): lib/authority-roles.ts */}
+            {USER_ROLES.filter((r) => !isAdminRoleGrantLocked(r)).map((r) => (
               <option key={r} value={r}>
                 {USER_ROLE_LABEL[r]}
               </option>
@@ -760,7 +761,7 @@ export default function AdminPage() {
               onChange={(e) => setEditUser({ ...editUser, role: e.target.value })}
               className={inputClass}
             >
-              {USER_ROLES.map((r) => (
+              {USER_ROLES.filter((r) => !isAdminRoleGrantLocked(r) || r === editUser.role).map((r) => (
                 <option key={r} value={r}>
                   {USER_ROLE_LABEL[r]}
                 </option>

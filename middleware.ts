@@ -1,18 +1,28 @@
+import { NextResponse } from "next/server";
 import { withAuth } from "next-auth/middleware";
+import { pageAllowed } from "@/lib/route-access";
 
-export default withAuth({
-  pages: {
-    signIn: "/login",
+// First line for DIRECT visits (typed or bookmarked URLs): the cookie must hold a session with a role, and the role must be
+// allowed for the page. Middleware runs on the edge and only decodes the cookie: it cannot see a revocation or a role change
+// made in the last session lifetime. The (app) layout re-validates the session against the database on every full page load,
+// and every API route checks the role again, so this is defence in depth, not the only check (lib/route-access.ts).
+export default withAuth(
+  function middleware(req) {
+    if (!pageAllowed(req.nextauth.token?.role as string | undefined, req.nextUrl.pathname)) {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+    return NextResponse.next();
   },
-  callbacks: {
-    // The jwt callback re-validates role/isActive against the DB on every
-    // request and clears role to "" if the user was deactivated or no
-    // longer exists — treat that the same as "not authenticated" so a
-    // revoked session is kicked to /login on its very next request
-    // instead of waiting for the JWT to expire.
-    authorized: ({ token }) => !!token && !!token.role,
-  },
-});
+  {
+    pages: {
+      signIn: "/login",
+    },
+    callbacks: {
+      // A token without a role is a revoked / deactivated one: treat it as not signed in.
+      authorized: ({ token }) => !!token && !!token.role,
+    },
+  }
+);
 
 export const config = {
   matcher: [

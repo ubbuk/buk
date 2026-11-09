@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { clientIp } from "@/lib/client-ip";
 import { admit, passwordChangeBuckets } from "@/lib/login-throttle";
+import { credentialChange, forgetSession } from "@/lib/session-revocation";
 
 const bodySchema = z.object({
   currentPassword: z.string().min(1),
@@ -54,11 +55,16 @@ export async function POST(req: Request) {
   await admission.settle();
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  // The new password and the revocation of every session issued before it commit together (lib/session-revocation.ts):
+  // this includes the session making the request, so the client signs out and signs in with the new password.
   // No password value in beforeJson/afterJson — only the fact that it changed.
-  await prisma.auditLog.create({
-    data: { entityType: "User", entityId: user.id, action: "CHANGE_PASSWORD", actorId: user.id, ipAddress: clientIp(req.headers) },
-  });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash, ...credentialChange() } }),
+    prisma.auditLog.create({
+      data: { entityType: "User", entityId: user.id, action: "CHANGE_PASSWORD", actorId: user.id, ipAddress: clientIp(req.headers), afterJson: JSON.stringify({ sessionsRevoked: true }) },
+    }),
+  ]);
+  forgetSession(user.id);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, signedOut: true });
 }

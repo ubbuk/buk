@@ -17,11 +17,14 @@ import { verifyAccountPassword } from "./pin-management";
 // every other administrator and to the executive director, all written in the SAME transaction as the change: if
 // the record or a notification cannot be written, the grant does not happen.
 //
+// The administrator grants directly: there is NO second approval step. Two Stage 3 rules remain: nobody may grant
+// authority to themselves, and the ADMIN role can not be granted through the application at all (see isAdminRoleGrantLocked).
+//
 // IMPORTANT, what the custody check is and is not. It is a BARRIER and a DETECTOR, not a guarantee. It reads the
 // audit log: an account whose password the administrator issued (user creation, password reset) and which the
 // owner has not changed since is refused. But an administrator who knows the temporary password can sign in as the
 // employee and change the password themselves, which leaves exactly the evidence the check looks for. Only
-// out-of-band delivery (self-service recovery) or a second approver (dual control) closes that; this guard makes
+// out-of-band delivery (self-service recovery) closes that; this guard makes
 // the takeover slower, visible and reportable. See docs/admin-credential-security.md.
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -51,6 +54,11 @@ export interface GrantContext {
 
 export type GrantFailure = { ok: false; status: number; error: string; code?: string; retryAfterSeconds?: number };
 const fail = (status: number, error: string, code?: string, retryAfterSeconds?: number): GrantFailure => ({ ok: false, status, error, code, retryAfterSeconds });
+
+/** The JSON answer for a refused grant, identical for every route (status, stable code, Retry-After). */
+export function grantFailureResponse(f: GrantFailure): Response {
+  return Response.json({ error: f.error, code: f.code }, { status: f.status, headers: f.retryAfterSeconds ? { "Retry-After": String(f.retryAfterSeconds) } : undefined });
+}
 
 export const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 export const CUSTODY_CODE = "CREDENTIAL_NOT_OWNER_HELD";
@@ -113,6 +121,8 @@ export async function authorizeGrant(input: AuthorizeGrantInput): Promise<{ ok: 
 
   const admin = await prisma.user.findUnique({ where: { id: input.adminId }, select: { role: true, isActive: true } });
   if (!admin || !admin.isActive || admin.role !== "ADMIN") return fail(403, "Эрхгүй үйлдэл");
+  // nobody grants authority to themselves
+  if (input.targetUserId === input.adminId) return fail(403, "Өөртөө эрх олгох боломжгүй", "SELF_GRANT_FORBIDDEN");
 
   let admission;
   try {

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { announce, authorizeGrant, type GrantContext } from "@/lib/authority-grant";
+import { announce, authorizeGrant, grantFailureResponse, type GrantContext } from "@/lib/authority-grant";
 import { clientIp } from "@/lib/client-ip";
 import { departmentHeadError } from "@/lib/department-access";
 import { assignDepartmentHead } from "@/lib/department-head";
@@ -45,12 +45,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ip: clientIp(req.headers),
         checkCustody: true,
       });
-      if (!authorised.ok) {
-        return NextResponse.json(
-          { error: authorised.error, code: authorised.code },
-          { status: authorised.status, headers: authorised.retryAfterSeconds ? { "Retry-After": String(authorised.retryAfterSeconds) } : undefined }
-        );
-      }
+      if (!authorised.ok) return grantFailureResponse(authorised);
       grant = authorised.grant;
     }
   }

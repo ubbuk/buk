@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
-import { announce, authorizeGrant, recordGrant } from "@/lib/authority-grant";
+import { announce, authorizeGrant, grantFailureResponse, recordGrant } from "@/lib/authority-grant";
 import { positionEligibilityError } from "@/lib/authority-roles";
 import { clientIp } from "@/lib/client-ip";
 import { isProcurementPosition, POSITION_KIND, validateProcurementManager } from "@/lib/procurement-handover";
@@ -79,12 +79,7 @@ export async function POST(req: Request) {
     ip: clientIp(req.headers),
     checkCustody: true,
   });
-  if (!authorised.ok) {
-    return NextResponse.json(
-      { error: authorised.error, code: authorised.code },
-      { status: authorised.status, headers: authorised.retryAfterSeconds ? { "Retry-After": String(authorised.retryAfterSeconds) } : undefined }
-    );
-  }
+  if (!authorised.ok) return grantFailureResponse(authorised);
   const grant = authorised.grant;
   const positionRecord = async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], previousHolderIds: string[]) =>
     recordGrant(tx, grant, {

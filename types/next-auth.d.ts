@@ -13,6 +13,7 @@ declare module "next-auth" {
     id: string;
     role: string;
     departmentId: string | null;
+    sessionVersion?: number;
   }
 }
 
@@ -21,5 +22,7 @@ declare module "next-auth/jwt" {
     id: string;
     role: string;
     departmentId: string | null;
+    /** credential generation the session was issued under; absent on tokens from before Stage 2 (= 0) */
+    sv?: number;
   }
 }

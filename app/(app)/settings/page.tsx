@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { CheckCircle2, KeyRound, Lock, ShieldAlert } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -83,7 +83,9 @@ export default function SettingsPage() {
       setPwCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
-      push({ kind: "success", title: "Нууц үг амжилттай солигдлоо" });
+      // every session issued before the change is revoked, this one included: sign in again with the new password
+      push({ kind: "success", title: "Нууц үг амжилттай солигдлоо", description: "Шинэ нууц үгээрээ дахин нэвтэрнэ үү" });
+      window.setTimeout(() => void signOut({ callbackUrl: "/login" }), 1500);
     } catch (err) {
       push({ kind: "error", title: "Нууц үг сольж чадсангүй", description: err instanceof Error ? err.message : undefined });
     } finally {

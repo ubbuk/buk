@@ -14,6 +14,15 @@ export function roleChangeIsGrant(oldRole: string, newRole: string): boolean {
   return newRole !== oldRole && isPrivilegedRole(newRole);
 }
 
+/**
+ * The ADMIN role is never granted through the application: this deployment keeps ONE administrator, and a second one (or a
+ * promotion to ADMIN) would defeat every control that assumes it. It can only be created outside the application, by the
+ * documented two-person break-glass procedure. Demoting or deactivating the last administrator is refused as well.
+ */
+export function isAdminRoleGrantLocked(role: string): boolean {
+  return role === "ADMIN";
+}
+
 /** The role a person needs to hold an approval position (the same mapping the admin screen offers). */
 export const POSITION_REQUIRED_ROLE: Record<string, string> = {
   ENGINEERING_CHIEF: "ENGINEERING",

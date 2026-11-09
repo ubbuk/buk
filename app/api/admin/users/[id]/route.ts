@@ -4,13 +4,14 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions, userSessionCacheKey } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { announce, authorizeGrant, recordGrant, type GrantContext } from "@/lib/authority-grant";
-import { isPrivilegedRole, roleChangeIsGrant } from "@/lib/authority-roles";
+import { announce, authorizeGrant, grantFailureResponse, recordGrant, type GrantContext } from "@/lib/authority-grant";
+import { isAdminRoleGrantLocked, isPrivilegedRole, roleChangeIsGrant } from "@/lib/authority-roles";
 import { approvalCapabilityOrUnknown } from "@/lib/credential-guard";
 import { clientIp } from "@/lib/client-ip";
 import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { invalidate } from "@/lib/cache";
+import { sessionRevocation } from "@/lib/session-revocation";
 import { orphanableWork } from "@/lib/procurement-handover";
 import { USER_ROLES } from "@/lib/types";
 
@@ -68,6 +69,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // authority (by role or by an assignment it kept). Anything else (title, department, demotion, an ordinary
   // employee's re-activation) is unchanged and needs no step-up.
   const roleGrant = parsed.data.role !== undefined && roleChangeIsGrant(user.role, parsed.data.role);
+  // The ADMIN role is never granted through the application (one administrator, see lib/authority-roles.ts) ...
+  if (roleGrant && isAdminRoleGrantLocked(parsed.data.role as string)) {
+    return NextResponse.json({ error: "ADMIN эрхийг систем дотроос олгох боломжгүй. Зөвхөн баримтжуулсан break-glass журмаар олгоно", code: "ADMIN_ROLE_LOCKED" }, { status: 403 });
+  }
+  // ... and the last active administrator can be neither demoted nor deactivated: that would lock everybody out.
+  if (user.role === "ADMIN" && user.isActive && ((parsed.data.role !== undefined && parsed.data.role !== "ADMIN") || parsed.data.isActive === false)) {
+    const activeAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true } });
+    if (activeAdmins <= 1) {
+      return NextResponse.json({ error: "Сүүлчийн идэвхтэй админы эрхийг бууруулах, идэвхгүй болгох боломжгүй", code: "LAST_ADMIN" }, { status: 409 });
+    }
+  }
   const reactivation = parsed.data.isActive === true && !user.isActive;
   const reactivationGrant = reactivation && (isPrivilegedRole(parsed.data.role ?? user.role) || (await approvalCapabilityOrUnknown(prisma, id)).capable);
   let grant: GrantContext | null = null;
@@ -80,12 +92,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       ip: clientIp(req.headers),
       checkCustody: true,
     });
-    if (!authorised.ok) {
-      return NextResponse.json(
-        { error: authorised.error, code: authorised.code },
-        { status: authorised.status, headers: authorised.retryAfterSeconds ? { "Retry-After": String(authorised.retryAfterSeconds) } : undefined }
-      );
-    }
+    if (!authorised.ok) return grantFailureResponse(authorised);
     grant = authorised.grant;
   }
 
@@ -101,6 +108,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           title: parsed.data.title,
           departmentId: parsed.data.departmentId,
           isActive: parsed.data.isActive,
+          // deactivating revokes every session for good: re-activating the account must not bring old tokens back
+          ...(parsed.data.isActive === false && user.isActive ? sessionRevocation() : {}),
         },
       });
       const after = { role: row.role, title: row.title, departmentId: row.departmentId, isActive: row.isActive };
@@ -160,6 +169,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   try {
     await prisma.$transaction([
       prisma.notification.deleteMany({ where: { userId: id } }),
+      prisma.passwordRecoveryToken.deleteMany({ where: { userId: id } }),
       prisma.approvalPinCredential.deleteMany({ where: { userId: id } }),
       prisma.approvalRoleAssignment.deleteMany({ where: { userId: id } }),
       prisma.user.delete({ where: { id } }),

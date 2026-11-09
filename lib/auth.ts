@@ -25,8 +25,13 @@ export function userSessionCacheKey(userId: string) {
   return `user-session:${userId}`;
 }
 
+// A session lasts at most this long (sliding: the cookie is re-issued at most once per SESSION_REFRESH_S while the
+// user is active). NextAuth's default of 30 days is too long for an ERP that approves purchases.
+const SESSION_MAX_AGE_S = 12 * 60 * 60;
+const SESSION_REFRESH_S = 60 * 60;
+
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: SESSION_MAX_AGE_S, updateAge: SESSION_REFRESH_S },
   pages: { signIn: "/login" },
   providers: [
     CredentialsProvider({
@@ -87,6 +92,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           departmentId: user.departmentId,
+          sessionVersion: user.sessionVersion,
         };
       },
     }),
@@ -97,6 +103,8 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = user.role;
         token.departmentId = user.departmentId;
+        // the credential generation this session was issued under (lib/session-revocation.ts)
+        token.sv = user.sessionVersion;
         return token;
       }
       // Re-read role/isActive fresh from the DB (through a short-TTL cache,
@@ -108,9 +116,11 @@ export const authOptions: NextAuthOptions = {
       // a second time just to re-check a role that almost never changes.
       if (token.id) {
         const fresh = await cached(userSessionCacheKey(token.id as string), SESSION_CACHE_TTL_MS, () =>
-          prisma.user.findUnique({ where: { id: token.id as string }, select: { role: true, departmentId: true, isActive: true } })
+          prisma.user.findUnique({ where: { id: token.id as string }, select: { role: true, departmentId: true, isActive: true, sessionVersion: true } })
         );
-        if (!fresh || !fresh.isActive) {
+        // Revoked: unknown or deactivated account, or the credentials changed since this session was issued. A token
+        // from before the version existed has no `sv` and counts as generation 0 (nobody is signed out by deploying).
+        if (!fresh || !fresh.isActive || fresh.sessionVersion !== (token.sv ?? 0)) {
           token.role = "";
         } else {
           token.role = fresh.role;
@@ -120,6 +130,9 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
+      // A revoked session is no session at all: an empty object makes getServerSession return null, so every route
+      // that only asks "is there a session" refuses it too (not just the ones that look at the role).
+      if (!token.role) return {} as typeof session;
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;

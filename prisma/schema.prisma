@@ -52,6 +52,10 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   lastLoginAt   DateTime?
+  // Session revocation (Stage 2): a JWT carries the version it was issued under; any change of credentials bumps it
+  // and every older token stops being accepted (lib/session-revocation.ts).
+  sessionVersion    Int       @default(0)
+  passwordChangedAt DateTime?
 
   department          Department?          @relation("DepartmentMembers", fields: [departmentId], references: [id])
   headOfDepartments    Department[]        @relation("DepartmentHead")
@@ -71,6 +75,7 @@ model User {
   procurementVoids        ProcurementPurchase[] @relation("PurchaseVoidedBy")
   procurementAssignments  ProcurementItemAssignment[] @relation("ProcurementAssignee")
   procurementClassifications ProcurementClassification[] @relation("ClassificationConfirmedBy")
+  recoveryTokens             PasswordRecoveryToken[]
 
   @@index([departmentId])
 }
@@ -557,4 +562,19 @@ model LoginThrottle {
   updatedAt   DateTime
 
   @@index([windowStart])
+}
+
+// Self-service password recovery (Stage 4, disabled until a delivery channel is approved): a one-time token whose hash is
+// stored; the clear token only ever travels to the account owner (e-mail), never through an administrator.
+model PasswordRecoveryToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }

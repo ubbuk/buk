@@ -41,6 +41,11 @@ export const LIMITS = {
   userCreateAdmin: 20,
   // Granting authority (role elevation, positions, department head, procurement positions): per administrator.
   authorityGrantAdmin: 20,
+  // Self-service recovery (Stage 4): requests per account and per address, confirmations per address and per token.
+  recoveryRequestAccount: 3,
+  recoveryRequestIp: 20,
+  recoveryConfirmIp: 20,
+  recoveryConfirmToken: 5,
 } as const;
 
 const WINDOW_SECONDS = WINDOW_MS / 1000;
@@ -108,6 +113,22 @@ export function credentialResetBuckets(adminId: string, targetUserId: string): B
 /** Authority grants made by one administrator. Every attempt that gets this far counts. */
 export function authorityGrantBuckets(adminId: string): Bucket[] {
   return [{ key: `authgrant:admin:${sha(adminId)}`, limit: LIMITS.authorityGrantAdmin, onSuccess: "keep" }];
+}
+
+/** Self-service recovery request: per account (whether or not it exists: the key is the hashed e-mail) and per address. */
+export function recoveryRequestBuckets(email: string, ip: string | null): Bucket[] {
+  const buckets: Bucket[] = [];
+  if (ip) buckets.push({ key: `recover:ip:${sha(ip)}`, limit: LIMITS.recoveryRequestIp, onSuccess: "keep" });
+  buckets.push({ key: `recover:acct:${sha(normalizeEmail(email))}`, limit: LIMITS.recoveryRequestAccount, onSuccess: "keep" });
+  return buckets;
+}
+
+/** Self-service recovery confirmation: per address and per (hashed) token, so a token cannot be guessed at. */
+export function recoveryConfirmBuckets(tokenHash: string, ip: string | null): Bucket[] {
+  const buckets: Bucket[] = [];
+  if (ip) buckets.push({ key: `recoverconfirm:ip:${sha(ip)}`, limit: LIMITS.recoveryConfirmIp, onSuccess: "keep" });
+  buckets.push({ key: `recoverconfirm:token:${sha(tokenHash)}`, limit: LIMITS.recoveryConfirmToken, onSuccess: "keep" });
+  return buckets;
 }
 
 /** Admin user creation: per administrator. */

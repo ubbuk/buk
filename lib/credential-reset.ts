@@ -6,8 +6,11 @@ import { generateTempPassword } from "./credentials";
 import { approvalCapabilityOrUnknown, type CapabilityReason } from "./credential-guard";
 import { isPrivilegedRole } from "./authority-roles";
 import { recordGrant, STEP_UP_REQUIRED, type GrantContext } from "./authority-grant";
+import { recoveryReady } from "./password-recovery";
+import { isAdminRoleGrantLocked } from "./authority-roles";
 import { admit, credentialResetBuckets, userCreateBuckets } from "./login-throttle";
 import { verifyAccountPassword } from "./pin-management";
+import { credentialChange, forgetSession } from "./session-revocation";
 
 // ADMIN credential operations that hand the administrator a temporary password: resetting an employee's
 // password and creating a user. Stage 1 mitigation, NOT a complete fix: the administrator still learns the
@@ -83,6 +86,9 @@ export interface PasswordResetInput {
 }
 
 export async function resetPasswordAsAdmin(input: PasswordResetInput): Promise<{ ok: true; tempPassword: string } | CredentialFailure> {
+  // Once self-service recovery is ready (lib/password-recovery.ts) the administrator is no longer in the recovery path at all:
+  // nobody may be handed a temporary password for someone else's account.
+  if (recoveryReady()) return fail(409, "Нууц үг сэргээх нь одоо ажилтны өөрийн и-мэйл холбоосоор хийгдэнэ. Админ түр нууц үг үүсгэхгүй", undefined, "USE_SELF_SERVICE_RECOVERY");
   const reason = input.reason.trim();
   if (reason.length < 3) return fail(400, "Сэргээх шалтгаанаа бичнэ үү");
   if (reason.length > 500) return fail(400, "Шалтгаан хэт урт байна");
@@ -130,7 +136,8 @@ export async function resetPasswordAsAdmin(input: PasswordResetInput): Promise<{
       const again = await approvalCapabilityOrUnknown(tx, target.id);
       if (again.capable) throw new Refusal(fail(403, APPROVER_REFUSED), "APPROVAL_CAPABLE_TARGET", again.reasons);
 
-      await tx.user.update({ where: { id: target.id }, data: { passwordHash } });
+      // every session the employee had is revoked with the old password
+      await tx.user.update({ where: { id: target.id }, data: { passwordHash, ...credentialChange() } });
       await tx.auditLog.create({
         data: {
           entityType: "User",
@@ -160,6 +167,7 @@ export async function resetPasswordAsAdmin(input: PasswordResetInput): Promise<{
     console.error("[admin] credential reset failed:", err instanceof Error ? err.name : "unknown");
     return fail(500, "Нууц үг сэргээх үед алдаа гарлаа. Юу ч өөрчлөгдөөгүй, дахин оролдоно уу");
   }
+  forgetSession(target.id);
   emitUserEvent(target.id, { type: "notification" });
   return { ok: true, tempPassword };
 }
@@ -182,6 +190,8 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
     return fail(400, "Эрхтэй хэрэглэгч үүсгэхийн тулд шалтгаан болон баталгаажуулалтыг оруулна уу", undefined, STEP_UP_REQUIRED);
   }
   if (!(await activeAdmin(input.adminId))) return fail(403, FORBIDDEN);
+  // the ADMIN role is never created through the application (one administrator)
+  if (isAdminRoleGrantLocked(input.data.role)) return fail(403, "ADMIN эрхтэй хэрэглэгчийг систем дотроос үүсгэх боломжгүй", undefined, "ADMIN_ROLE_LOCKED");
 
   let admission;
   try {
