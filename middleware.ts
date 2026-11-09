@@ -26,6 +26,7 @@ export const config = {
     "/archive/:path*",
     "/reports/:path*",
     "/settings/:path*",
+    "/profile/:path*",
     "/admin/:path*",
   ],
 };

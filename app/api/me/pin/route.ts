@@ -1,10 +1,10 @@
-import bcrypt from "bcrypt";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { clientIp } from "@/lib/client-ip";
 import { hasPinSet, isValidPinFormat } from "@/lib/pin";
+import { setOwnPin } from "@/lib/pin-management";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -16,16 +16,22 @@ export async function GET() {
 const bodySchema = z.object({
   pin: z.string(),
   confirmPin: z.string(),
+  currentPassword: z.string().min(1, "Одоогийн нууц үгээ оруулна уу"),
 });
 
+// Creates or changes the signed-in user's own approval PIN. The account password is required every time (a session
+// alone is not enough), the user comes from the session only, and a locked account cannot be changed. See
+// lib/pin-management.ts.
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
   const body = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
-  const { pin, confirmPin } = parsed.data;
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Хүчингүй өгөгдөл" }, { status: 400 });
+  }
+  const { pin, confirmPin, currentPassword } = parsed.data;
 
   if (!isValidPinFormat(pin)) {
     return NextResponse.json({ error: "PIN яг дөрөв оронтой тоо байх ёстой" }, { status: 400 });
@@ -34,19 +40,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "PIN хоёр удаа ижил байх ёстой" }, { status: 400 });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
-
-  const pinHash = await bcrypt.hash(pin, 10);
-  await prisma.approvalPinCredential.upsert({
-    where: { userId: user.id },
-    update: { pinHash, failedAttempts: 0, lockedUntil: null },
-    create: { userId: user.id, pinHash },
-  });
-  // No PIN value in beforeJson/afterJson — only the fact that it changed.
-  await prisma.auditLog.create({
-    data: { entityType: "User", entityId: user.id, action: "PIN_SETUP", actorId: user.id },
-  });
-
+  const result = await setOwnPin({ userId: session.user.id, currentPassword, pin, ip: clientIp(req.headers) });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined }
+    );
+  }
   return NextResponse.json({ ok: true });
 }

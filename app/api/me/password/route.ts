@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { clientIp } from "@/lib/client-ip";
+import { admit, passwordChangeBuckets } from "@/lib/login-throttle";
 
 const bodySchema = z.object({
   currentPassword: z.string().min(1),
@@ -26,6 +28,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Шинэ нууц үг хоёр удаа ижил байх ёстой" }, { status: 400 });
   }
 
+  // Guessing the current password through a (possibly stolen) session is limited like logging in is:
+  // checked before the user lookup and the bcrypt work, shared across instances (lib/login-throttle.ts).
+  // A failure of the limiter refuses the change rather than leaving it unmetered.
+  let admission;
+  try {
+    admission = await admit(passwordChangeBuckets(session.user.id, clientIp(req.headers)));
+  } catch {
+    return NextResponse.json({ error: "Түр хугацаанд боломжгүй байна. Дахин оролдоно уу" }, { status: 503 });
+  }
+  if (!admission.ok) {
+    return NextResponse.json(
+      { error: "Хэт олон удаа буруу оролдлоо. Хэсэг хүлээгээд дахин оролдоно уу" },
+      { status: 429, headers: { "Retry-After": String(admission.retryAfterSeconds) } }
+    );
+  }
+
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
 
@@ -33,6 +51,7 @@ export async function POST(req: Request) {
   if (!passwordValid) {
     return NextResponse.json({ error: "Одоогийн нууц үг буруу байна" }, { status: 401 });
   }
+  await admission.settle();
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });

@@ -67,6 +67,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",
+  "/profile": "Миний профайл",
   "/admin": "Хэрэглэгч, эрх",
   "/admin/monitoring": "Хяналт, мониторинг",
   "/admin/monitoring/time-machine": "Time Machine",

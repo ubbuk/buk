@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Bell, Boxes, Factory, LayoutGrid, ListChecks, LogOut, Search, X } from "lucide-react";
+import { ArrowLeft, Bell, Boxes, Factory, LayoutGrid, ListChecks, LogOut, Search, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
@@ -324,6 +324,16 @@ export function CommandBar() {
                   </Link>
                 );
               })}
+              {/* Under 381px the header has no room for a seventh 44px control, so the profile link
+                  (normally on the user menu) is offered here instead. */}
+              <Link
+                href="/profile"
+                onClick={() => setLauncherOpen(false)}
+                className="hidden min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-text-muted transition-colors hover:bg-bg-elevated hover:text-text max-[380px]:flex"
+              >
+                <UserRound className="size-4 shrink-0" aria-hidden="true" />
+                <span className="flex-1 truncate">Миний профайл</span>
+              </Link>
             </motion.div>
           )}
         </AnimatePresence>
@@ -448,13 +458,22 @@ export function CommandBar() {
 
         {user && (
           <div className="flex items-center gap-2.5 rounded-lg border border-border bg-bg-surface py-1 pl-1 pr-2 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
-            <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent max-sm:hidden">
-              {initials(user.name ?? "?")}
-            </div>
-            <div className="hidden text-left leading-tight lg:block">
-              <p className="text-xs font-medium text-text">{user.name}</p>
-              <p className="text-[11px] text-text-muted">{USER_ROLE_LABEL[user.role] ?? user.role}</p>
-            </div>
+            {/* The user menu: name and avatar lead to the signed-in user's own profile. */}
+            <Link
+              href="/profile"
+              title="Миний профайл"
+              aria-label="Миний профайл"
+              className="focus-ring flex items-center gap-2.5 rounded-md max-sm:size-11 max-sm:justify-center max-sm:border max-sm:border-border max-sm:bg-bg-surface max-[380px]:hidden"
+            >
+              <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent max-sm:hidden">
+                {initials(user.name ?? "?")}
+              </div>
+              <UserRound className="hidden size-4 text-text-muted max-sm:block" aria-hidden="true" />
+              <div className="hidden text-left leading-tight lg:block">
+                <p className="text-xs font-medium text-text">{user.name}</p>
+                <p className="text-[11px] text-text-muted">{USER_ROLE_LABEL[user.role] ?? user.role}</p>
+              </div>
+            </Link>
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               title="Гарах"

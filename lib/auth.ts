@@ -3,6 +3,15 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "./prisma";
 import { cached } from "./cache";
+import { clientIp } from "./client-ip";
+import { admit, loginBuckets } from "./login-throttle";
+
+// A valid bcrypt hash (cost 10, like real ones) nobody knows the password of, used to spend the same
+// time on accounts that do not exist or are disabled. Built once per process.
+let dummy: Promise<string> | null = null;
+function dummyHash(): Promise<string> {
+  return (dummy ??= bcrypt.hash(`dummy-${Math.random()}-${Date.now()}`, 10));
+}
 
 // Safety-net TTL for the jwt callback's re-validation query below. The admin
 // PATCH route (app/api/admin/users/[id]/route.ts) explicitly invalidates a
@@ -26,8 +35,22 @@ export const authOptions: NextAuthOptions = {
         email: { label: "И-мэйл", type: "email" },
         password: { label: "Нууц үг", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials.password) return null;
+
+        // Rate limit BEFORE any user lookup or bcrypt work (lib/login-throttle.ts). A refused attempt is
+        // the same for an e-mail that exists and one that does not, so it reveals nothing about accounts.
+        // If the limiter itself fails, the check is refused (fail closed) with a generic error.
+        let admission;
+        try {
+          admission = await admit(loginBuckets(credentials.email, clientIp(req?.headers)));
+        } catch {
+          throw new Error("THROTTLE_UNAVAILABLE");
+        }
+        if (!admission.ok) {
+          console.warn("[auth] authorize: reason=rate_limited scope=" + admission.blockedBy);
+          throw new Error("RATE_LIMITED");
+        }
 
         // Admin-created emails are stored exactly as typed, so match case-insensitively
         // and ignore stray whitespace from copy/paste.
@@ -41,12 +64,11 @@ export const authOptions: NextAuthOptions = {
           console.error("[auth] authorize: user lookup failed", err instanceof Error ? err.name : "unknown");
           throw err; // surfaces as a non-CredentialsSignin error, not "wrong password"
         }
-        if (!user) {
-          console.warn("[auth] authorize: reason=no_user");
-          return null;
-        }
-        if (!user.isActive) {
-          console.warn("[auth] authorize: reason=inactive");
+        if (!user || !user.isActive) {
+          // Same amount of bcrypt work as a real check, so response time does not tell an unknown
+          // or disabled account from a wrong password.
+          await bcrypt.compare(credentials.password, await dummyHash());
+          console.warn(`[auth] authorize: reason=${user ? "inactive" : "no_user"}`);
           return null;
         }
 
@@ -55,6 +77,7 @@ export const authOptions: NextAuthOptions = {
           console.warn("[auth] authorize: reason=bad_password");
           return null;
         }
+        await admission.settle();
 
         await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 

@@ -25,6 +25,7 @@ export default function SettingsPage() {
   const [hasPin, setHasPin] = useState<boolean | null>(null);
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [pinPassword, setPinPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pwCurrentPassword, setPwCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -53,13 +54,14 @@ export default function SettingsPage() {
       const res = await fetch("/api/me/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin, confirmPin }),
+        body: JSON.stringify({ pin, confirmPin, currentPassword: pinPassword }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "PIN тохируулж чадсангүй");
       setHasPin(true);
       setPin("");
       setConfirmPin("");
+      setPinPassword("");
       push({ kind: "success", title: "PIN амжилттай тохируулагдлаа" });
     } catch (err) {
       push({ kind: "error", title: "PIN тохируулж чадсангүй", description: err instanceof Error ? err.message : undefined });
@@ -197,11 +199,22 @@ export default function SettingsPage() {
               </label>
             </div>
 
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-text-muted">Одоогийн нууц үг (PIN тохируулах, солиход заавал)</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={pinPassword}
+                onChange={(e) => setPinPassword(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+
             <div className="flex justify-end">
               <Button
                 onClick={savePin}
                 loading={submitting}
-                disabled={pin.length !== 4 || confirmPin.length !== 4}
+                disabled={pin.length !== 4 || confirmPin.length !== 4 || pinPassword.length === 0}
               >
                 {hasPin ? "PIN солих" : "PIN тохируулах"}
               </Button>

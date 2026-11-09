@@ -543,3 +543,18 @@ model AuditLog {
   @@index([action, createdAt])
   @@index([entityType, entityId, createdAt])
 }
+
+// Fixed-window attempt counters for credential checks (login and current-password
+// verification), shared by every app instance through PostgreSQL. `key` is an opaque
+// bucket name (see lib/login-throttle.ts): e-mail addresses and IPs are only ever stored
+// hashed. Rows are written with single atomic upserts (raw SQL); they expire by
+// themselves (a bucket whose window has passed counts as 0) and are purged by
+// purgeStaleThrottles().
+model LoginThrottle {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+  updatedAt   DateTime
+
+  @@index([windowStart])
+}
