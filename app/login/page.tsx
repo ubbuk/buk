@@ -29,16 +29,31 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    // iOS keyboards/autofill can leave stray whitespace or capitalise the
+    // first letter of the email; normalise it before it is sent.
+    let result: Awaited<ReturnType<typeof signIn>>;
+    try {
+      result = await signIn("credentials", {
+        email: email.normalize("NFKC").trim().toLowerCase(),
+        password,
+        redirect: false,
+      });
+    } catch {
+      setLoading(false);
+      setError("Сервертэй холбогдож чадсангүй. Дахин оролдоно уу");
+      return;
+    }
 
     setLoading(false);
 
-    if (result?.error) {
-      setError("И-мэйл эсвэл нууц үг буруу байна");
+    if (!result || result.error) {
+      // Only CredentialsSignin means a genuine bad email/password; anything
+      // else (config, CSRF, DB, network) is not the user's typing mistake.
+      setError(
+        !result || result.error === "CredentialsSignin"
+          ? "И-мэйл эсвэл нууц үг буруу байна"
+          : "Нэвтрэх үед системийн алдаа гарлаа. Дахин оролдоно уу"
+      );
       return;
     }
 
@@ -63,6 +78,11 @@ function LoginForm() {
               type="email"
               required
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              inputMode="email"
+              name="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Хэрэглэгчийн и-мэйл"
@@ -76,6 +96,10 @@ function LoginForm() {
               type={showPassword ? "text" : "password"}
               required
               autoComplete="current-password"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Нууц үг"

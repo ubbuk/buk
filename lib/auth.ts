@@ -31,13 +31,30 @@ export const authOptions: NextAuthOptions = {
 
         // Admin-created emails are stored exactly as typed, so match case-insensitively
         // and ignore stray whitespace from copy/paste.
-        const user = await prisma.user.findFirst({
-          where: { email: { equals: credentials.email.trim(), mode: "insensitive" } },
-        });
-        if (!user || !user.isActive) return null;
+        // Failure reasons are logged as codes only — never the email or password.
+        let user;
+        try {
+          user = await prisma.user.findFirst({
+            where: { email: { equals: credentials.email.normalize("NFKC").trim(), mode: "insensitive" } },
+          });
+        } catch (err) {
+          console.error("[auth] authorize: user lookup failed", err instanceof Error ? err.name : "unknown");
+          throw err; // surfaces as a non-CredentialsSignin error, not "wrong password"
+        }
+        if (!user) {
+          console.warn("[auth] authorize: reason=no_user");
+          return null;
+        }
+        if (!user.isActive) {
+          console.warn("[auth] authorize: reason=inactive");
+          return null;
+        }
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          console.warn("[auth] authorize: reason=bad_password");
+          return null;
+        }
 
         await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
