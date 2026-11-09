@@ -39,6 +39,8 @@ export const LIMITS = {
   credentialResetTarget: 3,
   // Creating a user (also hands the admin a temporary password); higher because onboarding comes in batches.
   userCreateAdmin: 20,
+  // Granting authority (role elevation, positions, department head, procurement positions): per administrator.
+  authorityGrantAdmin: 20,
 } as const;
 
 const WINDOW_SECONDS = WINDOW_MS / 1000;
@@ -101,6 +103,11 @@ export function credentialResetBuckets(adminId: string, targetUserId: string): B
     { key: `credreset:admin:${sha(adminId)}`, limit: LIMITS.credentialResetAdmin, onSuccess: "keep" },
     { key: `credreset:target:${sha(targetUserId)}`, limit: LIMITS.credentialResetTarget, onSuccess: "keep" },
   ];
+}
+
+/** Authority grants made by one administrator. Every attempt that gets this far counts. */
+export function authorityGrantBuckets(adminId: string): Bucket[] {
+  return [{ key: `authgrant:admin:${sha(adminId)}`, limit: LIMITS.authorityGrantAdmin, onSuccess: "keep" }];
 }
 
 /** Admin user creation: per administrator. */

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { recordGrant, type GrantContext } from "./authority-grant";
 import { emitBroadcast, emitUserEvent } from "./events";
 import type { ProcurementKind } from "./procurement";
 import {
@@ -117,6 +118,8 @@ export interface HandoverInput {
   clientRequestId: string;
   /** The item count the admin reviewed; a different current count means the work changed under them. */
   expectedItems: number;
+  /** Step-up evidence (lib/authority-grant.ts): the admin route always passes it; recorded in the same transaction. */
+  grant?: GrantContext;
 }
 
 export interface HandoverSummary {
@@ -251,7 +254,19 @@ export async function executeHandover(input: HandoverInput): Promise<HandoverFai
         notifications.push({ userId: holder.id, type: "PROCUREMENT_REQUIRED", title: `${label} худалдан авалтын ажил шилжлээ`, body: `${items.length} дуусаагүй материал өөр менежерт шилжлээ. Шалтгаан: ${reason}` });
       }
       await tx.notification.createMany({ data: notifications });
-      return { duplicate: false as const, summary, notify: notifications.map((n) => n.userId) };
+      const notify = notifications.map((n) => n.userId);
+      if (input.grant) {
+        const granted = await recordGrant(tx, input.grant, {
+          subjectType: "ProcurementHandover",
+          subjectId: key,
+          summary: `${label} худалдан авалтын ${input.position} албан тушаал/ажил шилжүүлэгдлээ (${items.length} материал)`,
+          before: { previousManagerId: summary.previousManagerId },
+          after: { newManagerId: input.newManagerId, positionChanged, items: items.length },
+          previousHolderIds: holder ? [holder.id] : [],
+        });
+        notify.push(...granted);
+      }
+      return { duplicate: false as const, summary, notify };
     });
 
     if (!result.duplicate) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog } from "lucide-react";
+import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/components/admin/AuthorityGrantDialog";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -14,6 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { isPrivilegedRole } from "@/lib/authority-roles";
 import { ROLE_PERMISSION_SUMMARY, USER_ROLE_LABEL, USER_ROLES } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 
@@ -75,6 +77,11 @@ export default function AdminPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newAdminPassword, setNewAdminPassword] = useState("");
+  // creating an account that already carries a privileged role is a grant: reason + confirmation inline
+  const [newReason, setNewReason] = useState("");
+  const [newConfirmed, setNewConfirmed] = useState(false);
+  // granting authority (role, position, department head) asks for a reason, confirmation and the admin own password
+  const [grantAsk, setGrantAsk] = useState<GrantRequest | null>(null);
   // Resetting a password hands the admin a temporary one, so it needs a reason, the identity attestation and the admin own password.
   const [credReset, setCredReset] = useState<{ user: AdminUser; reason: string; identityVerified: boolean; adminPassword: string; error: string | null } | null>(null);
   const [credResetBusy, setCredResetBusy] = useState(false);
@@ -119,7 +126,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null, adminPassword: newAdminPassword }),
+        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null, adminPassword: newAdminPassword, ...(isPrivilegedRole(newRole) ? { reason: newReason, confirmed: newConfirmed } : {}) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Хэрэглэгч үүсгэж чадсангүй");
@@ -130,6 +137,8 @@ export default function AdminPage() {
       setNewRole("EMPLOYEE");
       setNewDepartmentId("");
       setNewDeptType("ALL");
+      setNewReason("");
+      setNewConfirmed(false);
       setTempPassword({ email: body.email, password: body.tempPassword });
       await load();
     } catch (err) {
@@ -144,11 +153,13 @@ export default function AdminPage() {
     if (!editUser) return;
     setSubmitting(true);
     try {
-      const send = (acknowledgeUnfinishedProcurement: boolean) =>
-        fetch(`/api/admin/users/${editUser.id}`, {
+      const target = editUser;
+      let acknowledged = false;
+      const send = (acknowledgeUnfinishedProcurement: boolean, step?: GrantStepUp) =>
+        fetch(`/api/admin/users/${target.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: editUser.role, title: editUser.title, departmentId: editUser.departmentId, isActive: editUser.isActive, acknowledgeUnfinishedProcurement }),
+          body: JSON.stringify({ role: target.role, title: target.title, departmentId: target.departmentId, isActive: target.isActive, acknowledgeUnfinishedProcurement, ...step }),
         });
       let res = await send(false);
       if (res.status === 409) {
@@ -159,10 +170,30 @@ export default function AdminPage() {
 
 Хамгаалалтын шалтгаанаар ямар ч тохиолдолд идэвхгүй болгох бол OK дарна уу (ажил шилжихгүй, Админ дараа нь «Дуусаагүй ажлыг шилжүүлэх» үйлдлийг хийнэ).`);
           if (!proceed) return;
+          acknowledged = true;
           res = await send(true);
         }
       }
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.code === "STEP_UP_REQUIRED") {
+          // the change grants authority: ask for reason, confirmation and the admin own password, then repeat it
+          setGrantAsk({
+            title: "Эрх олгохыг баталгаажуулах",
+            summary: `${target.name} (${target.email}): ${USER_ROLE_LABEL[target.role as keyof typeof USER_ROLE_LABEL] ?? target.role}`,
+            run: async (step) => {
+              const again = await send(acknowledged, step);
+              if (!again.ok) return (await again.json().catch(() => ({})))?.error ?? "Эрх олгож чадсангүй";
+              setEditUser(null);
+              push({ kind: "success", title: "Хадгалагдлаа" });
+              await load();
+              return null;
+            },
+          });
+          return;
+        }
+        throw new Error(body?.error);
+      }
       setEditUser(null);
       push({ kind: "success", title: "Хадгалагдлаа" });
       await load();
@@ -237,13 +268,30 @@ export default function AdminPage() {
       setHandover({ position: role, label: APPROVAL_ROLES.find((r) => r.role === role)?.label ?? role, managerId: userId });
       return;
     }
-    const res = await fetch("/api/admin/approval-roles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role, userId }),
-    });
+    const send = (step?: GrantStepUp) =>
+      fetch("/api/admin/approval-roles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, userId, ...step }),
+      });
+    const res = await send();
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      if (body.code === "STEP_UP_REQUIRED") {
+        const holder = users.find((u) => u.id === userId);
+        setGrantAsk({
+          title: "Албан тушаал олгохыг баталгаажуулах",
+          summary: `${holder?.name ?? "Хэрэглэгч"} → ${APPROVAL_ROLES.find((r) => r.role === role)?.label ?? role}`,
+          run: async (step) => {
+            const again = await send(step);
+            if (!again.ok) return (await again.json().catch(() => ({})))?.error ?? "Хуваарилж чадсангүй";
+            push({ kind: "success", title: "Хуваарилагдлаа" });
+            await load();
+            return null;
+          },
+        });
+        return;
+      }
       push({ kind: "error", title: "Хуваарилж чадсангүй", description: body.error });
       return;
     }
@@ -252,23 +300,43 @@ export default function AdminPage() {
   }
 
   async function setDepartmentHead(departmentId: string, headId: string) {
-    const res = await fetch(`/api/admin/departments/${departmentId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ headId: headId || null }),
-    });
+    const send = (step?: GrantStepUp) =>
+      fetch(`/api/admin/departments/${departmentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headId: headId || null, ...step }),
+      });
+    const done = async (res: Response) => {
+      const { reassignedRequests } = await res.json().catch(() => ({ reassignedRequests: 0 }));
+      push({
+        kind: "success",
+        title: "Цехийн дарга хуваарилагдлаа",
+        description: reassignedRequests > 0 ? `Хүлээгдэж буй ${reassignedRequests} захиалга шинэ даргад шилжлээ` : undefined,
+      });
+      await load();
+    };
+    const res = await send();
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      if (body.code === "STEP_UP_REQUIRED") {
+        const head = users.find((u) => u.id === headId);
+        const dept = departments.find((d) => d.id === departmentId);
+        setGrantAsk({
+          title: "Цехийн дарга томилохыг баталгаажуулах",
+          summary: `${head?.name ?? "Хэрэглэгч"} → «${dept?.name ?? "цех"}» цехийн дарга`,
+          run: async (step) => {
+            const again = await send(step);
+            if (!again.ok) return (await again.json().catch(() => ({})))?.error ?? "Хуваарилж чадсангүй";
+            await done(again);
+            return null;
+          },
+        });
+        return;
+      }
       push({ kind: "error", title: "Хуваарилж чадсангүй", description: body.error });
       return;
     }
-    const { reassignedRequests } = await res.json().catch(() => ({ reassignedRequests: 0 }));
-    push({
-      kind: "success",
-      title: "Цехийн дарга хуваарилагдлаа",
-      description: reassignedRequests > 0 ? `Хүлээгдэж буй ${reassignedRequests} захиалга шинэ даргад шилжлээ` : undefined,
-    });
-    await load();
+    await done(res);
   }
 
   if (status === "authenticated" && session.user.role !== "ADMIN") {
@@ -321,6 +389,8 @@ export default function AdminPage() {
           <Button
             size="sm"
             variant="secondary"
+            title="Засах"
+            aria-label={`${u.name}-ийг засах`}
             onClick={() => {
               setEditUser(u);
               setEditDeptType(u.departmentId ? departments.find((d) => d.id === u.departmentId)?.type ?? "ALL" : "ALL");
@@ -586,6 +656,8 @@ export default function AdminPage() {
         </CardBody>
       </Card>
 
+      <AuthorityGrantDialog request={grantAsk} onClose={() => setGrantAsk(null)} />
+
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Шинэ хэрэглэгч үүсгэх">
         <div className="space-y-3">
           <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="И-мэйл" className={inputClass} />
@@ -631,6 +703,25 @@ export default function AdminPage() {
             onCreated={(d) => setDepartments((prev) => [...prev, { ...d, headId: null, headName: null }].sort((a, b) => a.name.localeCompare(b.name)))}
             fixedType={newDeptType === "ALL" ? undefined : newDeptType}
           />
+          {isPrivilegedRole(newRole) && (
+            <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3" data-testid="create-grant">
+              <p className="text-xs text-text">Энэ эрх нь шинэ хэрэглэгчид эрх олгож байгаа тул шалтгаан, баталгаажуулалт шаардлагатай. Бусад админд мэдэгдэл очно.</p>
+              <label className="block space-y-1 text-xs text-text-muted">
+                Эрх олгох шалтгаан (заавал)
+                <textarea
+                  value={newReason}
+                  onChange={(e) => setNewReason(e.target.value)}
+                  rows={2}
+                  maxLength={500}
+                  className="focus-ring w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text"
+                />
+              </label>
+              <label className="flex items-start gap-2 text-xs text-text">
+                <input type="checkbox" className="mt-0.5 size-4" checked={newConfirmed} onChange={(e) => setNewConfirmed(e.target.checked)} />
+                <span>Би энэ хүнд дээрх эрхийг өгөх эрхтэй бөгөөд хариуцлагыг хүлээнэ.</span>
+              </label>
+            </div>
+          )}
           <label className="block space-y-1 text-xs text-text-muted">
             Таны өөрийн нууц үг (түр нууц үг өгөгдөх тул заавал)
             <input
@@ -645,14 +736,14 @@ export default function AdminPage() {
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               Болих
             </Button>
-            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName || !newAdminPassword}>
+            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName || !newAdminPassword || (isPrivilegedRole(newRole) && (!newConfirmed || newReason.trim().length < 3))}>
               Үүсгэх
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={!!editUser} onClose={() => setEditUser(null)} title="Хэрэглэгч засах">
+      <Modal open={!!editUser && !grantAsk} onClose={() => setEditUser(null)} title="Хэрэглэгч засах">
         {editUser && (
           <div className="space-y-3">
             <p className="text-sm text-text">

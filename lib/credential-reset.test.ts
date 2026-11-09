@@ -451,7 +451,10 @@ describe("a successful reset", () => {
 describe("user creation", () => {
   it("creates a user for an active ADMIN with their own password; the audit entry holds no secret", async () => {
     const admin = await user("ADMIN");
-    const result = await create(admin, {}, { role: "DIRECTOR", title: "Захирал" });
+    // a privileged role is a grant (Stage 1.5): without the reason and confirmation the service refuses and creates nothing
+    const refused = await create(admin, {}, { role: "DIRECTOR", title: "Захирал" });
+    expect(status(refused)).toBe(400);
+    const result = await create(admin, { grant: { reason: "Шинэ захирал томилогдсон", confirmed: true } }, { role: "DIRECTOR", title: "Захирал" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const row = await prisma.user.findUniqueOrThrow({ where: { id: result.id } });

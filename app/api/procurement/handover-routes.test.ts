@@ -11,6 +11,7 @@ vi.mock("next-auth", () => ({ getServerSession: async () => session.current }));
 import { GET as BADGE } from "./badge/route";
 import { GET as PREVIEW, POST as HANDOVER } from "../admin/procurement-handover/route";
 import { POST as ROLES_POST } from "../admin/approval-roles/route";
+import { ADMIN_TEST_HASH, withStepUp } from "./step-up-support";
 import { PATCH as USER_PATCH } from "../admin/users/[id]/route";
 
 const P = "hr-";
@@ -40,7 +41,8 @@ let counter = 0;
 let keyCounter = 0;
 const key = () => `hr-key-${TAG}-${(keyCounter += 1)}`;
 
-const json = (method: string, body?: unknown) => new Request("http://localhost/x", { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+// the admin routes that grant authority need the admin own password, a reason and a confirmation (lib/authority-grant.ts)
+const json = (method: string, body?: unknown) => new Request("http://localhost/x", { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(method === "GET" ? body : withStepUp(body as object)) });
 const handoverBody = (over: Record<string, unknown> = {}) => ({
   position: "DOMESTIC_PROCUREMENT_MANAGER",
   newManagerId: uid("mgrA2"),
@@ -78,10 +80,11 @@ beforeAll(async () => {
   await prisma.approvalRoleAssignment.updateMany({ where: { id: { in: previouslyActive.map((r) => r.id) } }, data: { isActive: false, endedAt: new Date() } });
   await prisma.department.createMany({ data: [{ id: DEPT, name: `HR ${TAG} dept`, type: "FACTORY" }, { id: OTHER_DEPT, name: `HR ${TAG} other`, type: "FACTORY" }] });
   await prisma.user.createMany({
-    data: (Object.keys(roster) as Who[]).map((w) => ({ id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), passwordHash: "x", role: roster[w].role as never, departmentId: roster[w].dept })),
+    data: (Object.keys(roster) as Who[]).map((w) => ({ id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), passwordHash: w === "admin" ? ADMIN_TEST_HASH : "x", role: roster[w].role as never, departmentId: roster[w].dept })),
   });
 });
 beforeEach(async () => {
+  await prisma.loginThrottle.deleteMany(); // each test starts with a fresh grant / password budget
   await wipeRequests();
   await prisma.user.updateMany({ where: { id: { startsWith: P } }, data: { isActive: true } });
 });

@@ -44,6 +44,9 @@ const createSchema = z.object({
   departmentId: z.string().nullable().optional(),
   // The administrator re-enters their OWN password: creating a user hands them a temporary password.
   adminPassword: z.string().min(1, "Өөрийн нууц үгээ оруулна уу"),
+  // Required when the role is privileged (any role but EMPLOYEE): lib/authority-grant.ts
+  reason: z.string().optional(),
+  confirmed: z.boolean().optional(),
 });
 
 // Creates a user and returns a temporary password to the administrator. Stage 1 hardening (lib/credential-reset.ts):
@@ -56,11 +59,11 @@ export async function POST(req: Request) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл" }, { status: 400 });
 
-  const { adminPassword, ...data } = parsed.data;
-  const result = await createUserAsAdmin({ adminId: session.user.id, adminPassword, ip: clientIp(req.headers), data });
+  const { adminPassword, reason, confirmed, ...data } = parsed.data;
+  const result = await createUserAsAdmin({ adminId: session.user.id, adminPassword, ip: clientIp(req.headers), data, grant: { reason, confirmed } });
   if (!result.ok) {
     return NextResponse.json(
-      { error: result.error },
+      { error: result.error, code: result.code },
       { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined }
     );
   }

@@ -16,6 +16,7 @@ import { POST as VOID } from "../requests/[id]/procurement/purchases/[purchaseId
 import { POST as CORRECT } from "../requests/[id]/procurement/purchases/[purchaseId]/correct/route";
 import { POST as COMPLETE } from "../requests/[id]/procurement/complete/route";
 import { GET as ROLES_GET, POST as ROLES_POST } from "../admin/approval-roles/route";
+import { ADMIN_TEST_HASH, withStepUp } from "./step-up-support";
 
 const P = "pr2-";
 const TAG = Date.now().toString(36);
@@ -79,7 +80,7 @@ beforeAll(async () => {
   await prisma.department.createMany({ data: [{ id: DEPT, name: `PR2 ${TAG} dept`, type: "FACTORY" }, { id: OTHER_DEPT, name: `PR2 ${TAG} other`, type: "FACTORY" }] });
   await prisma.user.createMany({
     data: (Object.keys(roster) as Who[]).map((w) => ({
-      id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), passwordHash: "x", role: roster[w].role as never, departmentId: roster[w].dept, isActive: w !== "inactiveMgr",
+      id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), passwordHash: w === "admin" ? ADMIN_TEST_HASH : "x", role: roster[w].role as never, departmentId: roster[w].dept, isActive: w !== "inactiveMgr",
     })),
   });
 });
@@ -346,7 +347,7 @@ describe("the dashboard and request visibility", () => {
 describe("admin configuration of the two positions", () => {
   const set = (who: Who, role: string, target: Who | "ghost") => {
     as(who);
-    return ROLES_POST(post({ role, userId: target === "ghost" ? "no-such-user" : uid(target) }));
+    return ROLES_POST(post(withStepUp({ role, userId: target === "ghost" ? "no-such-user" : uid(target) })));
   };
 
   it("is ADMIN only", async () => {

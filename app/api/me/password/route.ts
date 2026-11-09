@@ -57,7 +57,7 @@ export async function POST(req: Request) {
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
   // No password value in beforeJson/afterJson — only the fact that it changed.
   await prisma.auditLog.create({
-    data: { entityType: "User", entityId: user.id, action: "CHANGE_PASSWORD", actorId: user.id },
+    data: { entityType: "User", entityId: user.id, action: "CHANGE_PASSWORD", actorId: user.id, ipAddress: clientIp(req.headers) },
   });
 
   return NextResponse.json({ ok: true });

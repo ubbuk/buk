@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { authorizeGrant } from "@/lib/authority-grant";
+import { clientIp } from "@/lib/client-ip";
 import { executeHandover, isProcurementPosition, previewHandover } from "@/lib/procurement-handover";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,9 @@ const bodySchema = z.object({
   reason: z.string().trim().min(3, "Шалтгаанаа бичнэ үү").max(500),
   clientRequestId: z.string().trim().min(8).max(100),
   expectedItems: z.number().int().min(0),
+  // Step-up: a handover grants a position and its work (lib/authority-grant.ts); `reason` above is the reason
+  adminPassword: z.string().optional(),
+  confirmed: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -35,6 +40,21 @@ export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл" }, { status: 400 });
 
+  const authorised = await authorizeGrant({
+    adminId: session.user.id,
+    stepUp: { adminPassword: parsed.data.adminPassword, reason: parsed.data.reason, confirmed: parsed.data.confirmed },
+    kind: "PROCUREMENT_POSITION",
+    targetUserId: parsed.data.newManagerId,
+    ip: clientIp(req.headers),
+    checkCustody: true,
+  });
+  if (!authorised.ok) {
+    return NextResponse.json(
+      { error: authorised.error, code: authorised.code },
+      { status: authorised.status, headers: authorised.retryAfterSeconds ? { "Retry-After": String(authorised.retryAfterSeconds) } : undefined }
+    );
+  }
+
   const result = await executeHandover({
     position: parsed.data.position as Parameters<typeof previewHandover>[0],
     newManagerId: parsed.data.newManagerId,
@@ -42,7 +62,13 @@ export async function POST(req: Request) {
     reason: parsed.data.reason,
     clientRequestId: parsed.data.clientRequestId,
     expectedItems: parsed.data.expectedItems,
+    grant: authorised.grant,
+  }).catch((err: unknown) => {
+    // the record or a notification could not be written: the handover did not happen
+    console.error("[admin] procurement handover failed:", err instanceof Error ? err.name : "unknown");
+    return null;
   });
+  if (!result) return NextResponse.json({ error: "Шилжүүлэх үед алдаа гарлаа. Юу ч өөрчлөгдөөгүй, дахин оролдоно уу" }, { status: 500 });
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
   return NextResponse.json({ ok: true, duplicate: result.duplicate, summary: result.summary }, { status: result.duplicate ? 200 : 201 });
 }

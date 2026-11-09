@@ -4,6 +4,8 @@ import { prisma } from "./prisma";
 import { emitBroadcast, emitUserEvent } from "./events";
 import { generateTempPassword } from "./credentials";
 import { approvalCapabilityOrUnknown, type CapabilityReason } from "./credential-guard";
+import { isPrivilegedRole } from "./authority-roles";
+import { recordGrant, STEP_UP_REQUIRED, type GrantContext } from "./authority-grant";
 import { admit, credentialResetBuckets, userCreateBuckets } from "./login-throttle";
 import { verifyAccountPassword } from "./pin-management";
 
@@ -25,8 +27,8 @@ import { verifyAccountPassword } from "./pin-management";
 // attempts per administrator and window); earlier refusals (malformed request, not an administrator) only reach
 // the application log, which keeps the audit table from becoming a flood target.
 
-export type CredentialFailure = { ok: false; status: number; error: string; retryAfterSeconds?: number };
-const fail = (status: number, error: string, retryAfterSeconds?: number): CredentialFailure => ({ ok: false, status, error, retryAfterSeconds });
+export type CredentialFailure = { ok: false; status: number; error: string; retryAfterSeconds?: number; code?: string };
+const fail = (status: number, error: string, retryAfterSeconds?: number, code?: string): CredentialFailure => ({ ok: false, status, error, retryAfterSeconds, code });
 
 const FORBIDDEN = "Эрхгүй үйлдэл";
 const UNAVAILABLE = "Түр хугацаанд боломжгүй байна. Дахин оролдоно уу";
@@ -135,6 +137,7 @@ export async function resetPasswordAsAdmin(input: PasswordResetInput): Promise<{
           entityId: target.id,
           action: "RESET_CREDENTIALS",
           actorId: input.adminId,
+          ipAddress: input.ip,
           // no password, no hash: who, whom, why and the identity attestation
           afterJson: JSON.stringify({ kind: "PASSWORD_RESET", reason, identityVerified: true, targetUserId: target.id }),
         },
@@ -166,10 +169,18 @@ export interface UserCreateInput {
   adminPassword: string;
   ip: string | null;
   data: { email: string; name: string; title?: string | null; role: UserRole; departmentId?: string | null };
+  /** Required when the new account carries a privileged role (any role but EMPLOYEE): it is a grant of authority. */
+  grant?: { reason?: string | null; confirmed?: boolean | null };
 }
 
 export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: true; id: string; email: string; tempPassword: string } | CredentialFailure> {
   if (!input.adminPassword) return fail(400, "Өөрийн нууц үгээ оруулна уу");
+  // Creating an account that already carries authority is a grant: reason and confirmation are mandatory.
+  const privileged = isPrivilegedRole(input.data.role);
+  const grantReason = (input.grant?.reason ?? "").trim();
+  if (privileged && (grantReason.length < 3 || grantReason.length > 500 || input.grant?.confirmed !== true)) {
+    return fail(400, "Эрхтэй хэрэглэгч үүсгэхийн тулд шалтгаан болон баталгаажуулалтыг оруулна уу", undefined, STEP_UP_REQUIRED);
+  }
   if (!(await activeAdmin(input.adminId))) return fail(403, FORBIDDEN);
 
   let admission;
@@ -189,6 +200,7 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
   const tempPassword = generateTempPassword();
   const passwordHash = await bcrypt.hash(tempPassword, 10);
   try {
+    let notified: string[] = [];
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
@@ -206,6 +218,7 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
           entityId: created.id,
           action: "CREATE_USER",
           actorId: input.adminId,
+          ipAddress: input.ip,
           // role and department only: never the temporary password or its hash
           afterJson: JSON.stringify({
             kind: "USER_CREATE",
@@ -215,8 +228,27 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
           }),
         },
       });
+      if (privileged) {
+        // the credential is admin-issued by definition; evidence for the record, no custody check on a new account
+        const grant: GrantContext = {
+          adminId: input.adminId,
+          kind: "USER_CREATE_PRIVILEGED",
+          reason: grantReason,
+          targetUserId: created.id,
+          ip: input.ip,
+          custody: { state: "ADMIN_ISSUED_UNCHANGED", issuedAt: new Date().toISOString() },
+        };
+        notified = await recordGrant(tx, grant, {
+          subjectType: "User",
+          subjectId: created.id,
+          summary: `${created.name} «${created.role}» эрхтэй шинэ хэрэглэгчээр бүртгэгдлээ`,
+          before: null,
+          after: { role: created.role, departmentId: created.departmentId },
+        });
+      }
       return created;
     });
+    for (const id of notified) emitUserEvent(id, { type: "notification" });
     emitBroadcast({ type: "data-changed" });
     return { ok: true, id: user.id, email: user.email, tempPassword };
   } catch (err) {

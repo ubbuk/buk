@@ -32,6 +32,9 @@ export function ProcurementHandoverDialog({ open, position, label, initialManage
   const [preview, setPreview] = useState<HandoverPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [reason, setReason] = useState("");
+  // Step-up (lib/authority-grant.ts): naming a manager grants a position and its work
+  const [confirmed, setConfirmed] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [nonce, setNonce] = useState(0);
   const keyRef = useRef(newKey());
@@ -40,6 +43,8 @@ export function ProcurementHandoverDialog({ open, position, label, initialManage
     if (!open) return;
     setNewManagerId(initialManagerId);
     setReason("");
+    setConfirmed(false);
+    setAdminPassword("");
     keyRef.current = newKey();
   }, [open, initialManagerId]);
 
@@ -61,7 +66,7 @@ export function ProcurementHandoverDialog({ open, position, label, initialManage
   const hasWork = !!preview && preview.affectedItems > 0;
   const holderChanges = !!preview && !!newManagerId && preview.previousManager?.id !== newManagerId;
   const blocked = !!preview?.newManagerProblem;
-  const canConfirm = !!newManagerId && !!preview && !blocked && !loading && (hasWork ? reason.trim().length >= 3 : holderChanges);
+  const canConfirm = !!newManagerId && !!preview && !blocked && !loading && (hasWork || holderChanges) && reason.trim().length >= 3 && confirmed && adminPassword.length > 0;
 
   async function confirm() {
     if (!preview || !newManagerId) return;
@@ -71,14 +76,15 @@ export function ProcurementHandoverDialog({ open, position, label, initialManage
         ? await fetch("/api/admin/procurement-handover", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ position, newManagerId, reason, clientRequestId: keyRef.current, expectedItems: preview.affectedItems }),
+            body: JSON.stringify({ position, newManagerId, reason, clientRequestId: keyRef.current, expectedItems: preview.affectedItems, adminPassword, confirmed }),
           })
         : await fetch("/api/admin/approval-roles", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ role: position, userId: newManagerId }),
+            body: JSON.stringify({ role: position, userId: newManagerId, reason, adminPassword, confirmed }),
           });
       const body = await res.json().catch(() => ({}));
+      setAdminPassword("");
       if (!res.ok) {
         push({ kind: "error", title: "Шилжүүлж чадсангүй", description: body.error });
         if (body.code === "WORK_CHANGED" || body.code === "HANDOVER_REQUIRED") setNonce((n) => n + 1); // re-review the current state
@@ -158,12 +164,24 @@ export function ProcurementHandoverDialog({ open, position, label, initialManage
         )}
         {preview && !hasWork && newManagerId && !blocked && <p className="text-xs text-text-muted">Шилжүүлэх дуусаагүй материал алга.</p>}
 
-        {hasWork && (
-          <label className="block space-y-1 text-xs text-text-muted">
-            Шилжүүлэх шалтгаан (заавал)
-            <input value={reason} onChange={(e) => setReason(e.target.value)} className={inputClass} maxLength={500} />
-          </label>
-        )}
+        <label className="block space-y-1 text-xs text-text-muted">
+          {hasWork ? "Шилжүүлэх шалтгаан (заавал)" : "Томилох шалтгаан (заавал)"}
+          <input value={reason} onChange={(e) => setReason(e.target.value)} className={inputClass} maxLength={500} />
+        </label>
+        <label className="flex items-start gap-2 rounded-lg border border-border bg-bg-elevated/40 p-3 text-xs text-text">
+          <input type="checkbox" className="mt-0.5 size-4" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          <span>Би энэ менежерт дээрх албан тушаал, ажлыг өгөх эрхтэй бөгөөд хариуцлагыг хүлээнэ. Үйлдэл аудитад бүртгэгдэж, бусад админд мэдэгдэл очно.</span>
+        </label>
+        <label className="block space-y-1 text-xs text-text-muted">
+          Таны өөрийн нууц үг
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
+          />
+        </label>
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>

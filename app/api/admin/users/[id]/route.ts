@@ -4,6 +4,10 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions, userSessionCacheKey } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
+import { announce, authorizeGrant, recordGrant, type GrantContext } from "@/lib/authority-grant";
+import { isPrivilegedRole, roleChangeIsGrant } from "@/lib/authority-roles";
+import { approvalCapabilityOrUnknown } from "@/lib/credential-guard";
+import { clientIp } from "@/lib/client-ip";
 import { emitBroadcast } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { invalidate } from "@/lib/cache";
@@ -17,6 +21,10 @@ const patchSchema = z.object({
   isActive: z.boolean().optional(),
   // deliberate override when the person still holds unfinished procurement work (see below)
   acknowledgeUnfinishedProcurement: z.boolean().optional(),
+  // Step-up, required only when the change GRANTS authority (a privileged role, re-activating a privileged account)
+  adminPassword: z.string().optional(),
+  reason: z.string().optional(),
+  confirmed: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -56,25 +64,70 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  const updated = await prisma.user.update({
-    where: { id },
-    data: {
-      role: parsed.data.role,
-      title: parsed.data.title,
-      departmentId: parsed.data.departmentId,
-      isActive: parsed.data.isActive,
-    },
-  });
-  await prisma.auditLog.create({
-    data: {
-      entityType: "User",
-      entityId: id,
-      action: "UPDATE_USER",
-      actorId: session.user.id,
-      ...(acknowledged ? { afterJson: JSON.stringify({ acknowledgedUnfinishedProcurement: acknowledged }) } : {}),
-    },
-  });
+  // Does this change GRANT authority? A privileged role it did not have, or bringing back an account that carries
+  // authority (by role or by an assignment it kept). Anything else (title, department, demotion, an ordinary
+  // employee's re-activation) is unchanged and needs no step-up.
+  const roleGrant = parsed.data.role !== undefined && roleChangeIsGrant(user.role, parsed.data.role);
+  const reactivation = parsed.data.isActive === true && !user.isActive;
+  const reactivationGrant = reactivation && (isPrivilegedRole(parsed.data.role ?? user.role) || (await approvalCapabilityOrUnknown(prisma, id)).capable);
+  let grant: GrantContext | null = null;
+  if (roleGrant || reactivationGrant) {
+    const authorised = await authorizeGrant({
+      adminId: session.user.id,
+      stepUp: { adminPassword: parsed.data.adminPassword, reason: parsed.data.reason, confirmed: parsed.data.confirmed },
+      kind: roleGrant ? "ROLE_ELEVATION" : "REACTIVATION",
+      targetUserId: id,
+      ip: clientIp(req.headers),
+      checkCustody: true,
+    });
+    if (!authorised.ok) {
+      return NextResponse.json(
+        { error: authorised.error, code: authorised.code },
+        { status: authorised.status, headers: authorised.retryAfterSeconds ? { "Retry-After": String(authorised.retryAfterSeconds) } : undefined }
+      );
+    }
+    grant = authorised.grant;
+  }
+
+  const before = { role: user.role, title: user.title, departmentId: user.departmentId, isActive: user.isActive };
+  let notified: string[] = [];
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.user.update({
+        where: { id },
+        data: {
+          role: parsed.data.role,
+          title: parsed.data.title,
+          departmentId: parsed.data.departmentId,
+          isActive: parsed.data.isActive,
+        },
+      });
+      const after = { role: row.role, title: row.title, departmentId: row.departmentId, isActive: row.isActive };
+      await tx.auditLog.create({
+        data: {
+          entityType: "User",
+          entityId: id,
+          action: "UPDATE_USER",
+          actorId: session.user.id,
+          beforeJson: JSON.stringify(before),
+          afterJson: JSON.stringify({ ...after, ...(acknowledged ? { acknowledgedUnfinishedProcurement: acknowledged } : {}) }),
+        },
+      });
+      if (grant) {
+        const summary = roleGrant ? `${user.name}-ийн эрх (role) ${before.role} → ${after.role}` : `${user.name}-ийн бүртгэл дахин идэвхжлээ (${after.role})`;
+        notified = await recordGrant(tx, grant, { subjectType: "User", subjectId: id, summary, before, after });
+      }
+      return row;
+    });
+  } catch (err) {
+    if (!grant) throw err;
+    // the audit row or a notification could not be written: nothing was changed
+    console.error("[admin] authority grant failed:", err instanceof Error ? err.name : "unknown");
+    return NextResponse.json({ error: "Эрх олгох үед алдаа гарлаа. Юу ч өөрчлөгдөөгүй, дахин оролдоно уу" }, { status: 500 });
+  }
   invalidate(userSessionCacheKey(id));
+  announce(notified);
 
   // Admin edits change what other open sessions show (user lists, department
   // heads, approvers) -- tell them to refetch instead of waiting for a reload.

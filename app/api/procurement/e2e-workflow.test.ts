@@ -22,6 +22,7 @@ import { POST as COMPLETE } from "../requests/[id]/procurement/complete/route";
 import { GET as BADGE } from "./badge/route";
 import { GET as PREVIEW, POST as HANDOVER } from "../admin/procurement-handover/route";
 import { POST as ROLES_POST } from "../admin/approval-roles/route";
+import { ADMIN_TEST_HASH, withStepUp } from "./step-up-support";
 import { GET as MONITORING } from "../admin/monitoring/[section]/route";
 
 const PIN = "1234";
@@ -38,7 +39,7 @@ const WH = `${P}wh`;
 const as = (w: Who | null) => {
   session.current = w ? { user: { id: uid(w), role: roster[w], departmentId: w === "emp" || w === "emp2" || w === "head" ? DEPT : null, name: uid(w), email: `${uid(w)}@t.local` } } : null;
 };
-const json = (body: unknown) => new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const json = (body: unknown) => new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withStepUp(body as object)) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
 
 const SINGLETONS = { ENGINEERING_CHIEF: "eng", FINANCE_DIRECTOR: "fin", EXECUTIVE_DIRECTOR: "exec", STOREKEEPER_LEAD: "store", CHIEF_ACCOUNTANT_LEAD: "acct" } as const;
@@ -81,7 +82,7 @@ beforeAll(async () => {
   await prisma.department.create({ data: { id: DEPT, name: `E2E ${TAG} цех`, type: "FACTORY" } });
   const pinHash = await bcrypt.hash(PIN, 10);
   for (const w of Object.keys(roster) as Who[]) {
-    await prisma.user.create({ data: { id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), role: roster[w], passwordHash: "x", departmentId: ["emp", "emp2", "head"].includes(w) ? DEPT : null } });
+    await prisma.user.create({ data: { id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), role: roster[w], passwordHash: w === "admin" ? ADMIN_TEST_HASH : "x", departmentId: ["emp", "emp2", "head"].includes(w) ? DEPT : null } });
   }
   for (const w of ["head", "store", "eng", "fin", "exec"] as const) await prisma.approvalPinCredential.create({ data: { userId: uid(w), pinHash } });
   await prisma.department.update({ where: { id: DEPT }, data: { headId: uid("head") } });

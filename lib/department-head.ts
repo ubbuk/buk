@@ -1,8 +1,9 @@
 import { prisma } from "./prisma";
 import { departmentHeadError } from "./department-access";
+import { recordGrant, type GrantContext } from "./authority-grant";
 
 export type AssignHeadResult =
-  | { ok: true; id: string; headId: string | null; reassignedRequests: number; changed: boolean }
+  | { ok: true; id: string; headId: string | null; reassignedRequests: number; changed: boolean; notified?: string[] }
   | { ok: false; status: number; error: string };
 
 /**
@@ -18,12 +19,15 @@ export type AssignHeadResult =
  * - Clearing the head while requests are waiting on it is refused: nobody
  *   could approve them. Appoint a replacement instead.
  *
- * Everything happens in one transaction, with a before/after audit record.
+ * Everything happens in one transaction, with a before/after audit record. When the caller passes a `grant`
+ * (the admin route always does, see lib/authority-grant.ts), the authority-grant audit row and the notifications
+ * are written in that same transaction: if they cannot be written, the head is not changed.
  */
 export async function assignDepartmentHead(
   departmentId: string,
   newHeadId: string | null,
-  actorId: string
+  actorId: string,
+  grant?: GrantContext
 ): Promise<AssignHeadResult> {
   const department = await prisma.department.findUnique({ where: { id: departmentId } });
   if (!department) return { ok: false, status: 404, error: "Цех, тасаг олдсонгүй" };
@@ -78,7 +82,19 @@ export async function assignDepartmentHead(
       },
     });
 
-    return { updated, reassigned: pending.length } as const;
+    let notified: string[] = [];
+    if (grant && newHeadId) {
+      notified = await recordGrant(tx, grant, {
+        subjectType: "Department",
+        subjectId: departmentId,
+        summary: `«${department.name}» цехийн даргаар томилогдлоо`,
+        before: { headId: department.headId },
+        after: { headId: newHeadId },
+        previousHolderIds: department.headId ? [department.headId] : [],
+      });
+    }
+
+    return { updated, reassigned: pending.length, notified } as const;
   });
 
   if ("blocked" in result) {
@@ -88,5 +104,5 @@ export async function assignDepartmentHead(
       error: `Батлах хүлээлттэй ${result.blocked} захиалга байна. Дарга хасахын оронд шинэ дарга томилно уу`,
     };
   }
-  return { ok: true, id: result.updated.id, headId: result.updated.headId, reassignedRequests: result.reassigned, changed: true };
+  return { ok: true, id: result.updated.id, headId: result.updated.headId, reassignedRequests: result.reassigned, changed: true, notified: result.notified };
 }
