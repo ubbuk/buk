@@ -36,7 +36,7 @@ const UNAVAILABLE = "Түр хугацаанд боломжгүй байна. Д
  * Checks `userId`'s current password: throttled before any bcrypt work, and a success clears the account's
  * password-attempt bucket. Used both for the employee's own PIN setup and for an ADMIN's re-authentication.
  */
-async function verifyAccountPassword(userId: string, password: string, ip: string | null): Promise<PinFailure | null> {
+export async function verifyAccountPassword(userId: string, password: string, ip: string | null): Promise<PinFailure | null> {
   let admission;
   try {
     admission = await admit(passwordChangeBuckets(userId, ip));

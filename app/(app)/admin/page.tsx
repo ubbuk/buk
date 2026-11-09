@@ -74,6 +74,10 @@ export default function AdminPage() {
   const [passwordCopied, setPasswordCopied] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  // Resetting a password hands the admin a temporary one, so it needs a reason, the identity attestation and the admin own password.
+  const [credReset, setCredReset] = useState<{ user: AdminUser; reason: string; identityVerified: boolean; adminPassword: string; error: string | null } | null>(null);
+  const [credResetBusy, setCredResetBusy] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -115,7 +119,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null }),
+        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null, adminPassword: newAdminPassword }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Хэрэглэгч үүсгэж чадсангүй");
@@ -131,6 +135,7 @@ export default function AdminPage() {
     } catch (err) {
       push({ kind: "error", title: "Хэрэглэгч үүсгэж чадсангүй", description: err instanceof Error ? err.message : undefined });
     } finally {
+      setNewAdminPassword("");
       setSubmitting(false);
     }
   }
@@ -168,14 +173,26 @@ export default function AdminPage() {
     }
   }
 
-  async function resetCredentials(user: AdminUser) {
-    const res = await fetch(`/api/admin/users/${user.id}/reset-credentials`, { method: "POST" });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      push({ kind: "error", title: "Нууц үг шинэчилж чадсангүй" });
-      return;
+  async function submitCredentialReset() {
+    if (!credReset) return;
+    setCredResetBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${credReset.user.id}/reset-credentials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: credReset.reason, identityVerified: credReset.identityVerified, adminPassword: credReset.adminPassword }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // shown in the dialog itself: e.g. the clear message for an approval-capable account
+        setCredReset({ ...credReset, adminPassword: "", error: body.error || "Нууц үг шинэчилж чадсангүй" });
+        return;
+      }
+      setTempPassword({ email: credReset.user.email, password: body.tempPassword });
+      setCredReset(null);
+    } finally {
+      setCredResetBusy(false);
     }
-    setTempPassword({ email: user.email, password: body.tempPassword });
   }
 
   // Resetting somebody's PIN needs a reason, the admin's attestation that the employee's identity was verified and the
@@ -311,7 +328,7 @@ export default function AdminPage() {
           >
             <UserCog className="size-3.5" />
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => resetCredentials(u)} title="Нууц үг шинэчлэх">
+          <Button size="sm" variant="secondary" onClick={() => setCredReset({ user: u, reason: "", identityVerified: false, adminPassword: "", error: null })} title="Нууц үг шинэчлэх" aria-label={`${u.name}-ийн нууц үг шинэчлэх`}>
             <RotateCcw className="size-3.5" />
           </Button>
           {u.id !== session?.user?.id && (
@@ -398,6 +415,68 @@ export default function AdminPage() {
           </p>
         </CardBody>
       </Card>
+
+      <Modal
+        open={!!credReset}
+        onClose={() => setCredReset(null)}
+        title="Ажилтны нууц үг сэргээх"
+        description="Энэ нь түр нууц үг үүсгэж танд харуулна. Батлах эрхтэй хэрэглэгчийн нууц үгийг энэ аргаар сэргээх боломжгүй. Үйлдэл аудитад бүртгэгдэж, ажилтанд мэдэгдэл очно."
+      >
+        {credReset && (
+          <div className="space-y-3 text-sm">
+            <p className="break-words text-xs text-text-muted">
+              Ажилтан: <b className="text-text">{credReset.user.name}</b> ({credReset.user.email})
+            </p>
+            {credReset.error && (
+              <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                {credReset.error}
+              </p>
+            )}
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-bg-elevated/40 p-3 text-xs text-text">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={credReset.identityVerified}
+                onChange={(e) => setCredReset({ ...credReset, identityVerified: e.target.checked })}
+              />
+              <span>Би энэ ажилтны хувийн байдлыг биечлэн эсвэл найдвартай арга замаар (жишээ нь буцаж залгах) баталгаажуулсан.</span>
+            </label>
+            <label className="block space-y-1 text-xs text-text-muted">
+              Сэргээх шалтгаан, баталгаажуулсан арга (заавал)
+              <textarea
+                value={credReset.reason}
+                onChange={(e) => setCredReset({ ...credReset, reason: e.target.value })}
+                rows={3}
+                maxLength={500}
+                className="focus-ring w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text"
+              />
+            </label>
+            <label className="block space-y-1 text-xs text-text-muted">
+              Таны өөрийн нууц үг
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={credReset.adminPassword}
+                onChange={(e) => setCredReset({ ...credReset, adminPassword: e.target.value })}
+                className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCredReset(null)}>
+                Болих
+              </Button>
+              <Button
+                variant="danger"
+                loading={credResetBusy}
+                disabled={!credReset.identityVerified || credReset.reason.trim().length < 3 || credReset.adminPassword.length === 0}
+                onClick={() => void submitCredentialReset()}
+              >
+                Нууц үг сэргээх
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={!!pinReset}
@@ -552,11 +631,21 @@ export default function AdminPage() {
             onCreated={(d) => setDepartments((prev) => [...prev, { ...d, headId: null, headName: null }].sort((a, b) => a.name.localeCompare(b.name)))}
             fixedType={newDeptType === "ALL" ? undefined : newDeptType}
           />
+          <label className="block space-y-1 text-xs text-text-muted">
+            Таны өөрийн нууц үг (түр нууц үг өгөгдөх тул заавал)
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={newAdminPassword}
+              onChange={(e) => setNewAdminPassword(e.target.value)}
+              className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
+            />
+          </label>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               Болих
             </Button>
-            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName}>
+            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName || !newAdminPassword}>
               Үүсгэх
             </Button>
           </div>
@@ -651,7 +740,7 @@ export default function AdminPage() {
           <div className="space-y-3">
             <p className="text-sm text-text-muted">
               {tempPassword.email}-д зориулсан түр нууц үг. Энэ зөвхөн нэг удаа харагдах тул хэрэглэгчид аюулгүй
-              аргаар дамжуулна уу.
+              аргаар дамжуулна уу. Үүнийг ашиглан тухайн хэрэглэгчийн оронд нэвтрэхийг хориглоно: үйлдэл аудитад бүртгэгдсэн.
             </p>
             <div className="flex items-center gap-2">
               <p className="flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-center font-mono text-sm text-text">

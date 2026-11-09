@@ -1,11 +1,10 @@
-import bcrypt from "bcrypt";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { generateTempPassword } from "@/lib/credentials";
-import { emitBroadcast } from "@/lib/events";
+import { clientIp } from "@/lib/client-ip";
+import { createUserAsAdmin } from "@/lib/credential-reset";
 import { prisma } from "@/lib/prisma";
 import { USER_ROLES } from "@/lib/types";
 
@@ -43,38 +42,27 @@ const createSchema = z.object({
   title: z.string().trim().min(1).nullable().optional(),
   role: z.enum(USER_ROLES),
   departmentId: z.string().nullable().optional(),
+  // The administrator re-enters their OWN password: creating a user hands them a temporary password.
+  adminPassword: z.string().min(1, "Өөрийн нууц үгээ оруулна уу"),
 });
 
+// Creates a user and returns a temporary password to the administrator. Stage 1 hardening (lib/credential-reset.ts):
+// active ADMIN checked in the database, the admin's own password, rate limited, audited in the same transaction.
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!requireAdmin(session)) return NextResponse.json({ error: "Эрхгүй үйлдэл" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл" }, { status: 400 });
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-  if (existing) return NextResponse.json({ error: "Энэ и-мэйл хаягтай хэрэглэгч бүртгэлтэй байна" }, { status: 409 });
-
-  const tempPassword = generateTempPassword();
-  const passwordHash = await bcrypt.hash(tempPassword, 10);
-
-  const user = await prisma.user.create({
-    data: {
-      email: parsed.data.email,
-      name: parsed.data.name,
-      title: parsed.data.title ?? null,
-      role: parsed.data.role,
-      departmentId: parsed.data.departmentId ?? null,
-      passwordHash,
-    },
-  });
-  await prisma.auditLog.create({
-    data: { entityType: "User", entityId: user.id, action: "CREATE_USER", actorId: session.user.id },
-  });
-
-  // Admin edits change what other open sessions show (user lists, department
-  // heads, approvers) -- tell them to refetch instead of waiting for a reload.
-  emitBroadcast({ type: "data-changed" });
-  return NextResponse.json({ id: user.id, email: user.email, tempPassword }, { status: 201 });
+  const { adminPassword, ...data } = parsed.data;
+  const result = await createUserAsAdmin({ adminId: session.user.id, adminPassword, ip: clientIp(req.headers), data });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined }
+    );
+  }
+  return NextResponse.json({ id: result.id, email: result.email, tempPassword: result.tempPassword }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }

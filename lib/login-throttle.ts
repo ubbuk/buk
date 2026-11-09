@@ -34,6 +34,11 @@ export const LIMITS = {
   // PIN reset by an ADMIN: how many one administrator may do, and how often one person's PIN may be reset.
   pinResetAdmin: 20,
   pinResetTarget: 3,
+  // Password reset by an ADMIN (hands the admin a temporary password): every attempt counts, failed or not.
+  credentialResetAdmin: 5,
+  credentialResetTarget: 3,
+  // Creating a user (also hands the admin a temporary password); higher because onboarding comes in batches.
+  userCreateAdmin: 20,
 } as const;
 
 const WINDOW_SECONDS = WINDOW_MS / 1000;
@@ -88,6 +93,19 @@ export function pinResetBuckets(adminId: string, targetUserId: string): Bucket[]
     { key: `pinreset:admin:${sha(adminId)}`, limit: LIMITS.pinResetAdmin, onSuccess: "keep" },
     { key: `pinreset:target:${sha(targetUserId)}`, limit: LIMITS.pinResetTarget, onSuccess: "keep" },
   ];
+}
+
+/** Admin password reset: per administrator and per employee. Every attempt that gets this far is counted, whatever its outcome. */
+export function credentialResetBuckets(adminId: string, targetUserId: string): Bucket[] {
+  return [
+    { key: `credreset:admin:${sha(adminId)}`, limit: LIMITS.credentialResetAdmin, onSuccess: "keep" },
+    { key: `credreset:target:${sha(targetUserId)}`, limit: LIMITS.credentialResetTarget, onSuccess: "keep" },
+  ];
+}
+
+/** Admin user creation: per administrator. */
+export function userCreateBuckets(adminId: string): Bucket[] {
+  return [{ key: `usercreate:admin:${sha(adminId)}`, limit: LIMITS.userCreateAdmin, onSuccess: "keep" }];
 }
 
 /**
