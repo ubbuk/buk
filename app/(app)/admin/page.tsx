@@ -7,6 +7,7 @@ import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2,
 import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/components/admin/AuthorityGrantDialog";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
+import { ExecutiveHandoverDialog } from "@/components/admin/ExecutiveHandoverDialog";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -96,6 +97,7 @@ export default function AdminPage() {
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
   const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
+  const [executiveHandoverOpen, setExecutiveHandoverOpen] = useState(false);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -458,6 +460,11 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-text">{r.label}</p>
                   <p className="text-[11px] text-text-muted">Одоогийн: {current?.userName ?? "Тохируулагдаагүй"}</p>
                 </div>
+                {r.role === "EXECUTIVE_DIRECTOR" && (
+                  <Button variant="secondary" size="sm" onClick={() => setExecutiveHandoverOpen(true)}>
+                    Хүлээгдэж буй баталгааг шилжүүлэх
+                  </Button>
+                )}
                 {isProcurementPosition(r.role) && (
                   <Button variant="secondary" size="sm" onClick={() => setHandover({ position: r.role as ProcurementPosition, label: r.label, managerId: current?.userId ?? "" })}>
                     Дуусаагүй ажлыг шилжүүлэх
@@ -604,6 +611,17 @@ export default function AdminPage() {
           </div>
         )}
       </Modal>
+
+      <ExecutiveHandoverDialog
+        open={executiveHandoverOpen}
+        currentHolder={(() => {
+          const holder = approvalRoles.find((a) => a.role === "EXECUTIVE_DIRECTOR");
+          return holder ? { id: holder.userId, name: holder.userName } : null;
+        })()}
+        directors={users.filter((u) => u.role === "DIRECTOR").map((u) => ({ id: u.id, name: u.name, isActive: u.isActive }))}
+        onClose={() => setExecutiveHandoverOpen(false)}
+        onDone={() => void load()}
+      />
 
       {handover && (
         <ProcurementHandoverDialog

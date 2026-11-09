@@ -18,6 +18,7 @@ import { AllocationBar } from "@/components/workflow/AllocationBar";
 import { AttachmentsPanel } from "@/components/workflow/AttachmentsPanel";
 import { MaterialDetailModal } from "@/components/workflow/MaterialDetailModal";
 import { PinModal } from "@/components/workflow/PinModal";
+import { ExecutiveApprovalPanel } from "@/components/workflow/ExecutiveApprovalPanel";
 import { ResubmitShortfallModal } from "@/components/workflow/ResubmitShortfallModal";
 import { isStepAssignedTo } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
@@ -55,6 +56,12 @@ export default function RequestDetailPage() {
   const [priceDraft, setPriceDraft] = useState("");
   const [viewingItemId, setViewingItemId] = useState<string | null>(null);
   const [markingUnavailableItemId, setMarkingUnavailableItemId] = useState<string | null>(null);
+  // Executive partial approval: the quantities chosen in the dialog, kept until the PIN is confirmed.
+  const [partialOpen, setPartialOpen] = useState(false);
+  const [partialQty, setPartialQty] = useState<Record<string, string>>({});
+  const [partialComment, setPartialComment] = useState("");
+  const [partialError, setPartialError] = useState<string | null>(null);
+  const [partialPlan, setPartialPlan] = useState<{ items: { itemId: string; quantity: number }[]; comment?: string } | null>(null);
 
   if (loading && !request) {
     return (
@@ -129,7 +136,8 @@ export default function RequestDetailPage() {
       } else if (pendingStep.type === "FINANCE_APPROVAL") {
         await financeApprove(request.id, pendingStep.assignedUserName, pin, request.version);
       } else if (pendingStep.type === "EXECUTIVE_APPROVAL") {
-        await executiveApprove(request.id, pendingStep.assignedUserName, pin, request.version);
+        await executiveApprove(request.id, pendingStep.assignedUserName, pin, request.version, partialPlan ?? undefined);
+        setPartialPlan(null);
       }
       setPinOpen(false);
       push({ kind: "success", title: "Хүсэлтийг баталлаа", description: `№${request.requestNumber}` });
@@ -138,6 +146,36 @@ export default function RequestDetailPage() {
     } finally {
       setProcessing(false);
     }
+  }
+
+  /** What still has to be bought for an item: the warehouse shortfall once checked, else the whole request. */
+  const requiredOf = (item: { requestedQuantity: number; missingQuantity?: number }) => item.missingQuantity ?? item.requestedQuantity;
+
+  function openPartial() {
+    if (!request) return;
+    setPartialQty(Object.fromEntries(request.items.filter((i) => requiredOf(i) > 0).map((i) => [i.id, String(requiredOf(i))])));
+    setPartialComment("");
+    setPartialError(null);
+    setPartialOpen(true);
+  }
+
+  function confirmPartial() {
+    if (!request) return;
+    const items: { itemId: string; quantity: number }[] = [];
+    for (const i of request.items.filter((x) => requiredOf(x) > 0)) {
+      const raw = (partialQty[i.id] ?? "").trim().replace(",", ".");
+      if (!raw || Number(raw) === 0) continue;
+      const q = Number(raw);
+      if (!Number.isFinite(q) || q < 0) return setPartialError(`${i.materialName}: тоо хэмжээ буруу байна`);
+      if (Math.round(q * 1000) / 1000 !== q) return setPartialError(`${i.materialName}: хамгийн ихдээ 3 орны нарийвчлал`);
+      if (q > requiredOf(i)) return setPartialError(`${i.materialName}: хамгийн ихдээ ${formatNumber(requiredOf(i), 3)} ${i.unit}`);
+      items.push({ itemId: i.id, quantity: q });
+    }
+    if (items.length === 0) return setPartialError("Хамгийн багадаа нэг материалыг батлах тоо оруулна уу. Бүгдийг татгалзах бол «Буцаах» товчийг ашиглана уу");
+    setPartialPlan({ items, comment: partialComment.trim() || undefined });
+    setPartialOpen(false);
+    setPinError(null);
+    setPinOpen(true);
   }
 
   async function returnRequest() {
@@ -241,12 +279,18 @@ export default function RequestDetailPage() {
               variant="success"
               onClick={() => {
                 setPinError(null);
+                setPartialPlan(null);
                 setPinOpen(true);
               }}
             >
               <CheckCircle2 className="size-4" />
               Батлах
             </Button>
+            {pendingStep.type === "EXECUTIVE_APPROVAL" && (
+              <Button variant="secondary" onClick={openPartial} disabled={processing}>
+                Хэсэгчлэн батлах
+              </Button>
+            )}
           </div>
         )}
         {pendingStep && pendingStep.type !== "MANAGER_PROCUREMENT" && !isAuthorizedApprover && (
@@ -375,6 +419,12 @@ export default function RequestDetailPage() {
             </div>
           </Card>
 
+          <ExecutiveApprovalPanel
+            requestId={request.id}
+            viewerName={session?.user?.name ?? ""}
+            viewerRoleLabel={USER_ROLE_LABEL[session?.user?.role ?? ""] ?? ""}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle>Хавсралт</CardTitle>
@@ -458,6 +508,7 @@ export default function RequestDetailPage() {
           onClose={() => {
             setPinOpen(false);
             setMarkingUnavailableItemId(null);
+            setPartialPlan(null);
           }}
           onConfirm={approveWithPin}
           approverName={pendingStep.assignedUserName}
@@ -466,6 +517,52 @@ export default function RequestDetailPage() {
           error={pinError}
         />
       )}
+
+      <Modal
+        open={partialOpen}
+        onClose={() => setPartialOpen(false)}
+        title="Хэсэгчлэн батлах"
+        description="Одоо худалдан авахыг зөвшөөрөх тоо хэмжээг материал бүрээр оруулна уу. Үлдсэн хэсэг хойшлогдож, дараа нь нэмж батлах боломжтой."
+      >
+        <div className="space-y-3">
+          {request.items
+            .filter((i) => requiredOf(i) > 0)
+            .map((i) => (
+              <label key={i.id} className="block space-y-1 text-xs text-text-muted">
+                <span className="break-words">
+                  {i.materialName} — хүссэн {formatNumber(i.requestedQuantity, 3)} {i.unit}, худалдан авах {formatNumber(requiredOf(i), 3)}
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={partialQty[i.id] ?? ""}
+                  onChange={(e) => setPartialQty((q) => ({ ...q, [i.id]: e.target.value }))}
+                  placeholder={`0 – ${formatNumber(requiredOf(i), 3)}`}
+                  className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-surface px-3 text-sm text-text"
+                />
+              </label>
+            ))}
+          <label className="block space-y-1 text-xs text-text-muted">
+            Тайлбар (заавал биш)
+            <textarea
+              value={partialComment}
+              onChange={(e) => setPartialComment(e.target.value)}
+              rows={3}
+              className="focus-ring w-full rounded-lg border border-border bg-bg-surface px-3 py-2 text-sm text-text"
+            />
+          </label>
+          {partialError && (
+            <p role="alert" className="text-xs text-danger">
+              {partialError}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setPartialOpen(false)}>
+              Болих
+            </Button>
+            <Button onClick={confirmPartial}>Үргэлжлүүлэх</Button>
+          </div>
+        </div>
+      </Modal>
 
       <ResubmitShortfallModal
         open={resubmitOpen}

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { announce, authorizeGrant, grantFailureResponse, recordGrant } from "@/lib/authority-grant";
 import { positionEligibilityError } from "@/lib/authority-roles";
 import { clientIp } from "@/lib/client-ip";
+import { lockExecutivePosition } from "@/lib/executive-handover";
 import { isProcurementPosition, POSITION_KIND, validateProcurementManager } from "@/lib/procurement-handover";
 import { lockPositionExclusive, pendingClassificationRequestIds, unfinishedAssignedItems } from "@/lib/procurement-workload";
 
@@ -146,6 +147,8 @@ export async function POST(req: Request) {
 
   try {
     await prisma.$transaction(async (tx) => {
+      // serialised with an executive handover (lib/executive-handover.ts) by the same lock
+      if (role === "EXECUTIVE_DIRECTOR") await lockExecutivePosition(tx);
       const previous = (await tx.approvalRoleAssignment.findMany({ where: { role: parsed.data.role, isActive: true }, select: { userId: true } })).map((p) => p.userId);
       await tx.approvalRoleAssignment.updateMany({
         where: { role: parsed.data.role, isActive: true },

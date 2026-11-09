@@ -93,6 +93,33 @@ export const registerMaterialSchema = z.object({
   defaultPrice: z.number().nonnegative(),
 });
 
+// --- Executive partial approval & deferred procurement ------------------------
+const quantityItemsSchema = z.array(z.object({ itemId: z.string().min(1), quantity: z.number().positive() })).min(1);
+
+/** POST executive-approve: `items` omitted = approve everything that needs buying. */
+export const executiveApproveSchema = approvalDecisionSchema.extend({
+  items: quantityItemsSchema.optional(),
+  comment: z.string().trim().max(1000).optional(),
+});
+
+export const executiveDecisionSchema = z
+  .object({
+    action: z.enum(["APPROVE", "RETURN"]),
+    pin: z.string().regex(/^\d{4}$/, "PIN дөрөв оронтой тоо байх ёстой").optional(),
+    items: quantityItemsSchema.optional(),
+    comment: z.string().trim().max(1000).optional(),
+    deferredRequestId: z.string().min(1).optional(),
+    clientRequestId: z.string().min(8).max(100),
+    expectedRevision: z.number().int().min(0),
+  })
+  .refine((v) => v.action !== "APPROVE" || !!v.pin, { message: "PIN оруулна уу", path: ["pin"] });
+
+export const deferredRequestSchema = z.object({
+  items: quantityItemsSchema,
+  reason: z.string().trim().min(1, "Шалтгаан эсвэл тайлбараа бичнэ үү").max(1000),
+  clientRequestId: z.string().min(8).max(100),
+});
+
 export function validateItem(item: MaterialRequestItemInput): FieldErrors {
   const result = materialRequestItemSchema.safeParse(item);
   if (result.success) return {};

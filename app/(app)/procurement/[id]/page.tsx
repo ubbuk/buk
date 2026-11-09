@@ -13,11 +13,14 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import type { ProcurementDetail, ProcurementItemView, ProcurementKind, PurchaseView } from "@/lib/procurement";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/types";
+import { REQUEST_STATUS_LABEL, USER_ROLE_LABEL, type RequestStatus } from "@/lib/types";
+import { ExecutiveApprovalPanel } from "@/components/workflow/ExecutiveApprovalPanel";
 import { cn, formatDate, formatDateTime, formatNumber } from "@/lib/utils";
 
 const money = (v: number | null) => (v === null ? "—" : `${formatNumber(v, 2)}₮`);
 const qty = (v: number) => formatNumber(v, 3);
+/** What may be bought right now: the smaller of the shortfall left and the executive-approved quantity left (the server enforces it again). */
+const buyable = (item: ProcurementItemView) => Math.min(item.remainingQuantity, item.remainingAuthorizedQuantity);
 const KIND_LABEL: Record<ProcurementKind, string> = { DOMESTIC: "Дотоод", INTERNATIONAL: "Олон улс" };
 const KIND_TONE: Record<ProcurementKind, string> = { DOMESTIC: "bg-accent/15 text-accent", INTERNATIONAL: "bg-warning/15 text-warning" };
 const inputClass = "focus-ring h-9 w-full rounded-lg border border-border bg-bg-surface px-3 text-sm text-text";
@@ -74,7 +77,7 @@ export default function ProcurementDetailPage() {
   // Keep one editable draft per item; a fresh idempotency key per attempt that has not succeeded yet.
   const draftFor = (item: ProcurementItemView): Draft =>
     drafts[item.itemId] ?? {
-      quantity: item.remainingQuantity ? String(item.remainingQuantity) : "",
+      quantity: buyable(item) ? String(buyable(item)) : "",
       unitPrice: String(item.actualUnitPrice ?? item.estimatedUnitPrice ?? ""),
       note: "",
       key: newKey(),
@@ -244,6 +247,8 @@ export default function ProcurementDetailPage() {
         </CardBody>
       </Card>
 
+      <ExecutiveApprovalPanel requestId={id} viewerName={session?.user?.name ?? ""} viewerRoleLabel={USER_ROLE_LABEL[session?.user?.role ?? ""] ?? ""} />
+
       {detail.open && detail.mode === "ASSIGNED" && !detail.classified && (
         <Card>
           <CardHeader>
@@ -306,7 +311,7 @@ export default function ProcurementDetailPage() {
                     <input
                       type="checkbox"
                       checked={item.checked}
-                      disabled={!item.canAct || busy === item.itemId}
+                      disabled={!item.canAct || busy === item.itemId || (!item.checked && buyable(item) <= 0)}
                       aria-label={`${item.materialName} бүрэн авсан`}
                       className="size-5 accent-[var(--color-success,#22c55e)]"
                       onChange={() => {
@@ -315,7 +320,7 @@ export default function ProcurementDetailPage() {
                           setOpenHistory((h) => ({ ...h, [item.itemId]: true }));
                           push({ kind: "info", title: "Буцаахын тулд худалдан авалтын бичлэгийг хүчингүй болгоно уу" });
                         } else {
-                          void submitPurchase(item, { quantity: String(item.remainingQuantity) });
+                          void submitPurchase(item, { quantity: String(buyable(item)) });
                         }
                       }}
                     />
@@ -353,6 +358,26 @@ export default function ProcurementDetailPage() {
                         </dd>
                       </div>
                       <div>
+                        <dt className="text-xs text-text-muted">Захирлын баталсан</dt>
+                        <dd className="font-medium text-success">
+                          {qty(item.authorizedQuantity)} {item.unit}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-text-muted">Одоо авч болох</dt>
+                        <dd className="font-medium text-text">
+                          {qty(buyable(item))} {item.unit}
+                        </dd>
+                      </div>
+                      {item.deferredQuantity > 0 && (
+                        <div>
+                          <dt className="text-xs text-text-muted">Хойшлогдсон</dt>
+                          <dd className="font-medium text-warning">
+                            {qty(item.deferredQuantity)} {item.unit}
+                          </dd>
+                        </div>
+                      )}
+                      <div>
                         <dt className="text-xs text-text-muted">Тооцоолсон нэгж үнэ</dt>
                         <dd className="text-text">{money(item.estimatedUnitPrice)}</dd>
                       </div>
@@ -370,7 +395,12 @@ export default function ProcurementDetailPage() {
                       </div>
                     </dl>
 
-                    {item.canAct && item.remainingQuantity > 0 && (
+                    {item.canAct && item.remainingQuantity > 0 && buyable(item) <= 0 && (
+                      <p className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
+                        Гүйцэтгэх захирлын баталсан тоо хэмжээ дууссан. Үлдсэн {qty(item.deferredQuantity)} {item.unit}-д нэмэлт зөвшөөрөл хүсэх шаардлагатай.
+                      </p>
+                    )}
+                    {item.canAct && item.remainingQuantity > 0 && buyable(item) > 0 && (
                       <form
                         className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]"
                         onSubmit={(e) => {

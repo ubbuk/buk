@@ -5,6 +5,7 @@ import { requestInclude, serializeRequest } from "./serialize";
 import { verifyPin, type PinResult } from "./pin";
 import { emitBroadcast, emitUserEvent } from "./events";
 import { openProcurement } from "./procurement";
+import { planInitialDecision, recordInitialDecision, type InitialPlan, type WantedQuantity } from "./executive-approval";
 import type { MaterialRequestView } from "./types";
 
 type WorkflowResult =
@@ -478,7 +479,7 @@ async function decidePositionStep(
   action: "APPROVE" | "RETURN",
   requestId: string,
   actorId: string,
-  opts: { pin?: string; reason?: string; expectedVersion: number }
+  opts: { pin?: string; reason?: string; expectedVersion: number; allocations?: WantedQuantity[]; comment?: string }
 ): Promise<WorkflowResult> {
   const request = await prisma.materialRequest.findUnique({
     where: { id: requestId },
@@ -509,19 +510,43 @@ async function decidePositionStep(
   const documentHash = computeDocumentHash(request.items);
 
   let managersToNotify: string[] = [];
+  let allocationFailure: { status: number; error: string } | null = null;
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await tx.materialRequest.findUniqueOrThrow({ where: { id: requestId }, select: { version: true, status: true } });
     if (fresh.version !== opts.expectedVersion) return "VERSION_CONFLICT" as const;
     if (fresh.status !== config.pendingStatus) return "WRONG_STAGE" as const;
 
+    // Executive approval may authorise only part of the quantity; validate (read-only)
+    // before anything is written so a bad quantity rolls nothing back.
+    let initialPlan: InitialPlan | null = null;
+    if (action === "APPROVE" && stepType === "EXECUTIVE_APPROVAL") {
+      const planned = await planInitialDecision(tx, requestId, opts.allocations);
+      if (!planned.ok) {
+        allocationFailure = planned;
+        return "INVALID_ALLOCATION" as const;
+      }
+      initialPlan = planned.plan;
+    }
+
+    // The executive must still be an active DIRECTOR when the decision lands (a deactivated one cannot decide).
+    if (stepType === "EXECUTIVE_APPROVAL") {
+      const decider = await tx.user.findUnique({ where: { id: actorId }, select: { isActive: true, role: true } });
+      if (!decider || !decider.isActive || decider.role !== "DIRECTOR") return "NOT_ASSIGNED" as const;
+    }
+
+    // Claimed only while the step is still this actor's: an ADMIN handover of the executive
+    // responsibility (lib/executive-handover.ts) that commits first makes this count 0.
     const updated = await tx.approvalStep.updateMany({
-      where: { id: step.id, status: "PENDING" },
+      where: { id: step.id, status: "PENDING", assignedUserId: actorId },
       data:
         action === "APPROVE"
           ? { status: "APPROVED", decidedAt: new Date(), decidedById: actorId }
           : { status: "REJECTED", decidedAt: new Date(), decidedById: actorId, comment: opts.reason },
     });
-    if (updated.count === 0) return "ALREADY_DECIDED" as const;
+    if (updated.count === 0) {
+      const current = await tx.approvalStep.findUnique({ where: { id: step.id }, select: { status: true, assignedUserId: true } });
+      return current?.status === "PENDING" && current.assignedUserId !== actorId ? ("NOT_ASSIGNED" as const) : ("ALREADY_DECIDED" as const);
+    }
 
     if (action === "RETURN") {
       await tx.approvalStep.updateMany({
@@ -531,11 +556,12 @@ async function decidePositionStep(
     }
 
     await tx.approvalAction.create({
-      data: { approvalStepId: step.id, actorId, action, reason: opts.reason, documentHash },
+      data: { approvalStepId: step.id, actorId, action, reason: opts.reason ?? opts.comment, documentHash },
     });
     await tx.auditLog.create({
       data: { entityType: "MaterialRequest", entityId: requestId, action: action === "APPROVE" ? "APPROVE" : "RETURN", actorId },
     });
+    if (initialPlan) await recordInitialDecision(tx, initialPlan, actorId, opts.comment);
 
     let materialRequest = await tx.materialRequest.update({
       where: { id: requestId },
@@ -583,6 +609,8 @@ async function decidePositionStep(
   if (result === "VERSION_CONFLICT") return { ok: false, status: 409, error: VERSION_CONFLICT_ERROR };
   if (result === "ALREADY_DECIDED") return { ok: false, status: 409, error: ALREADY_DECIDED_ERROR };
   if (result === "WRONG_STAGE") return { ok: false, status: 409, error: WRONG_STAGE_ERROR };
+  if (result === "NOT_ASSIGNED") return { ok: false, status: 403, error: "Та энэ хүсэлтийг баталгаажуулах эрхгүй байна" };
+  if (result === "INVALID_ALLOCATION") return { ok: false, status: allocationFailure!.status, error: allocationFailure!.error };
 
   for (const managerId of managersToNotify) emitUserEvent(managerId, { type: "notification" });
   const notifyTarget =
@@ -605,8 +633,18 @@ export const financeApprove = (requestId: string, actorId: string, pin: string, 
   decidePositionStep("FINANCE_APPROVAL", "APPROVE", requestId, actorId, { pin, expectedVersion });
 export const financeReturn = (requestId: string, actorId: string, reason: string, expectedVersion: number) =>
   decidePositionStep("FINANCE_APPROVAL", "RETURN", requestId, actorId, { reason, expectedVersion });
-export const executiveApprove = (requestId: string, actorId: string, pin: string, expectedVersion: number) =>
-  decidePositionStep("EXECUTIVE_APPROVAL", "APPROVE", requestId, actorId, { pin, expectedVersion });
+/**
+ * `allocations` omitted = approve everything that needs buying (the previous
+ * behaviour). Provided = partial approval: the listed quantities are approved
+ * now and the rest stays deferred (see lib/executive-approval.ts).
+ */
+export const executiveApprove = (
+  requestId: string,
+  actorId: string,
+  pin: string,
+  expectedVersion: number,
+  extra: { allocations?: WantedQuantity[]; comment?: string } = {}
+) => decidePositionStep("EXECUTIVE_APPROVAL", "APPROVE", requestId, actorId, { pin, expectedVersion, ...extra });
 export const executiveReturn = (requestId: string, actorId: string, reason: string, expectedVersion: number) =>
   decidePositionStep("EXECUTIVE_APPROVAL", "RETURN", requestId, actorId, { reason, expectedVersion });
 

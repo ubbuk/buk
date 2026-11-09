@@ -2,6 +2,16 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { emitBroadcast, emitUserEvent } from "./events";
 import { actionableRequestIds, lockPositionsShared } from "./procurement-workload";
+import {
+  authorizationStatusOf,
+  authorizedOf,
+  deferredOf,
+  isLegacyFullAuthorization,
+  issuedOf as issuedFromChecks,
+  percentOf,
+  requiredOf as requiredFromChecks,
+  type AuthorizationStatus,
+} from "./executive-authorization";
 
 // Stage 7 -- Manager procurement. The warehouse check (Stage 3) leaves a
 // per-item shortfall (WarehouseCheckItem.missingQuantity); this stage tracks
@@ -69,6 +79,12 @@ export interface ProcurementItemView {
   issuedQuantity: number;
   /** Shortfall that has to be bought (0 = covered by the warehouse, no checkbox). */
   requiredQuantity: number;
+  /** Cumulative quantity the executive director has authorised for purchase (capped at required). */
+  authorizedQuantity: number;
+  /** required - authorized: still waiting for an executive decision. */
+  deferredQuantity: number;
+  /** authorized - purchased: what the server will still let the Manager buy. */
+  remainingAuthorizedQuantity: number;
   purchasedQuantity: number;
   remainingQuantity: number;
   estimatedUnitPrice: number | null;
@@ -115,6 +131,10 @@ export interface ProcurementDetail {
   canClassify: boolean;
   /** The viewer is the International manager and the request is classified (controlled reassignment). */
   canReassign: boolean;
+  /** Derived executive-authorisation state (separate from the request status). */
+  authorizationStatus: AuthorizationStatus;
+  authorizedPercentage: number;
+  deferredItemCount: number;
 }
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
@@ -123,11 +143,13 @@ const num = (v: Prisma.Decimal | null | undefined) => (v === null || v === undef
 export const requestProcurementInclude = {
   department: { select: { name: true } },
   requestedBy: { select: { name: true } },
-  approvalSteps: { select: { type: true, status: true, decidedAt: true, decidedBy: { select: { name: true } } } },
+  approvalSteps: { select: { type: true, status: true, decidedAt: true, assignedUserId: true, decidedBy: { select: { name: true } } } },
   procurementClassification: { include: { confirmedBy: { select: { name: true } } } },
+  executiveDecisions: { select: { id: true } },
   items: {
     orderBy: { lineNo: "asc" as const },
     include: {
+      executiveAllocations: { select: { quantity: true } },
       material: { select: { name: true } },
       procurementAssignment: { include: { assignedManager: { select: { name: true } } } },
       warehouseCheckItems: { include: { warehouseCheck: { select: { checkedAt: true } } } },
@@ -144,16 +166,23 @@ type ItemRow = RequestForProcurement["items"][number];
 
 /** Shortfall of an item: the latest warehouse check's missing quantity (whole item if never checked). */
 function requiredOf(item: ItemRow): Prisma.Decimal {
-  const latest = [...item.warehouseCheckItems].sort((a, b) => b.warehouseCheck.checkedAt.getTime() - a.warehouseCheck.checkedAt.getTime())[0];
-  return latest ? latest.missingQuantity : item.requestedQuantity;
+  return requiredFromChecks(item.requestedQuantity, item.warehouseCheckItems);
 }
 function issuedOf(item: ItemRow): Prisma.Decimal {
-  const latest = [...item.warehouseCheckItems].sort((a, b) => b.warehouseCheck.checkedAt.getTime() - a.warehouseCheck.checkedAt.getTime())[0];
-  return latest ? latest.allocatedQuantity : D(0);
+  return issuedFromChecks(item.warehouseCheckItems);
 }
 
-export function buildItemView(item: ItemRow): ProcurementItemView {
+/** Cumulative executive-authorised quantity of an item (legacy approvals without decision rows count as fully authorised). */
+export function authorizedQuantityOf(request: RequestForProcurement, item: ItemRow): Prisma.Decimal {
+  const executive = request.approvalSteps.find((s) => s.type === "EXECUTIVE_APPROVAL");
+  const legacy = isLegacyFullAuthorization(request.executiveDecisions.length, executive?.status);
+  const allocated = item.executiveAllocations.reduce((s, a) => s.plus(a.quantity), D(0));
+  return authorizedOf(requiredOf(item), allocated, legacy);
+}
+
+export function buildItemView(item: ItemRow, request: RequestForProcurement): ProcurementItemView {
   const required = requiredOf(item);
+  const authorized = authorizedQuantityOf(request, item);
   const active = item.purchases.filter((p) => !p.voidedAt);
   const purchased = active.reduce((s, p) => s.plus(p.quantity), D(0));
   const actualTotal = active.reduce((s, p) => s.plus(p.quantity.mul(p.unitPrice)), D(0));
@@ -168,6 +197,9 @@ export function buildItemView(item: ItemRow): ProcurementItemView {
     requestedQuantity: num(item.requestedQuantity),
     issuedQuantity: num(issuedOf(item)),
     requiredQuantity: num(required),
+    authorizedQuantity: num(authorized),
+    deferredQuantity: num(deferredOf(required, authorized)),
+    remainingAuthorizedQuantity: num(Prisma.Decimal.max(authorized.minus(purchased), D(0))),
     purchasedQuantity: num(purchased),
     remainingQuantity: num(remaining),
     estimatedUnitPrice: item.unitPrice === null ? null : Number(item.unitPrice),
@@ -211,7 +243,7 @@ const NO_CONTEXT: DetailContext = { managers: { mode: "LEGACY", domestic: null, 
 
 export function buildDetail(request: RequestForProcurement, ctx: DetailContext = NO_CONTEXT): ProcurementDetail {
   const { managers, viewer } = ctx;
-  const items = request.items.map(buildItemView);
+  const items = request.items.map((i) => buildItemView(i, request));
   const needed = items.filter((i) => i.requiredQuantity > 0);
   const step = request.approvalSteps.find((s) => s.type === "MANAGER_PROCUREMENT");
   const ceo = request.approvalSteps.find((s) => s.type === "EXECUTIVE_APPROVAL");
@@ -249,6 +281,15 @@ export function buildDetail(request: RequestForProcurement, ctx: DetailContext =
     classifiedAt: request.procurementClassification?.confirmedAt.toISOString() ?? null,
     canClassify: open && managers.mode === "ASSIGNED" && !classified && isInternational,
     canReassign: open && managers.mode === "ASSIGNED" && classified && isInternational,
+    authorizationStatus: authorizationStatusOf(
+      request.items.map((i) => ({ required: requiredOf(i), authorized: authorizedQuantityOf(request, i) })),
+      ceo?.status === "APPROVED"
+    ),
+    authorizedPercentage: percentOf(
+      needed.reduce((s, i) => s.plus(i.authorizedQuantity), D(0)),
+      needed.reduce((s, i) => s.plus(i.requiredQuantity), D(0))
+    ),
+    deferredItemCount: needed.filter((i) => i.deferredQuantity > 0).length,
   };
 }
 
@@ -362,7 +403,7 @@ export async function recordPurchase(requestId: string, actorId: string, input: 
     if (!found) return fail(404, "Захиалгын мөр олдсонгүй");
 
     // authorisation before the idempotent short-circuit, so a retry cannot be used to probe another manager's items
-    const itemView = buildItemView(found.item);
+    const itemView = buildItemView(found.item, found.request);
     if (itemView.requiredQuantity > 0) {
       const denied = assignmentFailure(managers, found.request, found.item, actorId);
       if (denied) return denied;
@@ -379,6 +420,15 @@ export async function recordPurchase(requestId: string, actorId: string, input: 
     const remaining = required.minus(purchased);
     if (D(input.quantity).gt(remaining)) {
       return fail(409, `Худалдан авах үлдэгдэл ${remaining.toString()} ${found.item.unit} байна. Үүнээс их тоо оруулах боломжгүй`);
+    }
+    // Executive authorisation cap: committed + new quantity may not exceed what the executive director approved.
+    const authorized = authorizedQuantityOf(found.request, found.item);
+    const authorizedLeft = authorized.minus(purchased);
+    if (D(input.quantity).gt(authorizedLeft)) {
+      return fail(
+        409,
+        `Гүйцэтгэх захирлын баталсан үлдэгдэл ${Prisma.Decimal.max(authorizedLeft, D(0)).toString()} ${found.item.unit} байна. Нэмэлт зөвшөөрөл хүсэх шаардлагатай`
+      );
     }
 
     const purchase = await tx.procurementPurchase.create({
@@ -446,6 +496,13 @@ export async function voidPurchase(
       if (othersPurchased.plus(newQuantity).gt(required)) {
         return fail(409, `Худалдан авах үлдэгдэл ${required.minus(othersPurchased).toString()} ${found.item.unit} байна. Үүнээс их тоо оруулах боломжгүй`);
       }
+      const authorized = authorizedQuantityOf(found.request, found.item);
+      if (othersPurchased.plus(newQuantity).gt(authorized)) {
+        return fail(
+          409,
+          `Гүйцэтгэх захирлын баталсан үлдэгдэл ${Prisma.Decimal.max(authorized.minus(othersPurchased), D(0)).toString()} ${found.item.unit} байна. Нэмэлт зөвшөөрөл хүсэх шаардлагатай`
+        );
+      }
     }
 
     await tx.procurementPurchase.update({ where: { id: original.id }, data: { voidedAt: new Date(), voidedById: actorId, voidReason: why } });
@@ -506,6 +563,11 @@ export async function completeProcurement(requestId: string, actorId: string): P
       if (!involved) return fail(403, "Эрхгүй үйлдэл");
     }
     const detail = buildDetail(before, { managers, viewer: asManager(actorId) });
+    const deferred = detail.items.filter((i) => i.deferredQuantity > 0);
+    if (deferred.length > 0) {
+      const names = deferred.map((i) => `${i.materialName} (${i.deferredQuantity} ${i.unit})`).join(", ");
+      return fail(409, `Гүйцэтгэх захирлын шийдвэр хүлээж буй хойшлуулсан тоо хэмжээ байна: ${names}`);
+    }
     const incomplete = detail.items.filter((i) => i.requiredQuantity > 0 && !i.checked);
     if (incomplete.length > 0) {
       const names = incomplete.map((i) => `${i.materialName} (${i.purchasedQuantity}/${i.requiredQuantity} ${i.unit})`).join(", ");

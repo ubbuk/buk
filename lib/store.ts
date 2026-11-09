@@ -45,7 +45,13 @@ interface RequestStore {
   branchReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
   financeApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
   financeReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
-  executiveApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  executiveApprove: (
+    requestId: string,
+    actorName: string,
+    pin: string,
+    expectedVersion: number,
+    partial?: { items: { itemId: string; quantity: number }[]; comment?: string }
+  ) => Promise<void>;
   executiveReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
   recordAccounting: (
     requestId: string,
@@ -271,15 +277,15 @@ export const useRequestStore = create<RequestStore>((set) => ({
     }));
   },
 
-  executiveApprove: async (requestId, actorName, pin, expectedVersion) => {
+  executiveApprove: async (requestId, actorName, pin, expectedVersion, partial) => {
     const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/executive-approve`, {
       method: "POST",
-      body: JSON.stringify({ pin, expectedVersion }),
+      body: JSON.stringify({ pin, expectedVersion, ...(partial ? { items: partial.items, comment: partial.comment } : {}) }),
     });
     set((s) => ({
       requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
       activity: pushActivity(s.activity, {
-        text: `${actorName} №${updated.requestNumber} хүсэлтийг баталлаа`,
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг ${partial ? "хэсэгчлэн " : ""}баталлаа`,
         type: "approve",
       }),
     }));
