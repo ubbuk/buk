@@ -35,3 +35,6 @@ next-env.d.ts
 /e2e/screenshots/
 /e2e/results-smoke/
 /e2e/results-testdb/
+
+.vercel
+.env*.local

@@ -4,6 +4,7 @@ import {
   Activity,
   ClipboardCheck,
   FilePlus2,
+  Globe,
   ListChecks,
   Receipt,
   Settings,
@@ -40,6 +41,10 @@ export const ACCOUNTING_NAV_ITEM: NavItem = {
 export const PROCUREMENT_NAV_ITEM: NavItem = { href: "/procurement", label: "Худалдан авалт", icon: ShoppingCart, badgeKey: "procurement" };
 // ADMIN and DIRECTOR (server-enforced again in /api/admin/monitoring and the page itself).
 export const MONITORING_NAV_ITEM: NavItem = { href: "/admin/monitoring", label: "Хяналт, мониторинг", icon: Activity };
+// Foreign trade: BOSS creates, MANAGER researches prices, the two technical positions / finance director / executive director
+// decide, the finance department receives; ADMIN may look. What each of them sees is decided per order on the server.
+export const FOREIGN_TRADE_ROLES: readonly string[] = ["BOSS", "MANAGER", "DIRECTOR", "ENGINEERING", "CHIEF_ACCOUNTANT", "ADMIN"];
+export const FOREIGN_TRADE_NAV_ITEM: NavItem = { href: "/foreign-trade", label: "Гадаад худалдаа", icon: Globe };
 export const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck };
 
 // EMPLOYEE only creates/tracks their own requests -- no approvals or
@@ -49,6 +54,7 @@ const EMPLOYEE_NAV_HREFS = new Set(["/requests/new", "/requests", "/archive", "/
 export function resolveNavItems(role: string | undefined): NavItem[] {
   let items: NavItem[] = role === "EMPLOYEE" ? NAV_ITEMS.filter((item) => EMPLOYEE_NAV_HREFS.has(item.href)) : [...NAV_ITEMS];
   if (role === "MANAGER" || role === "ADMIN") items = [...items, PROCUREMENT_NAV_ITEM];
+  if (role && FOREIGN_TRADE_ROLES.includes(role)) items = [...items, FOREIGN_TRADE_NAV_ITEM];
   if (role === "CHIEF_ACCOUNTANT" || role === "ADMIN") items = [...items, ACCOUNTING_NAV_ITEM];
   if (role === "ADMIN") items = [...items, ADMIN_NAV_ITEM];
   if (role === "ADMIN" || role === "DIRECTOR") items = [...items, MONITORING_NAV_ITEM];
@@ -63,6 +69,8 @@ export const PAGE_TITLES: Record<string, string> = {
   "/warehouse": "Агуулахын шалгалт",
   "/warehouses": "Агуулахын жагсаалт",
   "/procurement": "Худалдан авалт",
+  "/foreign-trade": "Гадаад худалдаа",
+  "/foreign-trade/new": "Шинэ гадаад худалдааны захиалга",
   "/accounting": "Санхүүгийн бүртгэл",
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",

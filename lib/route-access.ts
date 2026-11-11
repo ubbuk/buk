@@ -18,6 +18,7 @@ const RULES: readonly Rule[] = [
   { prefix: "/admin", roles: ["ADMIN"], except: ["/admin/monitoring"] },
   { prefix: "/accounting", roles: ["CHIEF_ACCOUNTANT", "ADMIN"] },
   { prefix: "/procurement", roles: ["MANAGER", "ADMIN"] },
+  { prefix: "/foreign-trade", roles: ["BOSS", "MANAGER", "DIRECTOR", "ENGINEERING", "CHIEF_ACCOUNTANT", "ADMIN"] },
 ];
 
 const under = (pathname: string, prefix: string) => pathname === prefix || pathname.startsWith(prefix + "/");

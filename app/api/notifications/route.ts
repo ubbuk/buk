@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isRequestHiddenFrom, visibilitySelect } from "@/lib/request-visibility";
+import { loadActor, visibleOrderIds } from "@/lib/foreign-trade";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -24,15 +25,21 @@ export async function GET() {
     related.filter((r) => isRequestHiddenFrom(r, session.user.id, session.user.role)).map((r) => r.id)
   );
 
+  // Same rule for foreign trade orders: a notice never links to an order the user may not open.
+  const ftIds = [...new Set(notifications.map((n) => n.relatedForeignTradeId).filter((id): id is string => !!id))];
+  const ftVisible = ftIds.length ? await visibleOrderIds(await loadActor(session.user), ftIds) : new Set<string>();
+
   return NextResponse.json(
     notifications
       .filter((n) => !n.relatedRequestId || !hidden.has(n.relatedRequestId))
+      .filter((n) => !n.relatedForeignTradeId || ftVisible.has(n.relatedForeignTradeId))
       .map((n) => ({
         id: n.id,
         type: n.type,
         title: n.title,
         body: n.body,
         relatedRequestId: n.relatedRequestId,
+        relatedForeignTradeId: n.relatedForeignTradeId,
         isRead: n.isRead,
         createdAt: n.createdAt.toISOString(),
       }))

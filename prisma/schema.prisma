@@ -82,6 +82,12 @@ model User {
   executiveReassignedFrom    ExecutiveApprovalReassignment[] @relation("ExecutiveReassignFrom")
   executiveReassignedTo      ExecutiveApprovalReassignment[] @relation("ExecutiveReassignTo")
   executiveReassignmentsMade ExecutiveApprovalReassignment[] @relation("ExecutiveReassignBy")
+  foreignTradeOrders         ForeignTradeOrder[]          @relation("ForeignTradeCreator")
+  foreignTradeSelections     ForeignTradeOrder[]          @relation("ForeignTradeSelector")
+  foreignTradeQuotes         ForeignTradeQuote[]          @relation("ForeignTradeQuoteBy")
+  foreignTradeMessages       ForeignTradeMessage[]        @relation("ForeignTradeMessageAuthor")
+  foreignTradeDecisions      ForeignTradeDecision[]       @relation("ForeignTradeDecider")
+  foreignTradeAttachments    ForeignTradeAttachment[]     @relation("ForeignTradeUploader")
 
   @@index([departmentId])
 }
@@ -107,6 +113,7 @@ model Department {
   head     User?             @relation("DepartmentHead", fields: [headId], references: [id])
   members  User[]            @relation("DepartmentMembers")
   requests MaterialRequest[]
+  foreignTradeOrders ForeignTradeOrder[]
 
   @@index([headId])
 }
@@ -628,6 +635,10 @@ enum NotificationType {
   REQUEST_COMPLETED
   PROCUREMENT_REQUIRED
   GENERIC
+  // Foreign trade: discussion messages and approval hand-offs are separate kinds on purpose.
+  FOREIGN_TRADE_DISCUSSION
+  FOREIGN_TRADE_APPROVAL
+  FOREIGN_TRADE_UPDATE
 }
 
 model Notification {
@@ -637,13 +648,16 @@ model Notification {
   title            String
   body             String
   relatedRequestId String?
+  relatedForeignTradeId String?
   isRead           Boolean          @default(false)
   createdAt        DateTime         @default(now())
 
   user           User             @relation(fields: [userId], references: [id])
   relatedRequest MaterialRequest? @relation(fields: [relatedRequestId], references: [id])
+  relatedForeignTrade ForeignTradeOrder? @relation(fields: [relatedForeignTradeId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
+  @@index([relatedForeignTradeId])
 }
 
 enum AuditAction {
@@ -674,6 +688,12 @@ enum AuditAction {
   PROCUREMENT_COMPLETE
   PROCUREMENT_CLASSIFY
   PROCUREMENT_REASSIGN
+  FT_QUOTE_ADD
+  FT_QUOTE_UPDATE
+  FT_QUOTE_DELETE
+  FT_SHARE
+  FT_SELECT_SUPPLIER
+  FT_MESSAGE
 }
 
 model AuditLog {
@@ -726,4 +746,183 @@ model PasswordRecoveryToken {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Foreign trade (Гадаад худалдаа). A workflow of its own: it shares User,
+// Department, AuditLog, Notification, the PIN step-up and the object storage with
+// the domestic procurement flow, but none of that flow's tables or statuses.
+//
+//   DRAFT --BOSS submits--> PENDING_MANAGER (price research, discussion, selection)
+//         --MANAGER submits--> PENDING_TECHNICAL  (OR: operations director OR chief engineer)
+//         --> PENDING_FINANCE (finance director) --> PENDING_EXECUTIVE (executive director)
+//         --> APPROVED (handed to the finance department)
+//   technical return -> RETURNED_TO_MANAGER;  finance / executive return -> RETURNED_TO_BOSS
+//
+// Decisions, messages and quotes are append-style history: decisions are never
+// updated, and every action is also written to AuditLog (entityType
+// "ForeignTradeOrder"). See lib/foreign-trade.ts.
+// ---------------------------------------------------------------------------
+enum ForeignTradeStatus {
+  DRAFT
+  PENDING_MANAGER
+  PENDING_TECHNICAL
+  RETURNED_TO_MANAGER
+  PENDING_FINANCE
+  PENDING_EXECUTIVE
+  RETURNED_TO_BOSS
+  APPROVED
+}
+
+enum ForeignTradeStage {
+  TECHNICAL
+  FINANCE
+  EXECUTIVE
+}
+
+enum ForeignTradeDecisionAction {
+  APPROVE
+  RETURN
+}
+
+model ForeignTradeOrder {
+  id            String             @id @default(cuid())
+  orderNumber   String             @unique
+  year          Int
+  sequence      Int
+  createdById   String
+  departmentId  String?
+  status        ForeignTradeStatus @default(DRAFT)
+  // Why the goods are needed (the BOSS's explanation of the need).
+  purpose       String?
+  // Optimistic-concurrency token: every state-changing action bumps it.
+  version       Int                @default(1)
+  // Counts submissions to technical review. A decision is unique per (order, cycle, stage), so two
+  // simultaneous approvals of the same stage cannot both be recorded.
+  cycle         Int                @default(0)
+  // What the MANAGER has presented. Technical reviewers always see the order once it is submitted to them.
+  sharedWithBoss      Boolean      @default(false)
+  sharedWithTechnical Boolean      @default(false)
+  // The final supplier, recorded by the MANAGER with the grounds for the decision.
+  selectedQuoteId     String?      @unique
+  selectionRationale  String?
+  selectedById        String?
+  selectedAt          DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+
+  createdBy     User                  @relation("ForeignTradeCreator", fields: [createdById], references: [id])
+  department    Department?           @relation(fields: [departmentId], references: [id])
+  selectedBy    User?                 @relation("ForeignTradeSelector", fields: [selectedById], references: [id])
+  selectedQuote ForeignTradeQuote?    @relation("ForeignTradeSelectedQuote", fields: [selectedQuoteId], references: [id], onDelete: SetNull)
+  items         ForeignTradeItem[]
+  quotes        ForeignTradeQuote[]   @relation("ForeignTradeQuotes")
+  messages      ForeignTradeMessage[]
+  decisions     ForeignTradeDecision[]
+  attachments   ForeignTradeAttachment[]
+  notifications Notification[]
+
+  @@unique([year, sequence])
+  @@index([createdById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ForeignTradeItem {
+  id           String  @id @default(cuid())
+  orderId      String
+  lineNo       Int
+  name         String
+  techSpec     String?
+  quantity     Decimal @db.Decimal(14, 3)
+  unit         String
+
+  order ForeignTradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, lineNo])
+}
+
+// One supplier's offer for the whole order (prices are for the full quantity, in the supplier's own currency; no
+// exchange rate is applied anywhere, so quotes in different currencies are shown side by side, never summed).
+model ForeignTradeQuote {
+  id           String   @id @default(cuid())
+  orderId      String
+  supplierName String
+  country      String
+  currency     String
+  price        Decimal  @db.Decimal(16, 2)
+  shippingCost Decimal  @default(0) @db.Decimal(16, 2)
+  leadTimeDays Int?
+  warranty     String?
+  note         String?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  order       ForeignTradeOrder         @relation("ForeignTradeQuotes", fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy   User                      @relation("ForeignTradeQuoteBy", fields: [createdById], references: [id])
+  selectedFor ForeignTradeOrder?        @relation("ForeignTradeSelectedQuote")
+  messages    ForeignTradeMessage[]
+  attachments ForeignTradeAttachment[]
+
+  @@index([orderId])
+}
+
+model ForeignTradeMessage {
+  id        String   @id @default(cuid())
+  orderId   String
+  authorId  String
+  body      String
+  // Optional: the supplier offer this message is about.
+  quoteId   String?
+  createdAt DateTime @default(now())
+
+  order       ForeignTradeOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  author      User                     @relation("ForeignTradeMessageAuthor", fields: [authorId], references: [id])
+  quote       ForeignTradeQuote?       @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  attachments ForeignTradeAttachment[]
+
+  @@index([orderId, createdAt])
+}
+
+model ForeignTradeDecision {
+  id            String                     @id @default(cuid())
+  orderId       String
+  cycle         Int
+  stage         ForeignTradeStage
+  action        ForeignTradeDecisionAction
+  decidedById   String
+  // Required for a return.
+  reason        String?
+  // The supplier offer that was selected when the decision was taken (history, not a live reference).
+  selectedQuoteId String?
+  createdAt     DateTime                   @default(now())
+
+  order     ForeignTradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  decidedBy User              @relation("ForeignTradeDecider", fields: [decidedById], references: [id])
+
+  @@unique([orderId, cycle, stage])
+  @@index([decidedById])
+}
+
+model ForeignTradeAttachment {
+  id           String   @id @default(cuid())
+  orderId      String
+  quoteId      String?
+  messageId    String?
+  fileName     String
+  storageKey   String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  order      ForeignTradeOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quote      ForeignTradeQuote?    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  message    ForeignTradeMessage?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedBy User                  @relation("ForeignTradeUploader", fields: [uploadedById], references: [id])
+
+  @@index([orderId])
 }

@@ -45,6 +45,7 @@ interface NotificationItem {
   title: string;
   body: string;
   relatedRequestId: string | null;
+  relatedForeignTradeId?: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -245,7 +246,8 @@ export function CommandBar() {
       fetch(`/api/notifications/${n.id}/read`, { method: "POST" }).catch(() => {});
     }
     setNotifOpen(false);
-    if (n.relatedRequestId) router.push(`/requests/${n.relatedRequestId}`);
+    if (n.relatedForeignTradeId) router.push(`/foreign-trade/${n.relatedForeignTradeId}`);
+    else if (n.relatedRequestId) router.push(`/requests/${n.relatedRequestId}`);
   }
 
   async function markAllRead() {
