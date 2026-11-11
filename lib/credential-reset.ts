@@ -5,7 +5,7 @@ import { emitBroadcast, emitUserEvent } from "./events";
 import { generateTempPassword } from "./credentials";
 import { approvalCapabilityOrUnknown, type CapabilityReason } from "./credential-guard";
 import { isPrivilegedRole } from "./authority-roles";
-import { recordGrant, STEP_UP_REQUIRED, type GrantContext } from "./authority-grant";
+import { DIRECT_GRANT_REASON, recordGrant, type GrantContext } from "./authority-grant";
 import { recoveryReady } from "./password-recovery";
 import { isAdminRoleGrantLocked } from "./authority-roles";
 import { admit, credentialResetBuckets, userCreateBuckets } from "./login-throttle";
@@ -174,21 +174,16 @@ export async function resetPasswordAsAdmin(input: PasswordResetInput): Promise<{
 
 export interface UserCreateInput {
   adminId: string;
-  adminPassword: string;
   ip: string | null;
   data: { email: string; name: string; title?: string | null; role: UserRole; departmentId?: string | null };
-  /** Required when the new account carries a privileged role (any role but EMPLOYEE): it is a grant of authority. */
+  /** Optional: the reason recorded when the new account carries a privileged role (any role but EMPLOYEE). */
   grant?: { reason?: string | null; confirmed?: boolean | null };
 }
 
 export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: true; id: string; email: string; tempPassword: string } | CredentialFailure> {
-  if (!input.adminPassword) return fail(400, "Өөрийн нууц үгээ оруулна уу");
-  // Creating an account that already carries authority is a grant: reason and confirmation are mandatory.
+  // Creating an account that already carries authority is a grant; it is audited and notified, with no step-up form.
   const privileged = isPrivilegedRole(input.data.role);
-  const grantReason = (input.grant?.reason ?? "").trim();
-  if (privileged && (grantReason.length < 3 || grantReason.length > 500 || input.grant?.confirmed !== true)) {
-    return fail(400, "Эрхтэй хэрэглэгч үүсгэхийн тулд шалтгаан болон баталгаажуулалтыг оруулна уу", undefined, STEP_UP_REQUIRED);
-  }
+  const grantReason = (input.grant?.reason ?? "").trim().slice(0, 500) || DIRECT_GRANT_REASON;
   if (!(await activeAdmin(input.adminId))) return fail(403, FORBIDDEN);
   // the ADMIN role is never created through the application (one administrator)
   if (isAdminRoleGrantLocked(input.data.role)) return fail(403, "ADMIN эрхтэй хэрэглэгчийг систем дотроос үүсгэх боломжгүй", undefined, "ADMIN_ROLE_LOCKED");
@@ -200,9 +195,6 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
     return fail(503, UNAVAILABLE);
   }
   if (!admission.ok) return fail(429, TOO_MANY, admission.retryAfterSeconds);
-
-  const denied = await verifyAccountPassword(input.adminId, input.adminPassword, input.ip);
-  if (denied) return fail(denied.status, denied.error, denied.retryAfterSeconds);
 
   const existing = await prisma.user.findUnique({ where: { email: input.data.email }, select: { id: true } });
   if (existing) return fail(409, "Энэ и-мэйл хаягтай хэрэглэгч бүртгэлтэй байна");

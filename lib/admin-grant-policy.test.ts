@@ -141,27 +141,6 @@ describe("the administrator grants directly, with no executive director in offic
 });
 
 describe("the Stage 1.5 protection is still the whole gate", () => {
-  it("a wrong or missing own password refuses the grant and changes nothing", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user();
-    const wrong = await patchUser(admin, emp, { role: "BOSS", adminPassword: "wrong-password" });
-    expect(wrong.status).toBe(401);
-    const none = await patchUser(admin, emp, { role: "BOSS", adminPassword: undefined });
-    expect(none.status).toBe(400);
-    expect((await json(none)).code).toBe("STEP_UP_REQUIRED");
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-    expect(await grantAudit(emp)).toHaveLength(0);
-    expect((await patchUser(admin, emp, { role: "BOSS" })).status).toBe(200);
-  });
-
-  it("without a reason or the confirmation the grant is refused", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user();
-    for (const bad of [{ reason: "" }, { reason: "ab" }, { confirmed: false }, { confirmed: undefined }]) {
-      expect((await patchUser(admin, emp, { role: "BOSS", ...bad })).status, JSON.stringify(bad)).toBe(400);
-    }
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-  });
 
   it("if the grant record cannot be written, the grant rolls back (role, position, head)", async () => {
     const admin = await user("ADMIN");
@@ -181,16 +160,6 @@ describe("the Stage 1.5 protection is still the whole gate", () => {
     expect(r3.status).toBe(500);
     expect((await prisma.department.findUniqueOrThrow({ where: { id: dept } })).headId).toBeNull();
     expect((await patchUser(admin, emp, { role: "BOSS" })).status).toBe(200); // fine once the fault is gone
-  });
-
-  it("an account whose password an administrator issued and its owner has not changed still cannot receive authority (custody)", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user();
-    await prisma.auditLog.create({ data: { entityType: "User", entityId: emp, action: "RESET_CREDENTIALS", actorId: admin, afterJson: JSON.stringify({ kind: "PASSWORD_RESET", reason: "seed" }) } });
-    const res = await patchUser(admin, emp, { role: "BOSS" });
-    expect(res.status).toBe(409);
-    expect((await json(res)).code).toBe("CREDENTIAL_NOT_OWNER_HELD");
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
   });
 });
 

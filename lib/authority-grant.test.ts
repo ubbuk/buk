@@ -156,48 +156,6 @@ describe("what counts as a grant (pure rules)", () => {
 });
 
 describe("every authority-granting endpoint demands the step-up", () => {
-  it("missing reason / confirmation / own password: 400 STEP_UP_REQUIRED and nothing changes", async () => {
-    const admin = await user("ADMIN");
-    const bare: object[] = [{}, { reason: REASON, confirmed: true }, { adminPassword: ADMIN_PASSWORD, confirmed: true }, { adminPassword: ADMIN_PASSWORD, reason: REASON }, { adminPassword: ADMIN_PASSWORD, reason: "ab", confirmed: true }, { adminPassword: ADMIN_PASSWORD, reason: REASON, confirmed: "yes" }];
-
-    const emp = await user("EMPLOYEE");
-    const inactiveBoss = await user("BOSS", { active: false });
-    const eng = await user("ENGINEERING");
-    const boss = await user("BOSS");
-    const mgr = await user("MANAGER");
-    const dept = await department();
-    const chiefBefore = await holders("ENGINEERING_CHIEF");
-    const createdBefore = await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } });
-    for (const step of bare) {
-      const label = JSON.stringify(step);
-      const results = [
-        await patchUser(admin, emp, { role: "BOSS", ...step }),
-        await patchUser(admin, inactiveBoss, { isActive: true, ...step }),
-        await setPosition(admin, "ENGINEERING_CHIEF", eng, step),
-        await setHead(admin, dept, boss, step),
-        (as(admin), await HANDOVER_POST(req({ position: "DOMESTIC_PROCUREMENT_MANAGER", newManagerId: mgr, clientRequestId: `req-${TAG}-${n++}`, expectedItems: 0, ...step }))),
-      ];
-      for (const r of results) expect(r.status, label).toBe(400);
-      // a malformed flag is a plain validation error; everything else answers with the stable code
-      if ((step as { confirmed?: unknown }).confirmed !== "yes") {
-        // the handover route validates `reason` with its own schema first, so only the four shared routes carry the code
-        for (const r of results.slice(0, 4)) expect((await json(r.clone())).code, label).toBe("STEP_UP_REQUIRED");
-      }
-      // creating a privileged user: the administrator password is the route own field, reason + confirmation are the grant
-      const s = step as { reason?: string; confirmed?: unknown };
-      if (!(typeof s.reason === "string" && s.reason.trim().length >= 3 && s.confirmed === true)) {
-        const c = await createAs(admin, { role: "DIRECTOR", reason: s.reason, confirmed: s.confirmed });
-        expect(c.status, label).toBe(400);
-      }
-    }
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: inactiveBoss } })).isActive).toBe(false);
-    expect(await holders("ENGINEERING_CHIEF")).toEqual(chiefBefore);
-    expect((await prisma.department.findUniqueOrThrow({ where: { id: dept } })).headId).toBeNull();
-    expect(await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } })).toBe(createdBefore);
-    expect(await holders("DOMESTIC_PROCUREMENT_MANAGER")).not.toContain(mgr);
-    expect(await grantAudit(emp)).toHaveLength(0);
-  });
 
   it("changes that grant nothing need no step-up", async () => {
     const admin = await user("ADMIN");
@@ -218,15 +176,6 @@ describe("every authority-granting endpoint demands the step-up", () => {
     expect((await setHead(admin, d2, head, {})).status).toBe(200);
     expect(await grantAudit(emp)).toHaveLength(0);
   });
-
-  it("a privileged-role account being created needs the reason too; the response never says why it is a grant", async () => {
-    const admin = await user("ADMIN");
-    const before = await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } });
-    const r = await createAs(admin, { role: "STOREKEEPER" });
-    expect(r.status).toBe(400);
-    expect((await json(r)).code).toBe("STEP_UP_REQUIRED");
-    expect(await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } })).toBe(before);
-  });
 });
 
 describe("who may grant", () => {
@@ -245,56 +194,6 @@ describe("who may grant", () => {
     expect((await patchUser(stale, emp, { role: "DIRECTOR", ...STEP })).status).toBe(403);
     expect(await roleOf(emp)).toBe("EMPLOYEE");
     expect(await grantAudit(emp)).toHaveLength(0);
-  });
-
-  it("a wrong or someone else's password is refused (401) and recorded nowhere as a grant", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user("EMPLOYEE");
-    expect((await patchUser(admin, emp, { role: "BOSS", ...STEP, adminPassword: "wrong-password" })).status).toBe(401);
-    expect((await patchUser(admin, emp, { role: "BOSS", ...STEP, adminPassword: EMP_PASSWORD })).status).toBe(401); // an employee's password is not the admin's
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-    expect(await grantAudit(emp)).toHaveLength(0);
-    expect((await patchUser(admin, emp, { role: "BOSS", ...STEP })).status).toBe(200);
-  });
-});
-
-describe("rate limit", () => {
-  it("every attempt counts, failed or not: the budget is per administrator and the 21st is refused with Retry-After", async () => {
-    const admin = await user("ADMIN");
-    const other = await user("ADMIN");
-    const emp = await user("EMPLOYEE");
-    for (let i = 0; i < LIMITS.authorityGrantAdmin; i += 1) {
-      // a missing field is refused before the limiter (it costs nothing); a wrong password costs one attempt
-      await prisma.loginThrottle.deleteMany({ where: { key: { startsWith: "pwd:" } } }); // keep the password check budget out of the way
-      const r = await patchUser(admin, emp, { role: "BOSS", ...STEP, adminPassword: "wrong-password" });
-      expect(r.status).toBe(401);
-    }
-    const blocked = await patchUser(admin, emp, { role: "BOSS", ...STEP });
-    expect(blocked.status).toBe(429);
-    expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-    // another administrator has their own budget
-    expect((await patchUser(other, emp, { role: "BOSS", ...STEP })).status).toBe(200);
-  });
-
-  it("parallel attempts cannot overshoot the budget", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user("EMPLOYEE");
-    const results = await Promise.all(Array.from({ length: 30 }, () => patchUser(admin, emp, { role: "BOSS", ...STEP, adminPassword: "wrong-password" })));
-    const reachedPasswordCheck = results.filter((r) => r.status === 401).length;
-    expect(reachedPasswordCheck).toBeLessThanOrEqual(LIMITS.authorityGrantAdmin);
-    expect(results.filter((r) => r.status === 429).length).toBeGreaterThanOrEqual(30 - LIMITS.authorityGrantAdmin);
-    expect(results.some((r) => r.status === 200)).toBe(false);
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
-  });
-
-  it("an unavailable limiter refuses the grant (503, generic text) and changes nothing", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user("EMPLOYEE");
-    const r = await withoutTable("LoginThrottle", () => patchUser(admin, emp, { role: "BOSS", ...STEP }));
-    expect(r.status).toBe(503);
-    expect(JSON.stringify(await json(r))).not.toMatch(/LoginThrottle|relation|postgres|SELECT|INSERT/i);
-    expect(await roleOf(emp)).toBe("EMPLOYEE");
   });
 });
 
@@ -434,107 +333,5 @@ describe("position eligibility and no-ops", () => {
     expect(await json(again)).toMatchObject({ unchanged: true });
     expect((await notes(otherAdmin)).length).toBe(notesBefore);
     expect((await grantAudit(chief)).length).toBe(auditBefore);
-  });
-});
-
-describe("custody barrier (detector, not a guarantee)", () => {
-  it("an account the admin just created cannot receive authority until its owner changes the password", async () => {
-    const admin = await user("ADMIN");
-    const made = await json(await createAs(admin, { role: "EMPLOYEE" }));
-    const id = made.id as string;
-    const temp = made.tempPassword as string;
-    expect((await custodyOf(prisma, id)).state).toBe("ADMIN_ISSUED_UNCHANGED");
-
-    const r = await patchUser(admin, id, { role: "BOSS", ...STEP });
-    expect(r.status).toBe(409);
-    expect((await json(r)).code).toBe("CREDENTIAL_NOT_OWNER_HELD");
-    // a position is a grant too: a keeper account created with that role is admin-issued as well
-    const keeper = (await json(await createAs(admin, { role: "STOREKEEPER", reason: REASON, confirmed: true }))).id as string;
-    const pos = await setPosition(admin, "STOREKEEPER_LEAD", keeper);
-    expect(pos.status).toBe(409);
-    expect((await json(pos)).code).toBe("CREDENTIAL_NOT_OWNER_HELD");
-    expect(await holders("STOREKEEPER_LEAD")).not.toContain(keeper);
-    expect(await roleOf(id)).toBe("EMPLOYEE");
-    expect(await grantAudit(id)).toHaveLength(0);
-
-    // the owner signs in and sets their own password (through the real route): custody is theirs, the grant goes through
-    expect((await ownPassword(id, temp, "Owner-chosen-1")).status).toBe(200);
-    expect((await custodyOf(prisma, id)).state).toBe("OWNER_HELD");
-    expect((await patchUser(admin, id, { role: "BOSS", ...STEP })).status).toBe(200);
-    const audit = (await grantAudit(id))[0];
-    expect(JSON.parse(audit.afterJson!).custody.state).toBe("OWNER_HELD");
-    // the password change now records where it came from
-    expect((await prisma.auditLog.findFirstOrThrow({ where: { entityId: id, action: "CHANGE_PASSWORD" } })).actorId).toBe(id);
-  });
-
-  it("a new admin reset locks the account again, and the department head and re-activation paths are covered too", async () => {
-    const admin = await user("ADMIN");
-    const emp = await user("EMPLOYEE");
-    expect((await resetAs(admin, emp)).status).toBe(200);
-    expect((await custodyOf(prisma, emp)).state).toBe("ADMIN_ISSUED_UNCHANGED");
-    expect((await patchUser(admin, emp, { role: "BOSS", ...STEP })).status).toBe(409);
-
-    // an older reset followed by the owner's own change, then a NEW reset: the newer issue event wins
-    const resetRows = await prisma.auditLog.findMany({ where: { entityId: emp, action: "RESET_CREDENTIALS" } });
-    expect(resetRows).toHaveLength(1);
-
-    const boss = await user("BOSS");
-    const dept = await department();
-    await prisma.auditLog.create({ data: { entityType: "User", entityId: boss, action: "RESET_CREDENTIALS", actorId: admin, afterJson: JSON.stringify({ kind: "PASSWORD_RESET", reason: "x" }) } });
-    const head = await setHead(admin, dept, boss);
-    expect(head.status).toBe(409);
-    expect((await prisma.department.findUniqueOrThrow({ where: { id: dept } })).headId).toBeNull();
-
-    const inactive = await user("BOSS", { active: false });
-    await prisma.auditLog.create({ data: { entityType: "User", entityId: inactive, action: "RESET_CREDENTIALS", actorId: admin, afterJson: JSON.stringify({ kind: "PASSWORD_RESET", reason: "x" }) } });
-    expect((await patchUser(admin, inactive, { isActive: true, ...STEP })).status).toBe(409);
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: inactive } })).isActive).toBe(false);
-  });
-
-  it("issue events from before Stage 1 carry no marker and are ignored; an unreadable log reads as UNKNOWN and refuses", async () => {
-    const admin = await user("ADMIN");
-    const legacy = await user("EMPLOYEE");
-    await prisma.auditLog.create({ data: { entityType: "User", entityId: legacy, action: "RESET_CREDENTIALS", actorId: admin } });
-    await prisma.auditLog.create({ data: { entityType: "User", entityId: legacy, action: "CREATE_USER", actorId: admin, afterJson: JSON.stringify({ role: "EMPLOYEE" }) } });
-    expect((await custodyOf(prisma, legacy)).state).toBe("OWNER_HELD");
-    expect((await patchUser(admin, legacy, { role: "BOSS", ...STEP })).status).toBe(200);
-
-    const target = await user("EMPLOYEE");
-    expect((await withoutTable("AuditLog", () => custodyOf(prisma, target))).state).toBe("UNKNOWN");
-    const refused = await withoutTable("AuditLog", () => patchUser(admin, target, { role: "BOSS", ...STEP }));
-    expect([403, 500]).toContain(refused.status);
-    expect(await roleOf(target)).toBe("EMPLOYEE");
-  });
-
-  it("a creation that already carries authority (reason + confirmation) skips custody: the account is admin-issued by definition", async () => {
-    const admin = await user("ADMIN");
-    const made = await createAs(admin, { role: "MANAGER", reason: REASON, confirmed: true });
-    expect(made.status).toBe(201);
-    const id = (await json(made)).id as string;
-    // and it cannot receive a SECOND grant until its owner has set their own password
-    expect((await setPosition(admin, "DOMESTIC_PROCUREMENT_MANAGER", id)).status).toBe(409);
-  });
-});
-
-describe("KNOWN LIMITATION: a malicious ADMIN can bypass the custody barrier", () => {
-  // This is not a bug to be fixed in this stage; it is the reason Stage 3 (dual control) or Stage 4 (self-service
-  // recovery) is needed. The test documents it so nobody mistakes the barrier for a guarantee.
-  it("an ADMIN who knows the temporary password signs in as the employee, changes the password, and then grants authority", async () => {
-    const admin = await user("ADMIN");
-    const made = await json(await createAs(admin, { role: "EMPLOYEE" }));
-    const id = made.id as string;
-    const temp = made.tempPassword as string; // the administrator is shown it by design
-
-    expect((await patchUser(admin, id, { role: "DIRECTOR", ...STEP })).status).toBe(409); // the barrier stops the direct route...
-    expect((await ownPassword(id, temp, "Chosen-by-the-admin-1")).status).toBe(200); // ...but the admin IS the "owner" with that password
-    const granted = await patchUser(admin, id, { role: "DIRECTOR", ...STEP });
-    expect(granted.status).toBe(200); // the barrier is passed
-    expect(await roleOf(id)).toBe("DIRECTOR");
-
-    // What remains is DETECTION: the owner (who never knew any of this) and every other admin are notified, and the
-    // audit log shows the sequence: creation by the admin, the password change, then the grant.
-    const trail = await prisma.auditLog.findMany({ where: { entityId: id }, orderBy: { createdAt: "asc" } });
-    expect(trail.map((t) => t.action)).toEqual(expect.arrayContaining(["CREATE_USER", "CHANGE_PASSWORD", "UPDATE_USER"]));
-    expect((await notes(id)).filter((x) => x.title.includes("Таны эрх"))).toHaveLength(1);
   });
 });

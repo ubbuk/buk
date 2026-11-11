@@ -16,8 +16,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { isAdminRoleGrantLocked, isPrivilegedRole } from "@/lib/authority-roles";
-import { ROLE_PERMISSION_SUMMARY, USER_ROLE_LABEL, USER_ROLES } from "@/lib/types";
+import { isAdminRoleGrantLocked } from "@/lib/authority-roles";
+import { USER_ROLE_LABEL, USER_ROLES } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 
 // Each singleton position's holder must have the matching UserRole --
@@ -77,10 +77,7 @@ export default function AdminPage() {
   const [passwordCopied, setPasswordCopied] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [newAdminPassword, setNewAdminPassword] = useState("");
   // creating an account that already carries a privileged role is a grant: reason + confirmation inline
-  const [newReason, setNewReason] = useState("");
-  const [newConfirmed, setNewConfirmed] = useState(false);
   // granting authority (role, position, department head) asks for a reason, confirmation and the admin own password
   const [grantAsk, setGrantAsk] = useState<GrantRequest | null>(null);
   // Resetting a password hands the admin a temporary one, so it needs a reason, the identity attestation and the admin own password.
@@ -128,7 +125,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null, adminPassword: newAdminPassword, ...(isPrivilegedRole(newRole) ? { reason: newReason, confirmed: newConfirmed } : {}) }),
+        body: JSON.stringify({ email: newEmail, name: newName, title: newTitle || null, role: newRole, departmentId: newDepartmentId || null }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Хэрэглэгч үүсгэж чадсангүй");
@@ -139,14 +136,11 @@ export default function AdminPage() {
       setNewRole("EMPLOYEE");
       setNewDepartmentId("");
       setNewDeptType("ALL");
-      setNewReason("");
-      setNewConfirmed(false);
       setTempPassword({ email: body.email, password: body.tempPassword });
       await load();
     } catch (err) {
       push({ kind: "error", title: "Хэрэглэгч үүсгэж чадсангүй", description: err instanceof Error ? err.message : undefined });
     } finally {
-      setNewAdminPassword("");
       setSubmitting(false);
     }
   }
@@ -689,11 +683,6 @@ export default function AdminPage() {
               </option>
             ))}
           </select>
-          <ul className="list-disc space-y-1 rounded-lg border border-border bg-bg-elevated/40 p-3 pl-7 text-xs text-text-muted">
-            {(ROLE_PERMISSION_SUMMARY[newRole as keyof typeof ROLE_PERMISSION_SUMMARY] ?? []).map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
           <div className="flex gap-1.5 rounded-lg border border-border bg-bg-elevated/40 p-1">
             {(["ALL", "FACTORY", "OFFICE"] as const).map((t) => (
               <button
@@ -722,40 +711,11 @@ export default function AdminPage() {
             onCreated={(d) => setDepartments((prev) => [...prev, { ...d, headId: null, headName: null }].sort((a, b) => a.name.localeCompare(b.name)))}
             fixedType={newDeptType === "ALL" ? undefined : newDeptType}
           />
-          {isPrivilegedRole(newRole) && (
-            <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3" data-testid="create-grant">
-              <p className="text-xs text-text">Энэ эрх нь шинэ хэрэглэгчид эрх олгож байгаа тул шалтгаан, баталгаажуулалт шаардлагатай. Бусад админд мэдэгдэл очно.</p>
-              <label className="block space-y-1 text-xs text-text-muted">
-                Эрх олгох шалтгаан (заавал)
-                <textarea
-                  value={newReason}
-                  onChange={(e) => setNewReason(e.target.value)}
-                  rows={2}
-                  maxLength={500}
-                  className="focus-ring w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text"
-                />
-              </label>
-              <label className="flex items-start gap-2 text-xs text-text">
-                <input type="checkbox" className="mt-0.5 size-4" checked={newConfirmed} onChange={(e) => setNewConfirmed(e.target.checked)} />
-                <span>Би энэ хүнд дээрх эрхийг өгөх эрхтэй бөгөөд хариуцлагыг хүлээнэ.</span>
-              </label>
-            </div>
-          )}
-          <label className="block space-y-1 text-xs text-text-muted">
-            Таны өөрийн нууц үг (түр нууц үг өгөгдөх тул заавал)
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={newAdminPassword}
-              onChange={(e) => setNewAdminPassword(e.target.value)}
-              className="focus-ring h-11 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text"
-            />
-          </label>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               Болих
             </Button>
-            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName || !newAdminPassword || (isPrivilegedRole(newRole) && (!newConfirmed || newReason.trim().length < 3))}>
+            <Button onClick={createUser} loading={submitting} disabled={!newEmail || !newName}>
               Үүсгэх
             </Button>
           </div>
@@ -785,11 +745,6 @@ export default function AdminPage() {
                 </option>
               ))}
             </select>
-            <ul className="list-disc space-y-1 rounded-lg border border-border bg-bg-elevated/40 p-3 pl-7 text-xs text-text-muted">
-              {(ROLE_PERMISSION_SUMMARY[editUser.role as keyof typeof ROLE_PERMISSION_SUMMARY] ?? []).map((p) => (
-                <li key={p}>{p}</li>
-              ))}
-            </ul>
             <div className="flex gap-1.5 rounded-lg border border-border bg-bg-elevated/40 p-1">
               {(["ALL", "FACTORY", "OFFICE"] as const).map((t) => (
                 <button

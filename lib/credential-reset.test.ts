@@ -47,7 +47,6 @@ const create = (admin: string, over: Partial<Parameters<typeof createUserAsAdmin
   n += 1;
   return createUserAsAdmin({
     adminId: admin,
-    adminPassword: ADMIN_PASSWORD,
     ip: ip(),
     data: { email: `${P}new-${TAG}-${n}@test.local`, name: `New ${n}`, role: "EMPLOYEE", ...data },
     ...over,
@@ -451,10 +450,8 @@ describe("a successful reset", () => {
 describe("user creation", () => {
   it("creates a user for an active ADMIN with their own password; the audit entry holds no secret", async () => {
     const admin = await user("ADMIN");
-    // a privileged role is a grant (Stage 1.5): without the reason and confirmation the service refuses and creates nothing
-    const refused = await create(admin, {}, { role: "DIRECTOR", title: "Захирал" });
-    expect(status(refused)).toBe(400);
-    const result = await create(admin, { grant: { reason: "Шинэ захирал томилогдсон", confirmed: true } }, { role: "DIRECTOR", title: "Захирал" });
+    // a privileged role is a grant, but the administrator grants directly: no reason or confirmation is required
+    const result = await create(admin, {}, { role: "DIRECTOR", title: "Захирал" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const row = await prisma.user.findUniqueOrThrow({ where: { id: result.id } });
@@ -476,9 +473,6 @@ describe("user creation", () => {
     const before = await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } });
     expect(status(await create(await user("DIRECTOR")))).toBe(403);
     expect(status(await create(await user("ADMIN", { active: false })))).toBe(403);
-    expect(status(await create(admin, { adminPassword: "" }))).toBe(400);
-    expect(status(await create(admin, { adminPassword: "wrong" }))).toBe(401);
-    expect(status(await create(admin, { adminPassword: EMP_PASSWORD }))).toBe(401);
     expect(await prisma.user.count({ where: { email: { startsWith: `${P}new-${TAG}` } } })).toBe(before);
     const first = await create(admin);
     expect(first.ok).toBe(true);
@@ -502,7 +496,7 @@ describe("user creation", () => {
     expect(await prisma.user.count({ where: { email } })).toBe(0);
   });
 
-  it("routes: POST needs the admin password (400 without), is ADMIN-only, and GET is unchanged", async () => {
+  it("routes: POST needs no admin password, is ADMIN-only, and GET is unchanged", async () => {
     const admin = await user("ADMIN");
     const email = `${P}new-${TAG}-route@test.local`;
     const post = (b: unknown) => USERS_POST(new Request("http://localhost/x", { method: "POST", headers: { "x-forwarded-for": ip() }, body: JSON.stringify(b) }));
@@ -510,9 +504,7 @@ describe("user creation", () => {
     expect((await post({ email, name: "N", role: "EMPLOYEE", adminPassword: ADMIN_PASSWORD })).status).toBe(403);
     expect((await USERS_GET()).status).toBe(403);
     session.current = { user: { id: admin, role: "ADMIN" } };
-    expect((await post({ email, name: "N", role: "EMPLOYEE" })).status).toBe(400);
-    expect(await prisma.user.count({ where: { email } })).toBe(0);
-    const ok = await post({ email, name: "N", role: "EMPLOYEE", adminPassword: ADMIN_PASSWORD });
+    const ok = await post({ email, name: "N", role: "EMPLOYEE" });
     expect(ok.status).toBe(201);
     expect(ok.headers.get("Cache-Control")).toBe("no-store");
     expect(Object.keys(await ok.json()).sort()).toEqual(["email", "id", "tempPassword"]);
