@@ -5,6 +5,7 @@
 #   "*/15 1-11 * * 1-6" → 09:00–19:59 УБ, Даваа–Бямба: 15 минут тутам stock, receivables, current (sales, pl),
 #                          receivables-odata («Авлага» табын агшин зураг, OData Balance). Мөнгөн хөрөнгө (cash) энд татагдахгүй: OData-аас шууд.
 #   "0 2 1-3 * *"       → сарын 1–3-ны 10:00 УБ: өмнөх сар + энэ сар (өмнөх сарыг эцэслэх)
+# Олон жилийн бааз: ONEC_BASES secret (JSON) байвал татаалт бүр өөрийн оны баазаас; 1-2-р сард өмнөх оны 12-р сарыг (closing) мөн татна.
 # Хүнд татаалт (сар, авлагын агшин зураг) Vercel-ийн route дээр биш ЭНД ажиллана: ERP-ийн «Шинэчлэх» товч workflow_dispatch-ыг
 # GitHub API-аар дуудна (mode=month | receivables, month=YYYY-MM; lib/github-dispatch.ts). Ажил дуусахад onec_sync_log-д бүртгэгдэж,
 # хуудас түүнийг харж шинэчлэгдэнэ.
@@ -63,6 +64,8 @@ jobs:
       - name: Sync
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Олон жилийн бааз (JSON): {"2026":"http://host/BUK_NBB_2026","2027":"..."}. Тохируулсан бол жил бүрийн татаалт өөрийнх нь баазаас (lib/onec/bases.ts)
+          ONEC_BASES: ${{ secrets.ONEC_BASES }}
           ONEC_BASE_URL: ${{ secrets.ONEC_BASE_URL }}
           ONEC_USER: ${{ secrets.ONEC_USER }}
           ONEC_PASSWORD: ${{ secrets.ONEC_PASSWORD }}
@@ -86,7 +89,10 @@ jobs:
           if [ -z "$ONEC_USER" ] && [ -n "$ONEC_ODATA_USER" ]; then export ONEC_USER="$ONEC_ODATA_USER"; fi
           if [ -z "$ONEC_PASSWORD" ] && [ -n "$ONEC_ODATA_PASSWORD" ]; then export ONEC_PASSWORD="$ONEC_ODATA_PASSWORD"; fi
 
-          for v in DATABASE_URL ONEC_BASE_URL ONEC_USER ONEC_PASSWORD; do
+          # ONEC_BASES байвал хаяг, нэвтрэлт нь түүн дотор (эсвэл ONEC_ODATA_*), тиймээс зөвхөн DATABASE_URL заавал
+          required="DATABASE_URL"
+          if [ -z "$ONEC_BASES" ]; then required="$required ONEC_BASE_URL ONEC_USER ONEC_PASSWORD"; fi
+          for v in $required; do
             if [ -z "${!v}" ]; then echo "::error::Secret $v (эсвэл ONEC_ODATA_*) тохируулаагүй байна"; exit 1; fi
           done
 
@@ -108,6 +114,7 @@ jobs:
           }
 
           odata_ready() {
+            if [ -n "$ONEC_BASES" ]; then return 0; fi
             if [ -n "$ONEC_ODATA_BASE_URL" ] && [ -n "$ONEC_ODATA_USER" ] && [ -n "$ONEC_ODATA_PASSWORD" ]; then return 0; fi
             echo "::warning title=receivables-odata::ONEC_ODATA_BASE_URL/USER/PASSWORD secret тохируулаагүй тул авлагын агшин зургийг алгасла"
             return 1
@@ -120,6 +127,10 @@ jobs:
               run receivables 240 npm run sync:1c -- receivables
               run current 720 npm run sync:1c -- current
               if odata_ready; then run receivables-odata 900 npm run sync:1c -- receivables-odata; fi
+              # 1-2-р сард өмнөх оны баазад хаалтын засвар орно: өмнөх оны 12-р сарыг мөн татна (бусад үед алгасна)
+              run closing 1500 npm run sync:1c -- closing
+              # Баазад сүүлийн 7 хоногт шинэ баримт ороогүй (бааз солигдсон байж магадгүй) бол анхааруулга, ADMIN-д мэдэгдэл
+              if odata_ready; then run health 120 npm run sync:1c -- health; fi
               ;;
             month)
               if ! [[ "$INPUT_MONTH" =~ $month_re ]]; then echo "::error::month нь YYYY-MM хэлбэртэй байх ёстой"; exit 1; fi

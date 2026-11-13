@@ -3,6 +3,7 @@
 // Нэг данс: зардал = Дт эргэлт - Кт эргэлт. 9200 «Орлого зарлагын нэгдсэн данс» нь хаалтын данс (Дт = Кт) тул оруулахгүй.
 import type { PlRow } from "./client";
 import { enc, num, odataRows } from "./odata-read";
+import { withOneCYear, yearOf } from "./year-context";
 
 const REGISTER = "AccountingRegister_Хозрасчетный";
 export const PL_TAX_PREFIXES: readonly string[] = ["8", "9"];
@@ -30,7 +31,11 @@ export function buildPlTaxRows(month: string, accounts: Map<string, { code: stri
 }
 
 /** 1С-ээс сарын 8xxx-9xxx дансны зардал (бүх хүсэлт GET) */
-export async function fetchPlTaxRows(month: string, from: string, to: string): Promise<PlRow[]> {
+export function fetchPlTaxRows(month: string, from: string, to: string): Promise<PlRow[]> {
+  return withOneCYear(yearOf(month), () => fetchPlTaxRowsIn(month, from, to)); // тухайн сарын оны бааз (ONEC_BASES)
+}
+
+async function fetchPlTaxRowsIn(month: string, from: string, to: string): Promise<PlRow[]> {
   const accounts = new Map<string, { code: string; name: string }>();
   for (const prefix of PL_TAX_PREFIXES) {
     const rows = await odataRows(`${enc("ChartOfAccounts_Хозрасчетный")}?$format=json&$select=${enc("Ref_Key,Code,Description")}&$filter=${enc(`startswith(Code,'${prefix}')`)}&$top=500`);

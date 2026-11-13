@@ -10,6 +10,7 @@
 // Данс: 1201 (худалдан авагчаас авах авлага, толгой тоо) болон НӨАТ-ын авлага 1271, 1272 тусдаа мөр. 1209 (найдваргүй авлагын
 // хасагдуулга) тооцогдохгүй. Нийт, Топ 10 нь зөвхөн 1201.
 import { balanceBoundary } from "./dates";
+import { withOneCYear, yearOf } from "./year-context";
 import { enc, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
 
 const REGISTER = "AccountingRegister_Хозрасчетный";
@@ -171,7 +172,11 @@ async function fetchAccounts(): Promise<Map<string, { code: string; name: string
  * Нэг дансны өдрийн эцсийн үлдэгдлийг 1С-ээс татаж агшин зургийн мөр болгоно (бүх хүсэлт GET, 180 сек хүртэл).
  * Данс дансны төлөвлөгөөнд байхгүй бол null (1272 байхгүй 1С-д алдаа биш); толгой 1201 байхгүй бол алдаа.
  */
-export async function fetchStage(asOf: string, code: string): Promise<SnapshotRow[] | null> {
+export function fetchStage(asOf: string, code: string): Promise<SnapshotRow[] | null> {
+  return withOneCYear(yearOf(asOf), () => fetchStageIn(asOf, code)); // тухайн өдрийн оны бааз (ONEC_BASES)
+}
+
+async function fetchStageIn(asOf: string, code: string): Promise<SnapshotRow[] | null> {
   const accounts = [...(await fetchAccounts())].filter(([, a]) => codeKey(a.code) === code);
   if (accounts.length === 0) {
     if (code === MAIN_ACCOUNT) throw new OdataError(502, "Авлагын данс 1С-ээс олдсонгүй");

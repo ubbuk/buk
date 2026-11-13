@@ -1,6 +1,8 @@
 // Самбарын OData унших туслах функцүүд. ЗӨВХӨН УНШИХ (GET): lib/onec-odata/client.ts-ийн odataGet-ээр. Объектын нэр, шүүлтийг энд
 // сервер өөрөө бүтээнэ (хэрэглэгчийн текст URL-д орохгүй); GUID-ийг оруулахаас өмнө шалгана.
 import { odataGet, OdataError } from "@/lib/onec-odata/client";
+import { defaultYear } from "./bases";
+import { activeOneCYear } from "./year-context";
 
 export { OdataError };
 export type Row = Record<string, unknown>;
@@ -63,10 +65,11 @@ const nameCache = g.__onecNames ?? (g.__onecNames = new Map());
 /** Лавлахаас түлхүүрээр нь мөр авна (Description г.м.). Олдоогүй түлхүүр null; ижил түлхүүрийг 1 цаг дахин асуухгүй. */
 export async function lookupRows(catalog: string, keys: readonly string[], select: string): Promise<Map<string, Row | null>> {
   const now = Date.now();
+  const yr = activeOneCYear() ?? defaultYear(); // баазууд өөр өөр: нэрийн кэш оны хувьд тусдаа
   const out = new Map<string, Row | null>();
   const missing: string[] = [];
   for (const k of new Set(keys)) {
-    const hit = nameCache.get(`${catalog}:${k}`);
+    const hit = nameCache.get(`${yr}|${catalog}:${k}`);
     if (hit && now - hit.at < NAME_TTL_MS) out.set(k, hit.row);
     else missing.push(k);
   }
@@ -78,7 +81,7 @@ export async function lookupRows(catalog: string, keys: readonly string[], selec
         const byKey = new Map(rows.map((r) => [String(r.Ref_Key).toLowerCase(), r]));
         for (const k of batch) {
           const row = byKey.get(k) ?? null;
-          nameCache.set(`${catalog}:${k}`, { at: now, row });
+          nameCache.set(`${yr}|${catalog}:${k}`, { at: now, row });
           out.set(k, row);
         }
       })

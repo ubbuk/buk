@@ -6,6 +6,7 @@
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { enc, fetchPaged, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
 import { monthRange } from "./dates";
+import { withOneCYear, yearOf } from "./year-context";
 
 const DOC = "Document_ТребованиеНакладная";
 const REGISTER = "AccountingRegister_Хозрасчетный";
@@ -136,7 +137,12 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
 }
 
 /** 1С-ээс сарын зарцуулалтыг татна (бүх хүсэлт GET). Харилцагчийн нэр зэргийг lookup (1 цагийн cache)-ээр. */
-export async function fetchUsage(month: string): Promise<UsageResult> {
+/** Тухайн сарын оны баазаас (ONEC_BASES) татна */
+export function fetchUsage(month: string): Promise<UsageResult> {
+  return withOneCYear(yearOf(month), () => fetchUsageIn(month));
+}
+
+async function fetchUsageIn(month: string): Promise<UsageResult> {
   const { from, to } = monthRange(month);
   const next = new Date(`${to}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);

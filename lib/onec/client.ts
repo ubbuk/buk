@@ -1,3 +1,4 @@
+import { requireBase } from "./bases";
 import { logOnecCall } from "./timing";
 
 // 1С HTTP-сервис (/hs/dash/*) рүү хандах клиент. Бүх endpoint { rows, count, generated } хэлбэртэй хариу өгнө.
@@ -75,7 +76,12 @@ type EnvLike = Record<string, string | undefined>;
  * (ижил нэг мэдээллийн сан, зөвхөн унших). Энэ нь «Шинэчлэх» товч «татаж чадсангүй» гэж унадаг байсан шалтгааныг арилгана:
  * .env-д зөвхөн ONEC_ODATA_* байхад ONEC_BASE_URL алга гэж алдаа гардаг байв.
  */
-export function hubConfig(e: EnvLike = process.env): { baseUrl: string; user: string; password: string } {
+export function hubConfig(e: EnvLike = process.env, year?: string): { baseUrl: string; user: string; password: string } {
+  // ONEC_BASES (олон жилийн бааз): тухайн оны баазын хаяг, нэвтрэлт. Тохируулаагүй бол доорх хуучин нэг баазын дүрэм.
+  if (e.ONEC_BASES?.trim()) {
+    const b = requireBase(year, "hub", e);
+    return { baseUrl: b.baseUrl, user: b.user, password: b.password };
+  }
   const odata = e.ONEC_ODATA_BASE_URL?.trim().replace(/\/odata\/standard\.odata\/?$/i, "");
   const baseUrl = e.ONEC_BASE_URL?.trim() || odata;
   const user = e.ONEC_USER || e.ONEC_ODATA_USER;
@@ -109,7 +115,7 @@ export function defaultFetchOpts(env: Record<string, string | undefined> = proce
 }
 
 async function getRows<T>(path: string, params: Record<string, string>, opts: FetchOpts = {}): Promise<T[]> {
-  const cfg = hubConfig();
+  const cfg = hubConfig(process.env, (params.asof ?? params.from ?? "").slice(0, 4)); // тухайн огнооны оны бааз (ONEC_BASES)
   const base = cfg.baseUrl.replace(/\/+$/, "");
   const url = `${base}${path}?${new URLSearchParams(params)}`;
   const defaults = defaultFetchOpts();

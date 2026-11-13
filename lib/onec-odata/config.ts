@@ -1,4 +1,6 @@
 // 1С OData хөтчийн тохиргоо. Нэвтрэлт зөвхөн сервер талын env-ээс уншигдана; хөтөч рүү хэзээ ч явахгүй.
+// Олон жилийн бааз (ONEC_BASES, lib/onec/bases.ts): `year` өгвөл тухайн оны бааз; ONEC_BASES тохируулаагүй бол хуучин нэг баазын горим хэвээр.
+import { multiYear, requireBase } from "@/lib/onec/bases";
 
 export const MAX_PAGE_SIZE = 100; // $top-ийн дээд хязгаар
 export const DEFAULT_PAGE_SIZE = 50;
@@ -15,7 +17,8 @@ export type EnvLike = Record<string, string | undefined>;
 /** Тохиргоо дутуу/буруу: хэрэглэгчид тодорхой мессеж өгөх, 1С руу хандахгүй */
 export class OdataConfigError extends Error {}
 
-export function odataBaseUrl(env: EnvLike = process.env): string {
+export function odataBaseUrl(env: EnvLike = process.env, year?: string): string {
+  if (multiYear(env)) return requireBase(year, "odata", env).odataUrl;
   const raw = env.ONEC_ODATA_BASE_URL?.trim();
   if (!raw) throw new OdataConfigError("ONEC_ODATA_BASE_URL тохируулаагүй байна");
   let url: URL;
@@ -29,7 +32,11 @@ export function odataBaseUrl(env: EnvLike = process.env): string {
   return url.toString().replace(/\/+$/, "");
 }
 
-export function odataCredentials(env: EnvLike = process.env): { user: string; password: string } {
+export function odataCredentials(env: EnvLike = process.env, year?: string): { user: string; password: string } {
+  if (multiYear(env)) {
+    const b = requireBase(year, "odata", env);
+    return { user: b.user, password: b.password };
+  }
   const user = env.ONEC_ODATA_USER;
   const password = env.ONEC_ODATA_PASSWORD;
   if (!user || !password) throw new OdataConfigError("ONEC_ODATA_USER, ONEC_ODATA_PASSWORD тохируулаагүй байна");

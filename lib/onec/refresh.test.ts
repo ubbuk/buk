@@ -50,6 +50,7 @@ beforeEach(async () => {
   mode = "ok";
   calls.length = 0;
   Object.assign(process.env, ENV);
+  for (const k of Object.keys(process.env)) if (k.startsWith("ONEC_ODATA_")) delete process.env[k]; // Prisma .env-ээс ачаалсан OData тохиргоо P&L-ийн татвар нэмэх алхмыг идэвхжүүлэхгүй (тест зөвхөн /hs/dash-ийг дуурайлгана)
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit) => {

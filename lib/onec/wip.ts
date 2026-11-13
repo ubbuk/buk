@@ -4,6 +4,7 @@
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { asOfDate, balanceBoundary } from "./dates";
 import { enc, num, odataRows } from "./odata-read";
+import { withOneCYear, yearOf } from "./year-context";
 
 export const WIP_PREFIX = "142";
 
@@ -27,7 +28,11 @@ export function buildWip(asOf: string, accounts: Map<string, { code: string; nam
   return { asOf, total: Math.round(list.reduce((s, a) => s + a.balance, 0) * 100) / 100, accounts: list };
 }
 
-export async function fetchWip(month: string): Promise<WipResult> {
+export function fetchWip(month: string): Promise<WipResult> {
+  return withOneCYear(yearOf(month), () => fetchWipIn(month)); // тухайн сарын оны бааз (ONEC_BASES)
+}
+
+async function fetchWipIn(month: string): Promise<WipResult> {
   const asOf = asOfDate(month);
   const chart = await odataRows(`${enc("ChartOfAccounts_Хозрасчетный")}?$format=json&$select=${enc("Ref_Key,Code,Description")}&$filter=${enc(`startswith(Code,'${WIP_PREFIX}')`)}&$top=500`);
   const accounts = new Map(chart.map((r) => [String(r.Ref_Key).toLowerCase(), { code: String(r.Code ?? ""), name: String(r.Description ?? "") }]));

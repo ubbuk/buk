@@ -12,6 +12,7 @@ vi.mock("next-auth", () => ({ getServerSession: async () => session.current }));
 
 import { GET as CASH } from "./cash/route";
 import { GET as EXPENSES } from "./expenses/route";
+import { GET as HEALTH } from "./health/route";
 import { POST as REFRESH } from "./refresh/route";
 import { GET as RECEIVABLES } from "./receivables/route";
 import { GET as STOCK } from "./stock/route";
@@ -28,6 +29,7 @@ const as = (role: string | null) => {
 const get = (path: string) => new Request(`http://localhost${path}`);
 const post = (body: unknown) => new Request("http://localhost/api/dashboard/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const fetchCalls = vi.fn();
+const oneCUrls = () => (fetchCalls.mock.calls as [string][]).map(([u]) => u).filter((u) => u.includes("1c.test"));
 
 const MONTH = "2031-05";
 const PREV = "2031-04";
@@ -97,6 +99,7 @@ const ROUTES = {
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
   receivables: () => RECEIVABLES(get(`/api/dashboard/receivables?month=${currentMonth()}`)),
   wip: () => WIP(get(`/api/dashboard/wip?month=${currentMonth()}`)),
+  health: () => HEALTH(get(`/api/dashboard/health?ym=${currentMonth()}`)),
   expenses: () => EXPENSES(get(`/api/dashboard/expenses?month=${MONTH}`)),
   yearSales: () => YEAR(get(`/api/dashboard/year?tab=sales&year=${YR}`)),
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
@@ -107,7 +110,7 @@ const ROUTES = {
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "refreshStock"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -136,7 +139,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "wip", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -522,5 +525,60 @@ describe("/api/dashboard/wip: Дуусаагүй үйлдвэрлэл (142x), 1�
     expect((await (await ROUTES.wip()).json()).meta.cached).toBe(true);
     expect(fetchCalls.mock.calls.length).toBe(calls);
     expect((await WIP(get(`/api/dashboard/wip?month=${addMonths(currentMonth(), 1)}`))).status).toBe(400);
+  });
+});
+
+describe("олон жилийн 1С бааз (ONEC_BASES): сонгосон оны бааз, хамгаалалт", () => {
+  const YEAR = currentMonth().slice(0, 4);
+  const PAST = `${Number(YEAR) - 1}-06`;
+  const cleanAlerts = async () => {
+    await prisma.notification.deleteMany({ where: { title: { startsWith: `1С (${YEAR} оны бааз)` } } });
+    await prisma.onecSyncLog.deleteMany({ where: { kind: "stale-alert", period: YEAR } });
+  };
+  beforeEach(async () => {
+    await cleanAlerts();
+    vi.stubEnv("ONEC_BASES", JSON.stringify({ [YEAR]: "http://1c.test/b" }));
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await cleanAlerts();
+  });
+
+  it("тохируулаагүй оны сар: 1С руу огт хандахгүй, «Энэ оны 1С бааз холбогдоогүй» (Зарцуулалт, Мөнгөн хөрөнгө, Дуусаагүй үйлдвэрлэл)", async () => {
+    as("DIRECTOR");
+    for (const call of [() => USAGE(get(`/api/dashboard/usage?month=${PAST}`)), () => CASH(get(`/api/dashboard/cash?month=${PAST}`)), () => WIP(get(`/api/dashboard/wip?month=${PAST}`))]) {
+      const res = await call();
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toBe("Энэ оны 1С бааз холбогдоогүй");
+    }
+    expect(fetchCalls).not.toHaveBeenCalled();
+  });
+
+  it("тохируулсан оны сар хэвийн ажиллана", async () => {
+    as("DIRECTOR");
+    expect((await USAGE(get(`/api/dashboard/usage?month=${currentMonth()}`))).status).toBe(200);
+    expect(oneCUrls().every((u) => u.startsWith("http://1c.test/b/odata/"))).toBe(true);
+  });
+
+  it("health: сонгосон оны бааз тохируулаагүй, одоогийн оны баазад шинэ баримт ороогүй бол анхааруулга + ADMIN-д мэдэгдэл нэг удаа", async () => {
+    as("STOREKEEPER"); // нярав ч харна
+    const res = await HEALTH(get(`/api/dashboard/health?ym=${PAST}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.selected).toEqual({ year: String(Number(YEAR) - 1), configured: false });
+    expect(body.current).toMatchObject({ year: YEAR, configured: true, unreachable: false, lastDocument: null, stale: true }); // дуурайлгасан 1С баримтгүй
+    expect(body.messages.stale).toBe("1С-д сүүлийн 7 хоногт шинэ баримт ороогүй байна. Шинэ оны бааз руу шилжсэн бол ERP-ийн тохиргоог шинэчилнэ үү.");
+    expect(body.notified).toBe("sent");
+    const admins = await prisma.user.count({ where: { role: "ADMIN", isActive: true } });
+    expect(await prisma.notification.count({ where: { title: { startsWith: `1С (${YEAR} оны бааз)` } } })).toBe(admins);
+    expect((await (await HEALTH(get(`/api/dashboard/health?ym=${PAST}`))).json()).notified).toBe("recent");
+    for (const [, init] of fetchCalls.mock.calls as [string, RequestInit][]) expect(init.method ?? "GET").toBe("GET");
+  });
+
+  it("health: ADMIN биш, 1С самбарын эрхгүй хэрэглэгчид 403; буруу ym 400", async () => {
+    as("EMPLOYEE");
+    expect((await HEALTH(get(`/api/dashboard/health?ym=${currentMonth()}`))).status).toBe(403);
+    as("ADMIN");
+    expect((await HEALTH(get("/api/dashboard/health?ym=bad"))).status).toBe(400);
   });
 });

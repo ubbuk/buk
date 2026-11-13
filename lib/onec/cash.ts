@@ -10,6 +10,7 @@
 // Данс бүр: банкны данс (ExtDimension Catalog_БанковскиеСчета) тус тусдаа, байхгүй бол дансны кодоор.
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { asOfDate, balanceBoundary, monthRange } from "./dates";
+import { withOneCYear, yearOf } from "./year-context";
 import { enc, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
 
 const REGISTER = "AccountingRegister_Хозрасчетный";
@@ -269,7 +270,11 @@ async function fetchCashAccounts(): Promise<Map<string, { code: string; name: st
 const orChain = (field: string, keys: readonly string[]) => keys.map((k) => `${field} eq guid'${k}'`).join(" or ");
 
 /** 1С-ээс сарын мөнгөн хөрөнгийг татна (бүх хүсэлт GET) */
-export async function fetchCash(month: string): Promise<CashResult> {
+export function fetchCash(month: string): Promise<CashResult> {
+  return withOneCYear(yearOf(month), () => fetchCashIn(month)); // тухайн сарын оны бааз (ONEC_BASES)
+}
+
+async function fetchCashIn(month: string): Promise<CashResult> {
   const { from, to } = monthRange(month);
   const asOf = asOfDate(month);
   const accounts = await fetchCashAccounts();

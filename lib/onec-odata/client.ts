@@ -1,7 +1,9 @@
 // 1С OData руу ЗӨВХӨН УНШИХ (HTTP GET) хандалт. Энэ модульд бичих (POST/PATCH/PUT/DELETE) функц байхгүй бөгөөд
 // байж ч болохгүй: read-only.test.ts үүнийг баталгаажуулна.
 // Нэвтрэлт (ONEC_ODATA_USER/PASSWORD) зөвхөн энд, сервер дээр уншигдана. Алдааны мессежид URL, нэр, нууц үг орохгүй.
+import { BaseConfigError } from "@/lib/onec/bases";
 import { logOnecCall } from "@/lib/onec/timing";
+import { activeOneCYear } from "@/lib/onec/year-context";
 import { OdataConfigError, ODATA_TIMEOUT_MS, odataBaseUrl, odataCredentials } from "./config";
 
 export class OdataError extends Error {
@@ -17,8 +19,8 @@ export class OdataError extends Error {
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 // Кирилл нэртэй хэрэглэгч зөв нэвтрэхийн тулд UTF-8-аар кодлоно
-function authHeader(): string {
-  const { user, password } = odataCredentials();
+function authHeader(year?: string): string {
+  const { user, password } = odataCredentials(process.env, year);
   return `Basic ${Buffer.from(`${user}:${password}`, "utf8").toString("base64")}`;
 }
 
@@ -30,10 +32,11 @@ export async function odataGet(path: string, accept: "json" | "xml", opts: { tim
   let base: string;
   let auth: string;
   try {
-    base = odataBaseUrl();
-    auth = authHeader();
+    const year = activeOneCYear(); // ONEC_BASES: сонгосон оны бааз (lib/onec/year-context.ts)
+    base = odataBaseUrl(process.env, year);
+    auth = authHeader(year);
   } catch (e) {
-    if (e instanceof OdataConfigError) throw new OdataError(503, e.message);
+    if (e instanceof OdataConfigError || e instanceof BaseConfigError) throw new OdataError(503, e.message);
     throw e;
   }
 
