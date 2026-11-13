@@ -9,6 +9,7 @@
 //
 // Данс: 1201 (худалдан авагчаас авах авлага, толгой тоо) болон НӨАТ-ын авлага 1271, 1272 тусдаа мөр. 1209 (найдваргүй авлагын
 // хасагдуулга) тооцогдохгүй. Нийт, Топ 10 нь зөвхөн 1201.
+import { balanceBoundary } from "./dates";
 import { enc, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
 
 const REGISTER = "AccountingRegister_Хозрасчетный";
@@ -178,7 +179,7 @@ export async function fetchStage(asOf: string, code: string): Promise<SnapshotRo
   }
   const cond = `ExtDimension1_Type eq '${CONTRACTOR_TYPE}'`.replace(/'/g, "''");
   const filter = `(${accounts.map(([k]) => `Account_Key eq guid'${k}'`).join(" or ")}) and СуммаBalance ne 0`;
-  const rows = await odataRows(`${enc(REGISTER)}/Balance(Period=datetime'${asOf}T23:59:59',Condition='${enc(cond)}')?$format=json&$filter=${enc(filter)}&$top=${TOP}`, { timeoutMs: BALANCE_TIMEOUT_MS });
+  const rows = await odataRows(`${enc(REGISTER)}/Balance(Period=datetime'${balanceBoundary(asOf)}',Condition='${enc(cond)}')?$format=json&$filter=${enc(filter)}&$top=${TOP}`, { timeoutMs: BALANCE_TIMEOUT_MS });
   if (rows.length >= TOP) throw new OdataError(502, "Авлагын мөр хэт олон байна. Админд хандана уу");
   const wanted = new Set(accounts.map(([k]) => k));
   const balances = rows.filter((r) => wanted.has(String(r.Account_Key ?? "").toLowerCase())); // шүүлтийг 1С буруу биелүүлсэн ч өөр данс орохгүй

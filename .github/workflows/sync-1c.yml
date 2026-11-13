@@ -80,8 +80,14 @@ jobs:
         run: |
           set +e # нэг команд унасан ч үргэлжилнэ
 
+          # ONEC_BASE_URL, ONEC_USER, ONEC_PASSWORD secret байхгүй бол ижил 1С-ийн ONEC_ODATA_* secret-ээс авна (lib/onec/client.ts hubConfig-тай ижил дүрэм):
+          # хаяг = ONEC_ODATA_BASE_URL-ийн "/odata/standard.odata"-ийн өмнөх хэсэг. Ингэснээр secret цөөрнө.
+          if [ -z "$ONEC_BASE_URL" ] && [ -n "$ONEC_ODATA_BASE_URL" ]; then export ONEC_BASE_URL="${ONEC_ODATA_BASE_URL%%/odata/standard.odata*}"; fi
+          if [ -z "$ONEC_USER" ] && [ -n "$ONEC_ODATA_USER" ]; then export ONEC_USER="$ONEC_ODATA_USER"; fi
+          if [ -z "$ONEC_PASSWORD" ] && [ -n "$ONEC_ODATA_PASSWORD" ]; then export ONEC_PASSWORD="$ONEC_ODATA_PASSWORD"; fi
+
           for v in DATABASE_URL ONEC_BASE_URL ONEC_USER ONEC_PASSWORD; do
-            if [ -z "${!v}" ]; then echo "::error::Secret $v тохируулаагүй байна"; exit 1; fi
+            if [ -z "${!v}" ]; then echo "::error::Secret $v (эсвэл ONEC_ODATA_*) тохируулаагүй байна"; exit 1; fi
           done
 
           if [ "$EVENT_SCHEDULE" = "0 2 1-3 * *" ]; then mode=recent

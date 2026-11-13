@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asOfDate } from "./dates";
+import { asOfDate, balanceBoundary, nextDay } from "./dates";
 import { buildReceivables, fromSnapshotRows, stageRows } from "./receivables";
 
 const MAIN = "a1a1a1a1-0000-0000-0000-000000000001";
@@ -88,6 +88,16 @@ describe("агшин зураг: данс бүрийн шатлалт татаа
   it("данс хоосон бол 0-тэй тэмдэглэгээ мөр (агшин зураг байхгүй гэж андуурахгүй)", () => {
     expect(stageRows("1201", "Авлага", [], names)).toEqual([{ accountCode: "1201", accountName: "Авлага", customerKey: "", customer: "", balance: 0, customers: 0 }]);
     expect(fromSnapshotRows("2026-10-31", stageRows("1201", "Авлага", [], names)).totals.receivable).toBe(0);
+  });
+});
+
+describe("balanceBoundary: 1С нь огноо л заасан баримтыг 23:59:59-д бичдэг, Balance нь заасан агшныг оруулдаггүй", () => {
+  it("өдрийн эцсийн үлдэгдэл = дараа өдрийн 00:00:00 (сар, жилийн заагийг оруулан)", () => {
+    expect(nextDay("2026-10-31")).toBe("2026-11-01");
+    expect(nextDay("2026-12-31")).toBe("2027-01-01");
+    expect(nextDay("2024-02-28")).toBe("2024-02-29");
+    expect(balanceBoundary("2026-11-13")).toBe("2026-11-14T00:00:00");
+    expect(balanceBoundary("2026-12-31")).toBe("2027-01-01T00:00:00");
   });
 });
 

@@ -67,16 +67,27 @@ export type ReceivableRow = {
   overdue_days: number;
 };
 
-function env(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`.env дотор ${name} тохируулаагүй байна`);
-  return v;
+type EnvLike = Record<string, string | undefined>;
+
+/**
+ * 1С HTTP-сервис (/hs/dash/*)-ийн хаяг, нэвтрэлт. ONEC_BASE_URL, ONEC_USER, ONEC_PASSWORD тохируулаагүй бол ижил 1С-ийн OData-ийн
+ * тохиргооноос авна: хаяг нь ONEC_ODATA_BASE_URL-ийн "/odata/standard.odata"-ийн өмнөх хэсэг, нэр/нууц үг нь ONEC_ODATA_USER/PASSWORD
+ * (ижил нэг мэдээллийн сан, зөвхөн унших). Энэ нь «Шинэчлэх» товч «татаж чадсангүй» гэж унадаг байсан шалтгааныг арилгана:
+ * .env-д зөвхөн ONEC_ODATA_* байхад ONEC_BASE_URL алга гэж алдаа гардаг байв.
+ */
+export function hubConfig(e: EnvLike = process.env): { baseUrl: string; user: string; password: string } {
+  const odata = e.ONEC_ODATA_BASE_URL?.trim().replace(/\/odata\/standard\.odata\/?$/i, "");
+  const baseUrl = e.ONEC_BASE_URL?.trim() || odata;
+  const user = e.ONEC_USER || e.ONEC_ODATA_USER;
+  const password = e.ONEC_PASSWORD || e.ONEC_ODATA_PASSWORD;
+  if (!baseUrl) throw new Error(".env дотор ONEC_BASE_URL (эсвэл ONEC_ODATA_BASE_URL) тохируулаагүй байна");
+  if (!user || !password) throw new Error(".env дотор ONEC_USER, ONEC_PASSWORD (эсвэл ONEC_ODATA_USER, ONEC_ODATA_PASSWORD) тохируулаагүй байна");
+  return { baseUrl, user, password };
 }
 
 // Кирилл нэртэй хэрэглэгч зөв нэвтрэхийн тулд UTF-8-аар кодлоно
-function authHeader(): string {
-  const token = Buffer.from(`${env("ONEC_USER")}:${env("ONEC_PASSWORD")}`, "utf8").toString("base64");
-  return `Basic ${token}`;
+function authHeader(cfg = hubConfig()): string {
+  return `Basic ${Buffer.from(`${cfg.user}:${cfg.password}`, "utf8").toString("base64")}`;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -98,7 +109,8 @@ export function defaultFetchOpts(env: Record<string, string | undefined> = proce
 }
 
 async function getRows<T>(path: string, params: Record<string, string>, opts: FetchOpts = {}): Promise<T[]> {
-  const base = env("ONEC_BASE_URL").replace(/\/+$/, "");
+  const cfg = hubConfig();
+  const base = cfg.baseUrl.replace(/\/+$/, "");
   const url = `${base}${path}?${new URLSearchParams(params)}`;
   const defaults = defaultFetchOpts();
   const timeoutMs = opts.timeoutMs ?? defaults.timeoutMs;
@@ -109,7 +121,7 @@ async function getRows<T>(path: string, params: Record<string, string>, opts: Fe
     const startedAt = Date.now();
     try {
       const res = await fetch(url, {
-        headers: { Authorization: authHeader(), Accept: "application/json" },
+        headers: { Authorization: authHeader(cfg), Accept: "application/json" },
         signal: AbortSignal.timeout(timeoutMs),
       });
       const text = await res.text();

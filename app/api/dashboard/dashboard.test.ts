@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/lib/prisma";
 import { resetOdataCache } from "@/lib/onec/odata-cache";
 import { resetNameCache } from "@/lib/onec/odata-read";
-import { addMonths, asOfDate, currentMonth, monthRange } from "@/lib/onec/dates";
+import { addMonths, asOfDate, balanceBoundary, currentMonth, monthRange } from "@/lib/onec/dates";
 import { isLocked } from "@/lib/onec/refresh";
 import { RECEIVABLES_LOCK, writeStage } from "@/lib/onec/receivables-store";
 
@@ -285,7 +285,7 @@ describe("/api/dashboard/receivables: Postgres-ийн агшин зураг (1С
     expect(r.lastAttemptOk).toBe(true);
     const balanceCalls = (fetchCalls.mock.calls as [string, RequestInit][]).map(([u]) => decodeURIComponent(u)).filter((u) => u.includes("/Balance("));
     expect(balanceCalls).toHaveLength(2); // 1201, 1271 (1272 байхгүй)
-    expect(balanceCalls[0]).toContain(`Period=datetime'${today()}T23:59:59'`);
+    expect(balanceCalls[0]).toContain(`Period=datetime'${balanceBoundary(today())}'`); // өдрийн эцэс = дараа өдрийн 00:00:00 (23:59:59-ийн бичилтийг оруулахын тулд)
     expect(balanceCalls[0]).toContain("Condition='ExtDimension1_Type eq ''StandardODATA.Catalog_Контрагенты'''");
     for (const [, init] of fetchCalls.mock.calls as [string, RequestInit][]) expect(init.method ?? "GET").toBe("GET");
   });

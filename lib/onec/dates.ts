@@ -35,6 +35,18 @@ export const isDate = (v: string | null | undefined): v is string => {
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
 };
 
+/** Дараагийн өдөр: '2026-10-31' -> '2026-11-01' */
+export function nextDay(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Өдрийн эцсийн (23:59:59 орсон) үлдэгдлийн цаг: дараа өдрийн 00:00:00. 1С нь огноо л заасан баримтыг 23:59:59-д бичдэг, харин
+ * Balance(Period) нь заасан агшныг ОРУУЛДАГГҮЙ тул Period=өдөр 23:59:59 гэвэл тэр өдрийн ихэнх бичилт орохгүй (бодитоор 1101 данс
+ * 48 сая ₮-өөр дутсан). Тиймээс Balance-д үргэлж энэ цагийг өгнө.
+ */
+export const balanceBoundary = (date: string): string => `${nextDay(date)}T00:00:00`;
+
 /** Сарын эцсийн өдрийн үлдэгдэл: одоогийн сар бол өнөөдөр, өнгөрсөн сар бол сарын сүүлийн өдөр (Агуулах, Авлага) */
 export function asOfDate(ym: string, now: string = today()): string {
   return ym >= now.slice(0, 7) ? now : monthRange(ym).to;
