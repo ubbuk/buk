@@ -48,6 +48,13 @@ describe("page rules for a direct URL", () => {
     expect(pageAllowed("EMPLOYEE", "/accounting")).toBe(false);
     expect(pageAllowed("MANAGER", "/procurement/abc")).toBe(true);
     expect(pageAllowed("EMPLOYEE", "/procurement")).toBe(false);
+    // 1С самбар: нярав зөвхөн Агуулах, Зарцуулалт; бусад таб удирдлагад; бусад дүр юу ч үгүй
+    for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS", "ENGINEERING"]) {
+      for (const tab of ["", "/stock", "/usage", "/sales", "/receivables", "/expenses", "/cash"]) expect(pageAllowed(role, `/finance${tab}`), `${role} ${tab}`).toBe(true);
+    }
+    for (const tab of ["", "/stock", "/usage"]) expect(pageAllowed("STOREKEEPER", `/finance${tab}`), `STOREKEEPER ${tab}`).toBe(true);
+    for (const tab of ["/sales", "/receivables", "/expenses", "/cash", "/sales/x"]) expect(pageAllowed("STOREKEEPER", `/finance${tab}`), `STOREKEEPER ${tab}`).toBe(false);
+    for (const role of ["EMPLOYEE", "MANAGER"]) for (const tab of ["", "/stock", "/usage", "/sales", "/receivables", "/expenses", "/cash"]) expect(pageAllowed(role, `/finance${tab}`), `${role} ${tab}`).toBe(false);
   });
 
   it("monitoring is left to its own server gate, which audit-logs a denied attempt (not redirected earlier)", () => {

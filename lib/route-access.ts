@@ -7,6 +7,7 @@
 // /admin/monitoring (and Time Machine under it) is deliberately NOT listed: its own server layout refuses and AUDIT-LOGS a
 // denied attempt (lib/monitoring/audit.ts), and redirecting earlier would silence that record.
 
+import { FINANCE_ROLES, rolesForTab } from "@/lib/onec/roles";
 import { ODATA_ROLES } from "@/lib/onec-odata/roles";
 
 interface Rule {
@@ -20,6 +21,12 @@ const RULES: readonly Rule[] = [
   { prefix: "/admin", roles: ["ADMIN"], except: ["/admin/monitoring"] },
   { prefix: "/accounting", roles: ["CHIEF_ACCOUNTANT", "ADMIN"] },
   { prefix: "/procurement", roles: ["MANAGER", "ADMIN"] },
+  // 1С самбар (lib/onec/roles.ts): нярав зөвхөн Агуулах, Зарцуулалт; бусад таб удирдлагад. Тодорхой нь эхэлж.
+  { prefix: "/finance/sales", roles: FINANCE_ROLES },
+  { prefix: "/finance/receivables", roles: FINANCE_ROLES },
+  { prefix: "/finance/expenses", roles: FINANCE_ROLES },
+  { prefix: "/finance/cash", roles: FINANCE_ROLES },
+  { prefix: "/finance", roles: rolesForTab("stock") }, // /finance, /finance/stock, /finance/usage
   { prefix: "/onec", roles: ODATA_ROLES }, // 1С OData хөтөч: зөвхөн ADMIN (lib/onec-odata/roles.ts)
   { prefix: "/foreign-trade", roles: ["BOSS", "MANAGER", "DIRECTOR", "ENGINEERING", "CHIEF_ACCOUNTANT", "ADMIN"] },
 ];

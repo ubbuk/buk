@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -41,55 +40,55 @@ enum ApprovalPosition {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String
-  passwordHash  String
-  role          UserRole @default(EMPLOYEE)
-  title         String?
-  departmentId  String?
-  isActive      Boolean  @default(true)
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  passwordHash      String
+  role              UserRole  @default(EMPLOYEE)
+  title             String?
+  departmentId      String?
+  isActive          Boolean   @default(true)
   // 1С OData хөтөч: цалингийн объектыг харах хүн тус бүрийн эрх (role-оос үл хамаарна, зөвхөн ADMIN өөрчилнө).
-  canViewPayroll Boolean   @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  lastLoginAt   DateTime?
+  canViewPayroll    Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
   // Session revocation (Stage 2): a JWT carries the version it was issued under; any change of credentials bumps it
   // and every older token stops being accepted (lib/session-revocation.ts).
   sessionVersion    Int       @default(0)
   passwordChangedAt DateTime?
 
-  department          Department?          @relation("DepartmentMembers", fields: [departmentId], references: [id])
-  headOfDepartments    Department[]        @relation("DepartmentHead")
-  requestsCreated      MaterialRequest[]   @relation("RequestedBy")
-  approvalActions       ApprovalAction[]
-  approvalStepsAssigned ApprovalStep[]      @relation("ApprovalStepAssignee")
-  approvalStepsDecided  ApprovalStep[]      @relation("ApprovalStepDecider")
-  warehouseChecks       WarehouseCheck[]
-  stockIssues            StockIssue[]
-  accountingRecords       AccountingRecord[]
-  notifications           Notification[]
-  auditLogs               AuditLog[]
-  approvalAssignments     ApprovalRoleAssignment[]
-  attachments             Attachment[]
-  approvalPinCredential   ApprovalPinCredential?
-  procurementPurchases    ProcurementPurchase[] @relation("PurchaseBy")
-  procurementVoids        ProcurementPurchase[] @relation("PurchaseVoidedBy")
-  procurementAssignments  ProcurementItemAssignment[] @relation("ProcurementAssignee")
-  procurementClassifications ProcurementClassification[] @relation("ClassificationConfirmedBy")
+  department                 Department?                     @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  headOfDepartments          Department[]                    @relation("DepartmentHead")
+  requestsCreated            MaterialRequest[]               @relation("RequestedBy")
+  approvalActions            ApprovalAction[]
+  approvalStepsAssigned      ApprovalStep[]                  @relation("ApprovalStepAssignee")
+  approvalStepsDecided       ApprovalStep[]                  @relation("ApprovalStepDecider")
+  warehouseChecks            WarehouseCheck[]
+  stockIssues                StockIssue[]
+  accountingRecords          AccountingRecord[]
+  notifications              Notification[]
+  auditLogs                  AuditLog[]
+  approvalAssignments        ApprovalRoleAssignment[]
+  attachments                Attachment[]
+  approvalPinCredential      ApprovalPinCredential?
+  procurementPurchases       ProcurementPurchase[]           @relation("PurchaseBy")
+  procurementVoids           ProcurementPurchase[]           @relation("PurchaseVoidedBy")
+  procurementAssignments     ProcurementItemAssignment[]     @relation("ProcurementAssignee")
+  procurementClassifications ProcurementClassification[]     @relation("ClassificationConfirmedBy")
   recoveryTokens             PasswordRecoveryToken[]
-  executiveDecisions         ExecutiveApprovalDecision[]  @relation("ExecutiveDecisionBy")
-  deferredRequestsMade       DeferredApprovalRequest[]    @relation("DeferredRequestedBy")
-  deferredRequestsDecided    DeferredApprovalRequest[]    @relation("DeferredDecidedBy")
+  executiveDecisions         ExecutiveApprovalDecision[]     @relation("ExecutiveDecisionBy")
+  deferredRequestsMade       DeferredApprovalRequest[]       @relation("DeferredRequestedBy")
+  deferredRequestsDecided    DeferredApprovalRequest[]       @relation("DeferredDecidedBy")
   executiveReassignedFrom    ExecutiveApprovalReassignment[] @relation("ExecutiveReassignFrom")
   executiveReassignedTo      ExecutiveApprovalReassignment[] @relation("ExecutiveReassignTo")
   executiveReassignmentsMade ExecutiveApprovalReassignment[] @relation("ExecutiveReassignBy")
-  foreignTradeOrders         ForeignTradeOrder[]          @relation("ForeignTradeCreator")
-  foreignTradeSelections     ForeignTradeOrder[]          @relation("ForeignTradeSelector")
-  foreignTradeQuotes         ForeignTradeQuote[]          @relation("ForeignTradeQuoteBy")
-  foreignTradeMessages       ForeignTradeMessage[]        @relation("ForeignTradeMessageAuthor")
-  foreignTradeDecisions      ForeignTradeDecision[]       @relation("ForeignTradeDecider")
-  foreignTradeAttachments    ForeignTradeAttachment[]     @relation("ForeignTradeUploader")
+  foreignTradeOrders         ForeignTradeOrder[]             @relation("ForeignTradeCreator")
+  foreignTradeSelections     ForeignTradeOrder[]             @relation("ForeignTradeSelector")
+  foreignTradeQuotes         ForeignTradeQuote[]             @relation("ForeignTradeQuoteBy")
+  foreignTradeMessages       ForeignTradeMessage[]           @relation("ForeignTradeMessageAuthor")
+  foreignTradeDecisions      ForeignTradeDecision[]          @relation("ForeignTradeDecider")
+  foreignTradeAttachments    ForeignTradeAttachment[]        @relation("ForeignTradeUploader")
 
   @@index([departmentId])
 }
@@ -107,19 +106,18 @@ model ApprovalPinCredential {
 }
 
 model Department {
-  id       String         @id @default(cuid())
-  name     String
-  type     DepartmentType
-  headId   String?
+  id     String         @id @default(cuid())
+  name   String
+  type   DepartmentType
+  headId String?
 
-  head     User?             @relation("DepartmentHead", fields: [headId], references: [id])
-  members  User[]            @relation("DepartmentMembers")
-  requests MaterialRequest[]
+  head               User?               @relation("DepartmentHead", fields: [headId], references: [id])
+  members            User[]              @relation("DepartmentMembers")
+  requests           MaterialRequest[]
   foreignTradeOrders ForeignTradeOrder[]
 
   @@index([headId])
 }
-
 
 model ApprovalRoleAssignment {
   id        String           @id @default(cuid())
@@ -134,8 +132,6 @@ model ApprovalRoleAssignment {
   @@index([role, isActive])
 }
 
-
-
 model Material {
   id           String   @id @default(cuid())
   code         String   @unique
@@ -147,37 +143,34 @@ model Material {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  inventoryBalances  InventoryBalance[]
-  requestItems        MaterialRequestItem[]
+  inventoryBalances InventoryBalance[]
+  requestItems      MaterialRequestItem[]
 
   @@index([name])
 }
 
 model Warehouse {
-  id       String @id @default(cuid())
+  id       String  @id @default(cuid())
   name     String
   location String?
 
-  inventoryBalances  InventoryBalance[]
-  reservations        StockReservation[]
-
+  inventoryBalances InventoryBalance[]
+  reservations      StockReservation[]
 }
 
 model InventoryBalance {
-  id              String   @id @default(cuid())
-  materialId      String
-  warehouseId     String
-  quantityOnHand  Decimal  @db.Decimal(14, 3)
-  quantityReserved Decimal @default(0) @db.Decimal(14, 3)
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(cuid())
+  materialId       String
+  warehouseId      String
+  quantityOnHand   Decimal  @db.Decimal(14, 3)
+  quantityReserved Decimal  @default(0) @db.Decimal(14, 3)
+  updatedAt        DateTime @updatedAt
 
   material  Material  @relation(fields: [materialId], references: [id])
   warehouse Warehouse @relation(fields: [warehouseId], references: [id])
 
   @@unique([materialId, warehouseId])
 }
-
-
 
 enum RequestStatus {
   DRAFT
@@ -186,8 +179,6 @@ enum RequestStatus {
   PENDING_WAREHOUSE_CHECK
   PENDING_BRANCH_APPROVAL
   RETURNED_BY_BRANCH_APPROVER
-  PENDING_MANAGER_PRICING
-  RETURNED_BY_MANAGER_PRICING
   PENDING_MANAGER_PRICING
   RETURNED_BY_MANAGER_PRICING
   PENDING_FINANCE_APPROVAL
@@ -212,25 +203,24 @@ model MaterialRequest {
   status        RequestStatus @default(DRAFT)
   note          String?
 
-
-  version      Int      @default(1)
+  version      Int     @default(1)
   documentHash String?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  submittedAt DateTime?
-  completedAt DateTime?
-  cancelledAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  submittedAt  DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
   cancelReason String?
 
-  department      Department             @relation(fields: [departmentId], references: [id])
-  requestedBy     User                   @relation("RequestedBy", fields: [requestedById], references: [id])
-  items           MaterialRequestItem[]
-  approvalSteps    ApprovalStep[]
-  warehouseChecks  WarehouseCheck[]
-  attachments      Attachment[]
-  notifications    Notification[]
-  accountingRecord AccountingRecord?
+  department                Department                      @relation(fields: [departmentId], references: [id])
+  requestedBy               User                            @relation("RequestedBy", fields: [requestedById], references: [id])
+  items                     MaterialRequestItem[]
+  approvalSteps             ApprovalStep[]
+  warehouseChecks           WarehouseCheck[]
+  attachments               Attachment[]
+  notifications             Notification[]
+  accountingRecord          AccountingRecord?
   procurementClassification ProcurementClassification?
   executiveDecisions        ExecutiveApprovalDecision[]
   deferredApprovalRequests  DeferredApprovalRequest[]
@@ -244,23 +234,23 @@ model MaterialRequest {
 }
 
 model MaterialRequestItem {
-  id                String  @id @default(cuid())
-  requestId         String
-  lineNo            Int
-  materialId        String?
-  manualMaterialName String?
-  unit              String
-  requestedQuantity Decimal @db.Decimal(14, 3)
+  id                        String   @id @default(cuid())
+  requestId                 String
+  lineNo                    Int
+  materialId                String?
+  manualMaterialName        String?
+  unit                      String
+  requestedQuantity         Decimal  @db.Decimal(14, 3)
   warehouseBalanceAtRequest Decimal? @db.Decimal(14, 3)
-  unitPrice         Decimal? @db.Decimal(14, 2)
-  totalPrice        Decimal? @db.Decimal(14, 2)
-  note              String?
+  unitPrice                 Decimal? @db.Decimal(14, 2)
+  totalPrice                Decimal? @db.Decimal(14, 2)
+  note                      String?
 
-  request            MaterialRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  material           Material?            @relation(fields: [materialId], references: [id])
-  warehouseCheckItems WarehouseCheckItem[]
-  reservations        StockReservation[]
-  purchases           ProcurementPurchase[]
+  request               MaterialRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  material              Material?                     @relation(fields: [materialId], references: [id])
+  warehouseCheckItems   WarehouseCheckItem[]
+  reservations          StockReservation[]
+  purchases             ProcurementPurchase[]
   procurementAssignment ProcurementItemAssignment?
   executiveAllocations  ExecutiveApprovalAllocation[]
   deferredRequestItems  DeferredApprovalRequestItem[]
@@ -269,7 +259,6 @@ model MaterialRequestItem {
   @@index([materialId])
 }
 
-
 model WarehouseCheck {
   id          String   @id @default(cuid())
   requestId   String
@@ -277,23 +266,23 @@ model WarehouseCheck {
   checkedAt   DateTime @default(now())
   note        String?
 
-  request MaterialRequest       @relation(fields: [requestId], references: [id])
-  checkedBy User                @relation(fields: [checkedById], references: [id])
+  request   MaterialRequest      @relation(fields: [requestId], references: [id])
+  checkedBy User                 @relation(fields: [checkedById], references: [id])
   items     WarehouseCheckItem[]
 
   @@index([requestId])
 }
 
 model WarehouseCheckItem {
-  id                 String  @id @default(cuid())
-  warehouseCheckId   String
-  requestItemId      String
-  availableQuantity  Decimal @db.Decimal(14, 3)
-  allocatedQuantity  Decimal @db.Decimal(14, 3)
-  missingQuantity    Decimal @db.Decimal(14, 3)
+  id                String  @id @default(cuid())
+  warehouseCheckId  String
+  requestItemId     String
+  availableQuantity Decimal @db.Decimal(14, 3)
+  allocatedQuantity Decimal @db.Decimal(14, 3)
+  missingQuantity   Decimal @db.Decimal(14, 3)
 
-  warehouseCheck WarehouseCheck       @relation(fields: [warehouseCheckId], references: [id], onDelete: Cascade)
-  requestItem    MaterialRequestItem  @relation(fields: [requestItemId], references: [id])
+  warehouseCheck WarehouseCheck      @relation(fields: [warehouseCheckId], references: [id], onDelete: Cascade)
+  requestItem    MaterialRequestItem @relation(fields: [requestItemId], references: [id])
 
   @@unique([warehouseCheckId, requestItemId])
   // "latest warehouse check of an item" filters by requestItemId alone (procurement workload/monitoring)
@@ -324,23 +313,20 @@ model StockReservation {
 }
 
 model StockIssue {
-  id             String   @id @default(cuid())
-  reservationId  String   @unique
-  issuedById     String
-  quantity       Decimal  @db.Decimal(14, 3)
-  issuedAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  reservationId String   @unique
+  issuedById    String
+  quantity      Decimal  @db.Decimal(14, 3)
+  issuedAt      DateTime @default(now())
 
   reservation StockReservation @relation(fields: [reservationId], references: [id])
   issuedBy    User             @relation(fields: [issuedById], references: [id])
 }
 
-
-
 enum ApprovalStepType {
   DEPARTMENT_HEAD
   WAREHOUSE_CHECK
   BRANCH_APPROVAL
-  MANAGER_PRICING
   MANAGER_PRICING
   FINANCE_APPROVAL
   EXECUTIVE_APPROVAL
@@ -356,11 +342,11 @@ enum ApprovalStepStatus {
 }
 
 model ApprovalStep {
-  id         String             @id @default(cuid())
-  requestId  String
-  type       ApprovalStepType
-  sequence   Int
-  status     ApprovalStepStatus @default(PENDING)
+  id             String             @id @default(cuid())
+  requestId      String
+  type           ApprovalStepType
+  sequence       Int
+  status         ApprovalStepStatus @default(PENDING)
   assignedUserId String?
   decidedById    String?
   decidedAt      DateTime?
@@ -380,7 +366,6 @@ enum ApprovalActionType {
   REJECT
   RETURN
 }
-
 
 model ApprovalAction {
   id             String             @id @default(cuid())
@@ -492,21 +477,21 @@ enum DeferredApprovalStatus {
 }
 
 model ExecutiveApprovalDecision {
-  id                String                @id @default(cuid())
-  requestId         String
+  id                 String                @id @default(cuid())
+  requestId          String
   // 1, 2, 3... per request; (requestId, sequence) is unique so concurrent decisions cannot collide.
-  sequence          Int
-  kind              ExecutiveDecisionKind
-  decidedById       String
-  decidedAt         DateTime              @default(now())
-  comment           String?
+  sequence           Int
+  kind               ExecutiveDecisionKind
+  decidedById        String
+  decidedAt          DateTime              @default(now())
+  comment            String?
   // Idempotency key supplied by the client; a retried submission is acknowledged, not applied twice.
-  clientRequestId   String?
+  clientRequestId    String?
   // Procurement-officer request this decision resolved, if any.
-  deferredRequestId String?               @unique
+  deferredRequestId  String?               @unique
   // Snapshot after this decision (sum over items with a purchase requirement).
-  requiredTotal      Decimal              @db.Decimal(14, 3)
-  approvedTotalAfter Decimal              @db.Decimal(14, 3)
+  requiredTotal      Decimal               @db.Decimal(14, 3)
+  approvedTotalAfter Decimal               @db.Decimal(14, 3)
 
   request         MaterialRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
   decidedBy       User                          @relation("ExecutiveDecisionBy", fields: [decidedById], references: [id])
@@ -546,11 +531,11 @@ model ExecutiveApprovalReassignment {
 }
 
 model ExecutiveApprovalAllocation {
-  id            String  @id @default(cuid())
-  decisionId    String
-  requestItemId String
+  id               String  @id @default(cuid())
+  decisionId       String
+  requestItemId    String
   // Quantity added by this decision (> 0).
-  quantity      Decimal @db.Decimal(14, 3)
+  quantity         Decimal @db.Decimal(14, 3)
   // Snapshots, so history stays readable even if the warehouse shortfall is later re-checked.
   requiredQuantity Decimal @db.Decimal(14, 3)
   cumulativeAfter  Decimal @db.Decimal(14, 3)
@@ -650,18 +635,18 @@ enum NotificationType {
 }
 
 model Notification {
-  id               String           @id @default(cuid())
-  userId           String
-  type             NotificationType
-  title            String
-  body             String
-  relatedRequestId String?
+  id                    String           @id @default(cuid())
+  userId                String
+  type                  NotificationType
+  title                 String
+  body                  String
+  relatedRequestId      String?
   relatedForeignTradeId String?
-  isRead           Boolean          @default(false)
-  createdAt        DateTime         @default(now())
+  isRead                Boolean          @default(false)
+  createdAt             DateTime         @default(now())
 
-  user           User             @relation(fields: [userId], references: [id])
-  relatedRequest MaterialRequest? @relation(fields: [relatedRequestId], references: [id])
+  user                User               @relation(fields: [userId], references: [id])
+  relatedRequest      MaterialRequest?   @relation(fields: [relatedRequestId], references: [id])
   relatedForeignTrade ForeignTradeOrder? @relation(fields: [relatedForeignTradeId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
@@ -797,39 +782,39 @@ enum ForeignTradeDecisionAction {
 }
 
 model ForeignTradeOrder {
-  id            String             @id @default(cuid())
-  orderNumber   String             @unique
-  year          Int
-  sequence      Int
-  createdById   String
-  departmentId  String?
-  status        ForeignTradeStatus @default(DRAFT)
+  id                  String             @id @default(cuid())
+  orderNumber         String             @unique
+  year                Int
+  sequence            Int
+  createdById         String
+  departmentId        String?
+  status              ForeignTradeStatus @default(DRAFT)
   // Why the goods are needed (the BOSS's explanation of the need).
-  purpose       String?
+  purpose             String?
   // Optimistic-concurrency token: every state-changing action bumps it.
-  version       Int                @default(1)
+  version             Int                @default(1)
   // Counts submissions to technical review. A decision is unique per (order, cycle, stage), so two
   // simultaneous approvals of the same stage cannot both be recorded.
-  cycle         Int                @default(0)
+  cycle               Int                @default(0)
   // What the MANAGER has presented. Technical reviewers always see the order once it is submitted to them.
-  sharedWithBoss      Boolean      @default(false)
-  sharedWithTechnical Boolean      @default(false)
+  sharedWithBoss      Boolean            @default(false)
+  sharedWithTechnical Boolean            @default(false)
   // The final supplier, recorded by the MANAGER with the grounds for the decision.
-  selectedQuoteId     String?      @unique
+  selectedQuoteId     String?            @unique
   selectionRationale  String?
   selectedById        String?
   selectedAt          DateTime?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  submittedAt   DateTime?
-  approvedAt    DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  submittedAt         DateTime?
+  approvedAt          DateTime?
 
-  createdBy     User                  @relation("ForeignTradeCreator", fields: [createdById], references: [id])
-  department    Department?           @relation(fields: [departmentId], references: [id])
-  selectedBy    User?                 @relation("ForeignTradeSelector", fields: [selectedById], references: [id])
-  selectedQuote ForeignTradeQuote?    @relation("ForeignTradeSelectedQuote", fields: [selectedQuoteId], references: [id], onDelete: SetNull)
+  createdBy     User                     @relation("ForeignTradeCreator", fields: [createdById], references: [id])
+  department    Department?              @relation(fields: [departmentId], references: [id])
+  selectedBy    User?                    @relation("ForeignTradeSelector", fields: [selectedById], references: [id])
+  selectedQuote ForeignTradeQuote?       @relation("ForeignTradeSelectedQuote", fields: [selectedQuoteId], references: [id], onDelete: SetNull)
   items         ForeignTradeItem[]
-  quotes        ForeignTradeQuote[]   @relation("ForeignTradeQuotes")
+  quotes        ForeignTradeQuote[]      @relation("ForeignTradeQuotes")
   messages      ForeignTradeMessage[]
   decisions     ForeignTradeDecision[]
   attachments   ForeignTradeAttachment[]
@@ -842,13 +827,13 @@ model ForeignTradeOrder {
 }
 
 model ForeignTradeItem {
-  id           String  @id @default(cuid())
-  orderId      String
-  lineNo       Int
-  name         String
-  techSpec     String?
-  quantity     Decimal @db.Decimal(14, 3)
-  unit         String
+  id       String  @id @default(cuid())
+  orderId  String
+  lineNo   Int
+  name     String
+  techSpec String?
+  quantity Decimal @db.Decimal(14, 3)
+  unit     String
 
   order ForeignTradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -872,9 +857,9 @@ model ForeignTradeQuote {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  order       ForeignTradeOrder         @relation("ForeignTradeQuotes", fields: [orderId], references: [id], onDelete: Cascade)
-  createdBy   User                      @relation("ForeignTradeQuoteBy", fields: [createdById], references: [id])
-  selectedFor ForeignTradeOrder?        @relation("ForeignTradeSelectedQuote")
+  order       ForeignTradeOrder        @relation("ForeignTradeQuotes", fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy   User                     @relation("ForeignTradeQuoteBy", fields: [createdById], references: [id])
+  selectedFor ForeignTradeOrder?       @relation("ForeignTradeSelectedQuote")
   messages    ForeignTradeMessage[]
   attachments ForeignTradeAttachment[]
 
@@ -899,17 +884,17 @@ model ForeignTradeMessage {
 }
 
 model ForeignTradeDecision {
-  id            String                     @id @default(cuid())
-  orderId       String
-  cycle         Int
-  stage         ForeignTradeStage
-  action        ForeignTradeDecisionAction
-  decidedById   String
+  id              String                     @id @default(cuid())
+  orderId         String
+  cycle           Int
+  stage           ForeignTradeStage
+  action          ForeignTradeDecisionAction
+  decidedById     String
   // Required for a return.
-  reason        String?
+  reason          String?
   // The supplier offer that was selected when the decision was taken (history, not a live reference).
   selectedQuoteId String?
-  createdAt     DateTime                   @default(now())
+  createdAt       DateTime                   @default(now())
 
   order     ForeignTradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   decidedBy User              @relation("ForeignTradeDecider", fields: [decidedById], references: [id])
@@ -930,10 +915,10 @@ model ForeignTradeAttachment {
   uploadedById String
   uploadedAt   DateTime @default(now())
 
-  order      ForeignTradeOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  quote      ForeignTradeQuote?    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  message    ForeignTradeMessage?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  uploadedBy User                  @relation("ForeignTradeUploader", fields: [uploadedById], references: [id])
+  order      ForeignTradeOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quote      ForeignTradeQuote?   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  message    ForeignTradeMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedBy User                 @relation("ForeignTradeUploader", fields: [uploadedById], references: [id])
 
   @@index([orderId])
 }
@@ -1037,6 +1022,32 @@ model OnecReceivable {
 
   @@index([snapshotDate, clientCode])
   @@map("onec_receivables")
+}
+
+// 1С-ээс татах ажлыг нэг зэрэг ганцхан instance/хүсэлт гүйцэтгэх түрээс (lease). Хугацаа нь DB-ийн цагаар дуусдаг тул
+// процесс үхсэн ч хаалт өөрөө суллагдана (lib/onec/refresh.ts).
+model OnecSyncLock {
+  name        String   @id
+  holder      String
+  lockedUntil DateTime @map("locked_until") @db.Timestamptz
+
+  @@map("onec_sync_lock")
+}
+
+// «Авлага» табын агшин зураг (lib/onec/receivables-store.ts, raw SQL-ээр ашиглана). 1201: харилцагч бүрээр; НӨАТ-ын данс: нэг мөр.
+model OnecReceivableBalance {
+  id           BigInt   @id @default(autoincrement())
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  accountCode  String   @map("account_code")
+  accountName  String   @default("") @map("account_name")
+  customerKey  String   @default("") @map("customer_key")
+  customer     String   @default("")
+  balance      Decimal  @db.Decimal(18, 2)
+  customers    Int      @default(1)
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([snapshotDate, accountCode])
+  @@map("onec_receivable_balances")
 }
 
 model OnecSyncLog {

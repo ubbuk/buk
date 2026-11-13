@@ -34,6 +34,7 @@ export const config = {
     "/accounting/:path*",
     "/procurement/:path*",
     "/foreign-trade/:path*",
+    "/finance/:path*",
     "/onec/:path*",
     "/archive/:path*",
     "/reports/:path*",

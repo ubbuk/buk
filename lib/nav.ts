@@ -4,6 +4,8 @@ import {
   Activity,
   ClipboardCheck,
   FilePlus2,
+  Banknote,
+
   Globe,
   ListChecks,
   Receipt,
@@ -13,6 +15,7 @@ import {
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
+import { canViewFinance } from "@/lib/onec/roles";
 
 export interface NavItem {
   href: string;
@@ -45,6 +48,9 @@ export const MONITORING_NAV_ITEM: NavItem = { href: "/admin/monitoring", label: 
 // decide, the finance department receives; ADMIN may look. What each of them sees is decided per order on the server.
 export const FOREIGN_TRADE_ROLES: readonly string[] = ["BOSS", "MANAGER", "DIRECTOR", "ENGINEERING", "CHIEF_ACCOUNTANT", "ADMIN"];
 export const FOREIGN_TRADE_NAV_ITEM: NavItem = { href: "/foreign-trade", label: "Гадаад худалдаа", icon: Globe };
+// Нэг «1С» цэс: Агуулах, Борлуулалт, Зарцуулалт, Зардал, Мөнгөн хөрөнгө таб; ADMIN-д «Хөтөч» таб мөн дотор нь (lib/onec/roles.ts).
+// Нярав зөвхөн Агуулах, Зарцуулалт табтай тул шууд Агуулах руу орно.
+export const ONEC_NAV_ITEM: NavItem = { href: "/finance", label: "1С", icon: Banknote };
 export const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck };
 
 // EMPLOYEE only creates/tracks their own requests -- no approvals or
@@ -55,6 +61,7 @@ export function resolveNavItems(role: string | undefined): NavItem[] {
   let items: NavItem[] = role === "EMPLOYEE" ? NAV_ITEMS.filter((item) => EMPLOYEE_NAV_HREFS.has(item.href)) : [...NAV_ITEMS];
   if (role === "MANAGER" || role === "ADMIN") items = [...items, PROCUREMENT_NAV_ITEM];
   if (role && FOREIGN_TRADE_ROLES.includes(role)) items = [...items, FOREIGN_TRADE_NAV_ITEM];
+  if (canViewFinance(role)) items = [...items, ONEC_NAV_ITEM];
   if (role === "CHIEF_ACCOUNTANT" || role === "ADMIN") items = [...items, ACCOUNTING_NAV_ITEM];
   if (role === "ADMIN") items = [...items, ADMIN_NAV_ITEM];
   if (role === "ADMIN" || role === "DIRECTOR") items = [...items, MONITORING_NAV_ITEM];
@@ -72,6 +79,14 @@ export const PAGE_TITLES: Record<string, string> = {
   "/foreign-trade": "Гадаад худалдаа",
   "/foreign-trade/new": "Шинэ гадаад худалдааны захиалга",
   "/accounting": "Санхүүгийн бүртгэл",
+  "/onec": "1С · Хөтөч",
+  "/finance": "1С",
+  "/finance/stock": "1С · Агуулах",
+  "/finance/sales": "1С · Борлуулалт",
+  "/finance/usage": "1С · Зарцуулалт",
+  "/finance/receivables": "1С · Авлага",
+  "/finance/expenses": "1С · Зардал",
+  "/finance/cash": "1С · Мөнгөн хөрөнгө",
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",
