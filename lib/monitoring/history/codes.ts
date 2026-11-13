@@ -28,7 +28,14 @@ export type ReconstructedStatus = RequestStatus | "UNKNOWN";
 // purposes, one that has passed the CEO and has not been registered yet -- the
 // same place the engine puts PENDING_ACCOUNTING -- so the two share a code until
 // the engine is rebuilt with a dedicated stage.
-const ENGINE_ALIAS: Record<string, string> = { PENDING_PROCUREMENT: "PENDING_ACCOUNTING" };
+//
+// Likewise the Manager price review (between the branch approver and finance) has no engine code
+// yet: it shares the finance code, since both sit between the branch and the CEO.
+const ENGINE_ALIAS: Record<string, string> = {
+  PENDING_PROCUREMENT: "PENDING_ACCOUNTING",
+  PENDING_MANAGER_PRICING: "PENDING_FINANCE_APPROVAL",
+  RETURNED_BY_MANAGER_PRICING: "RETURNED_BY_FINANCE",
+};
 
 export const statusToCode = (s: string): number => {
   const i = (STATUS_CODES as readonly string[]).indexOf(ENGINE_ALIAS[s] ?? s);

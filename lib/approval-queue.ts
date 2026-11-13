@@ -38,6 +38,11 @@ export function approvalQueueFor(
     const pendingStep = currentPendingStep(request);
     // Warehouse check and Manager procurement are worked from their own pages; neither is an approval.
     if (!pendingStep || pendingStep.type === "WAREHOUSE_CHECK" || pendingStep.type === "MANAGER_PROCUREMENT") continue;
+    // The price review belongs to the MANAGER role as a whole (no single assignee).
+    if (pendingStep.type === "MANAGER_PRICING" && role === "MANAGER") {
+      queue.push({ ...request, pendingStep });
+      continue;
+    }
     if (role === "ADMIN" || isStepAssignedTo(request, pendingStep, userId)) queue.push({ ...request, pendingStep });
   }
   return queue;

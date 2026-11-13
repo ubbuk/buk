@@ -43,6 +43,8 @@ interface RequestStore {
   ) => Promise<void>;
   branchApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
   branchReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
+  managerPricingApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
+  managerPricingReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
   financeApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
   financeReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
   executiveApprove: (
@@ -112,6 +114,7 @@ const OPEN_STATUSES = new Set([
   "PENDING_DEPARTMENT_APPROVAL",
   "PENDING_WAREHOUSE_CHECK",
   "PENDING_BRANCH_APPROVAL",
+  "PENDING_MANAGER_PRICING",
   "PENDING_FINANCE_APPROVAL",
   "PENDING_EXECUTIVE_APPROVAL",
   "PENDING_PROCUREMENT",
@@ -125,7 +128,7 @@ export function selectKpis(requests: MaterialRequestView[]) {
   return {
     totalRequests: requests.length,
     pendingApproval: requests.filter((r) =>
-      ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
+      ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_MANAGER_PRICING", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
         r.status
       )
     ).length,
@@ -237,6 +240,34 @@ export const useRequestStore = create<RequestStore>((set) => ({
 
   branchReturn: async (requestId, actorName, reason, expectedVersion) => {
     const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/branch-return`, {
+      method: "POST",
+      body: JSON.stringify({ reason, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийг буцаалаа — ${reason}`,
+        type: "reject",
+      }),
+    }));
+  },
+
+  managerPricingApprove: async (requestId, actorName, pin, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/pricing-approve`, {
+      method: "POST",
+      body: JSON.stringify({ pin, expectedVersion }),
+    });
+    set((s) => ({
+      requests: s.requests.map((r) => (r.id === requestId ? updated : r)),
+      activity: pushActivity(s.activity, {
+        text: `${actorName} №${updated.requestNumber} хүсэлтийн үнийг баталлаа`,
+        type: "approve",
+      }),
+    }));
+  },
+
+  managerPricingReturn: async (requestId, actorName, reason, expectedVersion) => {
+    const updated: MaterialRequestView = await apiFetch(`/api/requests/${requestId}/pricing-return`, {
       method: "POST",
       body: JSON.stringify({ reason, expectedVersion }),
     });

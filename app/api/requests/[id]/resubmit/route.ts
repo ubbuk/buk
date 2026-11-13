@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { resubmitDepartmentReturn, resubmitPositionStepReturn } from "@/lib/workflow";
 import { resubmitDepartmentSchema, resubmitPositionStepSchema } from "@/lib/validation";
 
-const POSITION_RETURN_STATUSES = ["RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"];
+const POSITION_RETURN_STATUSES = ["RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_MANAGER_PRICING", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"];
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);

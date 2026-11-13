@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { classifyProcurement, completeProcurement, getProcurementManagers, recordPurchase } from "@/lib/procurement";
-import { branchApprove, departmentApprove, executiveApprove, financeApprove, recordAccountingEntry, warehouseCheck } from "@/lib/workflow";
+import { branchApprove, departmentApprove, executiveApprove, financeApprove, managerPricingApprove, recordAccountingEntry, warehouseCheck } from "@/lib/workflow";
 import { getPending } from "@/lib/monitoring/queries";
 import { getProcurementList, getProcurementRequestDetail } from "@/lib/monitoring/procurement";
 import { resolveRange } from "@/lib/monitoring/time";
@@ -84,7 +84,7 @@ beforeAll(async () => {
   for (const w of Object.keys(roster) as Who[]) {
     await prisma.user.create({ data: { id: uid(w), email: `${uid(w)}@test.local`, name: uid(w), role: roster[w], passwordHash: w === "admin" ? ADMIN_TEST_HASH : "x", departmentId: ["emp", "emp2", "head"].includes(w) ? DEPT : null } });
   }
-  for (const w of ["head", "store", "eng", "fin", "exec"] as const) await prisma.approvalPinCredential.create({ data: { userId: uid(w), pinHash } });
+  for (const w of ["head", "store", "eng", "mgrA", "fin", "exec"] as const) await prisma.approvalPinCredential.create({ data: { userId: uid(w), pinHash } });
   await prisma.department.update({ where: { id: DEPT }, data: { headId: uid("head") } });
   for (const [role, who] of Object.entries(SINGLETONS)) await prisma.approvalRoleAssignment.create({ data: { role: role as never, userId: uid(who) } });
 
@@ -137,7 +137,9 @@ async function toProcurement() {
   if (!w.ok) throw new Error(`warehouse: ${w.error}`);
   const b = await branchApprove(created.id, uid("eng"), PIN, w.request.version);
   if (!b.ok) throw new Error(`branch: ${b.error}`);
-  const f = await financeApprove(created.id, uid("fin"), PIN, b.request.version);
+  const p = await managerPricingApprove(created.id, uid("mgrA"), PIN, b.request.version);
+  if (!p.ok) throw new Error(`pricing: ${p.error}`);
+  const f = await financeApprove(created.id, uid("fin"), PIN, p.request.version);
   if (!f.ok) throw new Error(`finance: ${f.error}`);
   return { id: created.id, ceoVersion: f.request.version, item: { cement: items[0].id, bearing: items[1].id, washer: items[2].id, bolt: items[3].id } };
 }
@@ -157,10 +159,10 @@ describe("workflow: Employee -> BOSS -> Warehouse -> Directors -> CEO -> Procure
     base = { a: await badge("mgrA"), b: await badge("mgrB"), a2: await badge("mgrA2") };
   });
 
-  it("the Employee creates the request; the layout is Manager (6) then Accounting (7)", async () => {
+  it("the Employee creates the request; the layout has the Manager's price review (4), procurement (7) then Accounting (8)", async () => {
     r = await toProcurement();
     const steps = await prisma.approvalStep.findMany({ where: { requestId: r.id }, orderBy: { sequence: "asc" } });
-    expect(steps.map((s) => `${s.sequence}:${s.type}`)).toEqual(["1:DEPARTMENT_HEAD", "2:WAREHOUSE_CHECK", "3:BRANCH_APPROVAL", "4:FINANCE_APPROVAL", "5:EXECUTIVE_APPROVAL", "6:MANAGER_PROCUREMENT", "7:ACCOUNTING_RECORD"]);
+    expect(steps.map((s) => `${s.sequence}:${s.type}`)).toEqual(["1:DEPARTMENT_HEAD", "2:WAREHOUSE_CHECK", "3:BRANCH_APPROVAL", "4:MANAGER_PRICING", "5:FINANCE_APPROVAL", "6:EXECUTIVE_APPROVAL", "7:MANAGER_PROCUREMENT", "8:ACCOUNTING_RECORD"]);
   });
 
   it("EMPLOYEE sees only their own request: a colleague gets neither the list entry nor the detail", async () => {

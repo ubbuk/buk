@@ -19,6 +19,7 @@ export const STAGES: StageDef[] = [
   { key: "department", label: "Цех", statuses: ["PENDING_DEPARTMENT_APPROVAL"], returned: ["RETURNED_BY_DEPARTMENT"], href: "/approvals", tone: "amber" },
   { key: "warehouse", label: "Агуулах", statuses: ["PENDING_WAREHOUSE_CHECK"], returned: [], href: "/approvals", tone: "amber" },
   { key: "branch", label: "Салбар", statuses: ["PENDING_BRANCH_APPROVAL"], returned: ["RETURNED_BY_BRANCH_APPROVER"], href: "/approvals", tone: "amber" },
+  { key: "pricing", label: "Үнэ судлах", statuses: ["PENDING_MANAGER_PRICING"], returned: ["RETURNED_BY_MANAGER_PRICING"], href: "/approvals", tone: "amber" },
   { key: "finance", label: "Санхүү", statuses: ["PENDING_FINANCE_APPROVAL"], returned: ["RETURNED_BY_FINANCE"], href: "/approvals", tone: "amber" },
   { key: "executive", label: "Гүйцэтгэх", statuses: ["PENDING_EXECUTIVE_APPROVAL"], returned: ["RETURNED_BY_EXECUTIVE"], href: "/approvals", tone: "amber" },
   { key: "accounting", label: "Бүртгэл", statuses: ["PENDING_PROCUREMENT", "PENDING_ACCOUNTING"], returned: [], href: "/approvals", tone: "amber" },

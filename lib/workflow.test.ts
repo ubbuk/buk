@@ -8,6 +8,8 @@ import {
   departmentReturn,
   executiveApprove,
   financeApprove,
+  managerPricingApprove,
+  managerPricingReturn,
   managerUpdateItemPrice,
   recordAccountingEntry,
   resubmitDepartmentReturn,
@@ -84,7 +86,7 @@ beforeAll(async () => {
   });
 
   const pinHash = await bcrypt.hash(PIN, 10);
-  for (const userId of [HEAD_ID, OFFICE_HEAD_ID, STOREKEEPER_ID, ENGINEERING_CHIEF_ID, OPERATIONS_DIRECTOR_ID, FINANCE_DIRECTOR_ID, EXECUTIVE_DIRECTOR_ID]) {
+  for (const userId of [HEAD_ID, OFFICE_HEAD_ID, STOREKEEPER_ID, ENGINEERING_CHIEF_ID, OPERATIONS_DIRECTOR_ID, FINANCE_DIRECTOR_ID, EXECUTIVE_DIRECTOR_ID, MANAGER_ID]) {
     await prisma.approvalPinCredential.upsert({
       where: { userId },
       update: { pinHash, failedAttempts: 0, lockedUntil: null },
@@ -119,7 +121,8 @@ async function createTestRequest(
   requestedQuantity: number,
   unitPrice: number | null = 1000,
   departmentId: string = DEPT_ID,
-  branchAssigneeId: string = ENGINEERING_CHIEF_ID
+  branchAssigneeId: string = ENGINEERING_CHIEF_ID,
+  withPricing = false // the Manager's price-review step exists only on requests created after it was introduced
 ) {
   requestCounter += 1;
   const requestNumber = `VITEST-${Date.now()}-${requestCounter}`;
@@ -149,9 +152,10 @@ async function createTestRequest(
           { type: "DEPARTMENT_HEAD", sequence: 1, status: "PENDING", assignedUserId: departmentId === OFFICE_DEPT_ID ? OFFICE_HEAD_ID : HEAD_ID },
           { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: STOREKEEPER_ID },
           { type: "BRANCH_APPROVAL", sequence: 3, status: "PENDING", assignedUserId: branchAssigneeId },
-          { type: "FINANCE_APPROVAL", sequence: 4, status: "PENDING", assignedUserId: FINANCE_DIRECTOR_ID },
-          { type: "EXECUTIVE_APPROVAL", sequence: 5, status: "PENDING", assignedUserId: EXECUTIVE_DIRECTOR_ID },
-          { type: "ACCOUNTING_RECORD", sequence: 6, status: "PENDING", assignedUserId: CHIEF_ACCOUNTANT_ID },
+          ...(withPricing ? [{ type: "MANAGER_PRICING" as const, sequence: 4, status: "PENDING" as const, assignedUserId: null }] : []),
+          { type: "FINANCE_APPROVAL", sequence: withPricing ? 5 : 4, status: "PENDING", assignedUserId: FINANCE_DIRECTOR_ID },
+          { type: "EXECUTIVE_APPROVAL", sequence: withPricing ? 6 : 5, status: "PENDING", assignedUserId: EXECUTIVE_DIRECTOR_ID },
+          { type: "ACCOUNTING_RECORD", sequence: withPricing ? 7 : 6, status: "PENDING", assignedUserId: CHIEF_ACCOUNTANT_ID },
         ],
       },
     },
@@ -674,5 +678,90 @@ describe("audit log", () => {
     });
     expect(entry).not.toBeNull();
     expect(entry?.actorId).toBe(CHIEF_ACCOUNTANT_ID);
+  });
+});
+
+describe("managerPricingApprove / managerPricingReturn (price review between branch and finance)", () => {
+  // 10 requested, 2 in stock -> 8 still to buy; the request then waits at the Manager's price review.
+  async function atPricing(unitPrice: number | null) {
+    await setBalance(2);
+    const request = await createTestRequest(10, unitPrice, DEPT_ID, ENGINEERING_CHIEF_ID, true);
+    await departmentApprove(request.id, HEAD_ID, PIN, 1);
+    const checked = await warehouseCheck(request.id, STOREKEEPER_ID, [{ requestItemId: request.items[0].id, availableQuantity: 2 }], PIN, 2);
+    if (!checked.ok) throw new Error("setup failed");
+    const branched = await branchApprove(request.id, ENGINEERING_CHIEF_ID, PIN, checked.request.version);
+    if (!branched.ok) throw new Error("setup failed");
+    return { request, version: branched.request.version };
+  }
+
+  it("the branch approval hands the request to the Manager, not to finance, and tells the managers", async () => {
+    const { request, version } = await atPricing(1000);
+    const row = await prisma.materialRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("PENDING_MANAGER_PRICING");
+    expect(await prisma.notification.count({ where: { userId: MANAGER_ID, relatedRequestId: request.id } })).toBe(1);
+
+    // finance cannot jump the queue while the price review is open
+    const early = await financeApprove(request.id, FINANCE_DIRECTOR_ID, PIN, version);
+    expect(early.ok).toBe(false);
+    if (!early.ok) expect(early.status).toBe(409);
+  });
+
+  it("refuses the approval while something still to buy has no price, then lets it through once priced", async () => {
+    const { request, version } = await atPricing(null);
+    const refused = await managerPricingApprove(request.id, MANAGER_ID, PIN, version);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.status).toBe(400);
+
+    const priced = await managerUpdateItemPrice(request.id, request.items[0].id, MANAGER_ID, 1500, version);
+    if (!priced.ok) throw new Error("setup failed");
+    const approved = await managerPricingApprove(request.id, MANAGER_ID, PIN, priced.request.version);
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) return;
+    expect(approved.request.status).toBe("PENDING_FINANCE_APPROVAL");
+    expect(approved.request.approvalSteps.find((s) => s.type === "MANAGER_PRICING")?.status).toBe("APPROVED");
+
+    const finance = await financeApprove(request.id, FINANCE_DIRECTOR_ID, PIN, approved.request.version);
+    expect(finance.ok).toBe(true);
+  });
+
+  it("only an active MANAGER can decide the review", async () => {
+    const { request, version } = await atPricing(1000);
+    const byFinance = await managerPricingApprove(request.id, FINANCE_DIRECTOR_ID, PIN, version);
+    expect(byFinance.ok).toBe(false);
+    if (!byFinance.ok) expect(byFinance.status).toBe(403);
+    const returnedByEmployee = await managerPricingReturn(request.id, EMPLOYEE_ID, "x", version);
+    expect(returnedByEmployee.ok).toBe(false);
+    if (!returnedByEmployee.ok) expect(returnedByEmployee.status).toBe(403);
+  });
+
+  it("a stale version is refused", async () => {
+    const { request } = await atPricing(1000);
+    const stale = await managerPricingApprove(request.id, MANAGER_ID, PIN, 999);
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.status).toBe(409);
+  });
+
+  it("return -> the requester lowers the shortfall -> the review reopens and the whole chain runs again", async () => {
+    const { request, version } = await atPricing(1000);
+    const returned = await managerPricingReturn(request.id, MANAGER_ID, "Тоо хэмжээг багасга", version);
+    if (!returned.ok) throw new Error("setup failed");
+    expect(returned.request.status).toBe("RETURNED_BY_MANAGER_PRICING");
+    const skipped = returned.request.approvalSteps.filter((s) => s.status === "SKIPPED").map((s) => s.type);
+    expect(skipped).toEqual(["FINANCE_APPROVAL", "EXECUTIVE_APPROVAL", "ACCOUNTING_RECORD"]);
+
+    const resubmitted = await resubmitPositionStepReturn(request.id, EMPLOYEE_ID, returned.request.version, [
+      { requestItemId: returned.request.items[0].id, quantity: 4 },
+    ]);
+    if (!resubmitted.ok) throw new Error("resubmit failed");
+    expect(resubmitted.request.status).toBe("PENDING_MANAGER_PRICING");
+    expect(resubmitted.request.approvalSteps.filter((s) => s.status === "SKIPPED")).toHaveLength(0);
+
+    const approved = await managerPricingApprove(request.id, MANAGER_ID, PIN, resubmitted.request.version);
+    if (!approved.ok) throw new Error("approve failed");
+    const finance = await financeApprove(request.id, FINANCE_DIRECTOR_ID, PIN, approved.request.version);
+    expect(finance.ok).toBe(true);
+    if (!finance.ok) return;
+    const executive = await executiveApprove(request.id, EXECUTIVE_DIRECTOR_ID, PIN, finance.request.version);
+    expect(executive.ok).toBe(true);
   });
 });

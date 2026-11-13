@@ -11,6 +11,8 @@ export type RequestStatus =
   | "PENDING_WAREHOUSE_CHECK"
   | "PENDING_BRANCH_APPROVAL"
   | "RETURNED_BY_BRANCH_APPROVER"
+  | "PENDING_MANAGER_PRICING"
+  | "RETURNED_BY_MANAGER_PRICING"
   | "PENDING_FINANCE_APPROVAL"
   | "RETURNED_BY_FINANCE"
   | "PENDING_EXECUTIVE_APPROVAL"
@@ -29,6 +31,8 @@ export const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
   PENDING_WAREHOUSE_CHECK: "Агуулахын шалгалт хүлээж байна",
   PENDING_BRANCH_APPROVAL: "Инженер/Үйл ажиллагааны захирлын баталгаа хүлээж байна",
   RETURNED_BY_BRANCH_APPROVER: "Инженер/Үйл ажиллагааны захирал буцаасан",
+  PENDING_MANAGER_PRICING: "Менежерийн үнэ судалгаа хүлээж байна",
+  RETURNED_BY_MANAGER_PRICING: "Менежер буцаасан",
   PENDING_FINANCE_APPROVAL: "Санхүү эрхэлсэн захирлын баталгаа хүлээж байна",
   RETURNED_BY_FINANCE: "Санхүү эрхэлсэн захирал буцаасан",
   PENDING_EXECUTIVE_APPROVAL: "Гүйцэтгэх захирлын баталгаа хүлээж байна",
@@ -51,6 +55,8 @@ export const REQUEST_STATUS_TONE: Record<
   PENDING_WAREHOUSE_CHECK: "accent",
   PENDING_BRANCH_APPROVAL: "accent",
   RETURNED_BY_BRANCH_APPROVER: "danger",
+  PENDING_MANAGER_PRICING: "accent",
+  RETURNED_BY_MANAGER_PRICING: "danger",
   PENDING_FINANCE_APPROVAL: "accent",
   RETURNED_BY_FINANCE: "danger",
   PENDING_EXECUTIVE_APPROVAL: "accent",
@@ -67,6 +73,7 @@ export type ApprovalStepType =
   | "DEPARTMENT_HEAD"
   | "WAREHOUSE_CHECK"
   | "BRANCH_APPROVAL"
+  | "MANAGER_PRICING"
   | "FINANCE_APPROVAL"
   | "EXECUTIVE_APPROVAL"
   | "MANAGER_PROCUREMENT"
@@ -76,6 +83,7 @@ export const APPROVAL_STEP_LABEL: Record<ApprovalStepType, string> = {
   DEPARTMENT_HEAD: "Цехийн дарга",
   WAREHOUSE_CHECK: "Нярав",
   BRANCH_APPROVAL: "Инженер / Үйл ажиллагаа эрхэлсэн захирал",
+  MANAGER_PRICING: "Менежер (үнэ судлах)",
   FINANCE_APPROVAL: "Санхүү эрхэлсэн захирал",
   EXECUTIVE_APPROVAL: "Гүйцэтгэх захирал",
   MANAGER_PROCUREMENT: "Менежер (худалдан авалт)",

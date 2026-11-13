@@ -201,7 +201,7 @@ export default function DashboardPage() {
   const pendingApproval = useMemo(
     () =>
       requests.filter((r) =>
-        ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
+        ["PENDING_DEPARTMENT_APPROVAL", "PENDING_BRANCH_APPROVAL", "PENDING_MANAGER_PRICING", "PENDING_FINANCE_APPROVAL", "PENDING_EXECUTIVE_APPROVAL"].includes(
           r.status
         )
       ),

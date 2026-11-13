@@ -25,7 +25,7 @@ import { useRequestStore } from "@/lib/store";
 import { USER_ROLE_LABEL } from "@/lib/types";
 import { formatDateTime, formatNumber, formatPriceOrPending } from "@/lib/utils";
 
-const RETURNED_STATUSES = new Set(["RETURNED_BY_DEPARTMENT", "RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"]);
+const RETURNED_STATUSES = new Set(["RETURNED_BY_DEPARTMENT", "RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_MANAGER_PRICING", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"]);
 const TERMINAL_STATUSES = new Set(["COMPLETED", "PARTIALLY_COMPLETED", "CANCELLED", "ACCOUNTING_COMPLETED"]);
 
 export default function RequestDetailPage() {
@@ -38,6 +38,8 @@ export default function RequestDetailPage() {
   const returnDepartmentHead = useRequestStore((s) => s.returnDepartmentHead);
   const branchApprove = useRequestStore((s) => s.branchApprove);
   const branchReturn = useRequestStore((s) => s.branchReturn);
+  const managerPricingApprove = useRequestStore((s) => s.managerPricingApprove);
+  const managerPricingReturn = useRequestStore((s) => s.managerPricingReturn);
   const financeApprove = useRequestStore((s) => s.financeApprove);
   const financeReturn = useRequestStore((s) => s.financeReturn);
   const executiveApprove = useRequestStore((s) => s.executiveApprove);
@@ -78,7 +80,9 @@ export default function RequestDetailPage() {
 
   const pendingStep = request.approvalSteps.find((s) => s.status === "PENDING");
   const hasAllocation = request.items.some((i) => i.allocatedQuantity !== undefined);
-  const isAuthorizedApprover = !!pendingStep && isStepAssignedTo(request, pendingStep, session?.user?.id);
+  // The price review has no single assignee: every MANAGER may decide it.
+  const isPricingStep = pendingStep?.type === "MANAGER_PRICING";
+  const isAuthorizedApprover = !!pendingStep && (isPricingStep ? session?.user?.role === "MANAGER" : isStepAssignedTo(request, pendingStep, session?.user?.id));
   const isRequester = session?.user?.id === request.requestedById;
   const canResubmit = isRequester && RETURNED_STATUSES.has(request.status);
   const canEditPrice = session?.user?.role === "MANAGER" && !TERMINAL_STATUSES.has(request.status);
@@ -133,6 +137,8 @@ export default function RequestDetailPage() {
         await approveDepartmentHead(request.id, pendingStep.assignedUserName, pin, request.version);
       } else if (pendingStep.type === "BRANCH_APPROVAL") {
         await branchApprove(request.id, pendingStep.assignedUserName, pin, request.version);
+      } else if (pendingStep.type === "MANAGER_PRICING") {
+        await managerPricingApprove(request.id, session?.user?.name ?? "Manager", pin, request.version);
       } else if (pendingStep.type === "FINANCE_APPROVAL") {
         await financeApprove(request.id, pendingStep.assignedUserName, pin, request.version);
       } else if (pendingStep.type === "EXECUTIVE_APPROVAL") {
@@ -190,6 +196,8 @@ export default function RequestDetailPage() {
         await returnDepartmentHead(request.id, pendingStep.assignedUserName, reason, request.version);
       } else if (pendingStep.type === "BRANCH_APPROVAL") {
         await branchReturn(request.id, pendingStep.assignedUserName, reason, request.version);
+      } else if (pendingStep.type === "MANAGER_PRICING") {
+        await managerPricingReturn(request.id, session?.user?.name ?? "Manager", reason, request.version);
       } else if (pendingStep.type === "FINANCE_APPROVAL") {
         await financeReturn(request.id, pendingStep.assignedUserName, reason, request.version);
       } else if (pendingStep.type === "EXECUTIVE_APPROVAL") {
@@ -296,7 +304,7 @@ export default function RequestDetailPage() {
         {pendingStep && pendingStep.type !== "MANAGER_PROCUREMENT" && !isAuthorizedApprover && (
           <div className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated/50 px-3 py-2 text-xs text-text-muted">
             <ShieldAlert className="size-3.5" />
-            Зөвхөн {pendingStep.assignedUserName} баталгаажуулах боломжтой
+            {isPricingStep ? "Менежерийн үнэ судалгаа хийгдэж байна" : `Зөвхөн ${pendingStep.assignedUserName} баталгаажуулах боломжтой`}
           </div>
         )}
         {!pendingStep && canResubmit && request.status === "RETURNED_BY_DEPARTMENT" && (
@@ -511,7 +519,7 @@ export default function RequestDetailPage() {
             setPartialPlan(null);
           }}
           onConfirm={approveWithPin}
-          approverName={pendingStep.assignedUserName}
+          approverName={isPricingStep ? session?.user?.name ?? "Manager" : pendingStep.assignedUserName}
           approverRole={USER_ROLE_LABEL[session?.user?.role ?? ""] ?? pendingStep.type}
           processing={processing}
           error={pinError}

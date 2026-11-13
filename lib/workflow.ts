@@ -394,7 +394,7 @@ export async function warehouseCheck(
         }
       } else {
         await tx.approvalStep.updateMany({
-          where: { requestId, type: { in: ["BRANCH_APPROVAL", "FINANCE_APPROVAL", "EXECUTIVE_APPROVAL", "MANAGER_PROCUREMENT", "ACCOUNTING_RECORD"] } },
+          where: { requestId, type: { in: ["BRANCH_APPROVAL", "MANAGER_PRICING", "FINANCE_APPROVAL", "EXECUTIVE_APPROVAL", "MANAGER_PROCUREMENT", "ACCOUNTING_RECORD"] } },
           data: { status: "SKIPPED" },
         });
         await tx.materialRequest.update({
@@ -472,7 +472,33 @@ const POSITION_STEP_CONFIG: Record<
   },
 };
 
-type ApprovalStepTypeLiteral = "DEPARTMENT_HEAD" | "WAREHOUSE_CHECK" | PositionStepType | "MANAGER_PROCUREMENT" | "ACCOUNTING_RECORD";
+type ApprovalStepTypeLiteral =
+  | "DEPARTMENT_HEAD"
+  | "WAREHOUSE_CHECK"
+  | PositionStepType
+  | "MANAGER_PRICING"
+  | "MANAGER_PROCUREMENT"
+  | "ACCOUNTING_RECORD";
+
+/**
+ * Tells every active MANAGER that a request is waiting for its prices. The pricing and procurement
+ * stages belong to the MANAGER role as a whole rather than to one assignee.
+ */
+async function notifyPricingManagers(tx: Prisma.TransactionClient, request: { id: string; requestNumber: string }): Promise<string[]> {
+  const managers = await tx.user.findMany({ where: { role: "MANAGER", isActive: true }, select: { id: true } });
+  if (managers.length > 0) {
+    await tx.notification.createMany({
+      data: managers.map((m) => ({
+        userId: m.id,
+        type: "APPROVAL_REQUIRED" as const,
+        title: "Нэгж үнэ судлах шаардлагатай",
+        body: `№${request.requestNumber} захиалгын дутуу материалын үнийг оруулна уу`,
+        relatedRequestId: request.id,
+      })),
+    });
+  }
+  return managers.map((m) => m.id);
+}
 
 async function decidePositionStep(
   stepType: PositionStepType,
@@ -501,6 +527,8 @@ async function decidePositionStep(
   if (request.status !== config.pendingStatus) {
     return { ok: false, status: 409, error: WRONG_STAGE_ERROR };
   }
+  // Requests created before the price-review stage existed have no such step and go straight to finance.
+  const goesToPricing = stepType === "BRANCH_APPROVAL" && action === "APPROVE" && request.approvalSteps.some((s) => s.type === "MANAGER_PRICING");
 
   if (action === "APPROVE") {
     const pinResult = await verifyPin(actorId, opts.pin!);
@@ -566,7 +594,7 @@ async function decidePositionStep(
     let materialRequest = await tx.materialRequest.update({
       where: { id: requestId },
       data: {
-        status: action === "APPROVE" ? config.approveStatus : config.returnStatus,
+        status: action === "APPROVE" ? (goesToPricing ? "PENDING_MANAGER_PRICING" : config.approveStatus) : config.returnStatus,
         version: { increment: 1 },
         documentHash,
       },
@@ -578,6 +606,8 @@ async function decidePositionStep(
       // requests created before it existed have no step for it yet.
       managersToNotify = await openProcurement(tx, materialRequest);
       materialRequest = await tx.materialRequest.findUniqueOrThrow({ where: { id: requestId }, include: requestInclude });
+    } else if (goesToPricing) {
+      managersToNotify = await notifyPricingManagers(tx, materialRequest);
     } else if (action === "APPROVE") {
       const nextStep = config.nextStepType ? materialRequest.approvalSteps.find((s) => s.type === config.nextStepType) : null;
       if (nextStep?.assignedUserId) {
@@ -615,7 +645,7 @@ async function decidePositionStep(
   for (const managerId of managersToNotify) emitUserEvent(managerId, { type: "notification" });
   const notifyTarget =
     action === "APPROVE"
-      ? stepType === "EXECUTIVE_APPROVAL"
+      ? stepType === "EXECUTIVE_APPROVAL" || goesToPricing
         ? undefined
         : config.nextStepType
         ? result.approvalSteps.find((s) => s.type === config.nextStepType)?.assignedUserId
@@ -647,6 +677,125 @@ export const executiveApprove = (
 ) => decidePositionStep("EXECUTIVE_APPROVAL", "APPROVE", requestId, actorId, { pin, expectedVersion, ...extra });
 export const executiveReturn = (requestId: string, actorId: string, reason: string, expectedVersion: number) =>
   decidePositionStep("EXECUTIVE_APPROVAL", "RETURN", requestId, actorId, { reason, expectedVersion });
+
+const PRICING_NOT_MANAGER_ERROR = "Зөвхөн идэвхтэй Manager эрхтэй хэрэглэгч үнэ судалж баталгаажуулах боломжтой";
+
+/**
+ * Price-review stage between the branch approver and the finance director. Any active MANAGER (no
+ * single assignee, like procurement) enters the unit prices of what has to be bought, then approves
+ * with a PIN or returns the request with a reason. Prices are entered with managerUpdateItemPrice
+ * while the request is in this status; approval is refused while a still-missing item has no price.
+ */
+async function decideManagerPricing(
+  action: "APPROVE" | "RETURN",
+  requestId: string,
+  actorId: string,
+  opts: { pin?: string; reason?: string; expectedVersion: number }
+): Promise<WorkflowResult> {
+  const request = await prisma.materialRequest.findUnique({
+    where: { id: requestId },
+    include: { approvalSteps: true, items: { include: { warehouseCheckItems: true } } },
+  });
+  if (!request) return { ok: false, status: 404, error: "Захиалга олдсонгүй" };
+
+  const step = request.approvalSteps.find((s) => s.type === "MANAGER_PRICING");
+  if (!step) return { ok: false, status: 500, error: "Баталгаажуулалтын шат олдсонгүй" };
+  if (request.status !== "PENDING_MANAGER_PRICING") return { ok: false, status: 409, error: WRONG_STAGE_ERROR };
+
+  const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { role: true, isActive: true } });
+  if (!actor || !actor.isActive || actor.role !== "MANAGER") return { ok: false, status: 403, error: PRICING_NOT_MANAGER_ERROR };
+
+  if (action === "APPROVE") {
+    const pinResult = await verifyPin(actorId, opts.pin!);
+    if (!pinResult.ok) return pinFailure(pinResult);
+
+    // What still has to be bought: the warehouse shortfall of the latest check (items covered by stock need no price).
+    const unpriced = request.items.filter((i) => {
+      const check = i.warehouseCheckItems[i.warehouseCheckItems.length - 1];
+      const required = check ? Number(check.missingQuantity) : Number(i.requestedQuantity);
+      return required > 0 && i.unitPrice === null;
+    });
+    if (unpriced.length > 0) {
+      const names = unpriced.map((i) => i.manualMaterialName ?? `#${i.lineNo}`).join(", ");
+      return { ok: false, status: 400, error: `Нэгж үнэ оруулаагүй мөр байна: ${names}` };
+    }
+  }
+
+  const documentHash = computeDocumentHash(request.items);
+
+  let financeAssigneeId: string | null = null;
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.materialRequest.findUniqueOrThrow({ where: { id: requestId }, select: { version: true, status: true } });
+    if (fresh.version !== opts.expectedVersion) return "VERSION_CONFLICT" as const;
+    if (fresh.status !== "PENDING_MANAGER_PRICING") return "WRONG_STAGE" as const;
+
+    const updated = await tx.approvalStep.updateMany({
+      where: { id: step.id, status: "PENDING" },
+      data:
+        action === "APPROVE"
+          ? { status: "APPROVED", decidedAt: new Date(), decidedById: actorId }
+          : { status: "REJECTED", decidedAt: new Date(), decidedById: actorId, comment: opts.reason },
+    });
+    if (updated.count === 0) return "ALREADY_DECIDED" as const;
+
+    if (action === "RETURN") {
+      await tx.approvalStep.updateMany({ where: { requestId, sequence: { gt: step.sequence } }, data: { status: "SKIPPED" } });
+    }
+
+    await tx.approvalAction.create({ data: { approvalStepId: step.id, actorId, action, reason: opts.reason, documentHash } });
+    await tx.auditLog.create({ data: { entityType: "MaterialRequest", entityId: requestId, action, actorId } });
+
+    const materialRequest = await tx.materialRequest.update({
+      where: { id: requestId },
+      data: {
+        status: action === "APPROVE" ? "PENDING_FINANCE_APPROVAL" : "RETURNED_BY_MANAGER_PRICING",
+        version: { increment: 1 },
+        documentHash,
+      },
+      include: requestInclude,
+    });
+
+    if (action === "APPROVE") {
+      const financeStep = materialRequest.approvalSteps.find((s) => s.type === "FINANCE_APPROVAL");
+      if (financeStep?.assignedUserId) {
+        financeAssigneeId = financeStep.assignedUserId;
+        await tx.notification.create({
+          data: {
+            userId: financeStep.assignedUserId,
+            type: "APPROVAL_REQUIRED",
+            title: "Санхүү эрхэлсэн захирлын баталгаа хүлээж байна",
+            body: `№${materialRequest.requestNumber} захиалгыг хянана уу`,
+            relatedRequestId: requestId,
+          },
+        });
+      }
+    } else {
+      await tx.notification.create({
+        data: {
+          userId: materialRequest.requestedById,
+          type: "REQUEST_RETURNED",
+          title: "Захиалга буцаагдлаа",
+          body: `№${materialRequest.requestNumber}: ${opts.reason}`,
+          relatedRequestId: requestId,
+        },
+      });
+    }
+
+    return materialRequest;
+  });
+
+  if (result === "VERSION_CONFLICT") return { ok: false, status: 409, error: VERSION_CONFLICT_ERROR };
+  if (result === "ALREADY_DECIDED") return { ok: false, status: 409, error: ALREADY_DECIDED_ERROR };
+  if (result === "WRONG_STAGE") return { ok: false, status: 409, error: WRONG_STAGE_ERROR };
+
+  notifyBroadcastAndUser(action === "APPROVE" ? financeAssigneeId : result.requestedById);
+  return { ok: true, request: serializeRequest(result) };
+}
+
+export const managerPricingApprove = (requestId: string, actorId: string, pin: string, expectedVersion: number) =>
+  decideManagerPricing("APPROVE", requestId, actorId, { pin, expectedVersion });
+export const managerPricingReturn = (requestId: string, actorId: string, reason: string, expectedVersion: number) =>
+  decideManagerPricing("RETURN", requestId, actorId, { reason, expectedVersion });
 
 /**
  * Stage 7 — Chief Accountant's terminal financial record. This is data
@@ -948,8 +1097,9 @@ export async function resubmitDepartmentReturn(
   return { ok: true, request: serializeRequest(result) };
 }
 
-const RETURNED_STATUS_TO_STEP: Record<string, PositionStepType> = {
+const RETURNED_STATUS_TO_STEP: Record<string, PositionStepType | "MANAGER_PRICING"> = {
   RETURNED_BY_BRANCH_APPROVER: "BRANCH_APPROVAL",
+  RETURNED_BY_MANAGER_PRICING: "MANAGER_PRICING",
   RETURNED_BY_FINANCE: "FINANCE_APPROVAL",
   RETURNED_BY_EXECUTIVE: "EXECUTIVE_APPROVAL",
 };
@@ -1002,6 +1152,7 @@ export async function resubmitPositionStepReturn(
 
   const documentHash = computeDocumentHash(request.items);
 
+  let reopenedManagerIds: string[] = [];
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await tx.materialRequest.findUniqueOrThrow({
       where: { id: requestId },
@@ -1053,13 +1204,20 @@ export async function resubmitPositionStepReturn(
       where: { id: stepToReopen.id },
       data: { status: "PENDING", decidedAt: null, decidedById: null, comment: null },
     });
+    // The return skipped every later step; they have to run again once this one is re-approved.
+    await tx.approvalStep.updateMany({
+      where: { requestId, status: "SKIPPED", sequence: { gt: stepToReopen.sequence } },
+      data: { status: "PENDING" },
+    });
 
     const nextStatus =
       stepType === "BRANCH_APPROVAL"
         ? "PENDING_BRANCH_APPROVAL"
-        : stepType === "FINANCE_APPROVAL"
-          ? "PENDING_FINANCE_APPROVAL"
-          : "PENDING_EXECUTIVE_APPROVAL";
+        : stepType === "MANAGER_PRICING"
+          ? "PENDING_MANAGER_PRICING"
+          : stepType === "FINANCE_APPROVAL"
+            ? "PENDING_FINANCE_APPROVAL"
+            : "PENDING_EXECUTIVE_APPROVAL";
 
     const materialRequest = await tx.materialRequest.update({
       where: { id: requestId },
@@ -1067,7 +1225,9 @@ export async function resubmitPositionStepReturn(
       include: requestInclude,
     });
 
-    if (stepToReopen.assignedUserId) {
+    if (stepType === "MANAGER_PRICING") {
+      reopenedManagerIds = await notifyPricingManagers(tx, materialRequest);
+    } else if (stepToReopen.assignedUserId) {
       await tx.notification.create({
         data: {
           userId: stepToReopen.assignedUserId,
@@ -1084,6 +1244,7 @@ export async function resubmitPositionStepReturn(
 
   if (result === "VERSION_CONFLICT") return { ok: false, status: 409, error: VERSION_CONFLICT_ERROR };
 
+  for (const managerId of reopenedManagerIds) emitUserEvent(managerId, { type: "notification" });
   emitBroadcast({ type: "request-changed" });
   return { ok: true, request: serializeRequest(result) };
 }

@@ -186,11 +186,13 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
                 { type: "DEPARTMENT_HEAD", sequence: 1, status: "PENDING", assignedUserId: department.headId },
                 { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: storekeeperAssignment.userId },
                 { type: "BRANCH_APPROVAL", sequence: 3, status: "PENDING", assignedUserId: branchAssignment.userId },
-                { type: "FINANCE_APPROVAL", sequence: 4, status: "PENDING", assignedUserId: financeAssignment.userId },
-                { type: "EXECUTIVE_APPROVAL", sequence: 5, status: "PENDING", assignedUserId: executiveAssignment.userId },
+                // Price review: any active MANAGER enters the unit prices of the shortfall (no single assignee).
+                { type: "MANAGER_PRICING", sequence: 4, status: "PENDING", assignedUserId: null },
+                { type: "FINANCE_APPROVAL", sequence: 5, status: "PENDING", assignedUserId: financeAssignment.userId },
+                { type: "EXECUTIVE_APPROVAL", sequence: 6, status: "PENDING", assignedUserId: executiveAssignment.userId },
                 // Stage 7: any active MANAGER buys the shortfall (no single assignee), then Stage 8 registers it.
-                { type: "MANAGER_PROCUREMENT", sequence: 6, status: "PENDING", assignedUserId: null },
-                { type: "ACCOUNTING_RECORD", sequence: 7, status: "PENDING", assignedUserId: accountantAssignment.userId },
+                { type: "MANAGER_PROCUREMENT", sequence: 7, status: "PENDING", assignedUserId: null },
+                { type: "ACCOUNTING_RECORD", sequence: 8, status: "PENDING", assignedUserId: accountantAssignment.userId },
               ],
             },
           },
