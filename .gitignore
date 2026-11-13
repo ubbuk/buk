@@ -38,3 +38,6 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# 1C integration source package (copied into lib/onec, scripts, app/api/dashboard); never commit
+/onec-sync/

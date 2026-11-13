@@ -186,6 +186,8 @@ enum RequestStatus {
   RETURNED_BY_BRANCH_APPROVER
   PENDING_MANAGER_PRICING
   RETURNED_BY_MANAGER_PRICING
+  PENDING_MANAGER_PRICING
+  RETURNED_BY_MANAGER_PRICING
   PENDING_FINANCE_APPROVAL
   RETURNED_BY_FINANCE
   PENDING_EXECUTIVE_APPROVAL
@@ -336,6 +338,7 @@ enum ApprovalStepType {
   DEPARTMENT_HEAD
   WAREHOUSE_CHECK
   BRANCH_APPROVAL
+  MANAGER_PRICING
   MANAGER_PRICING
   FINANCE_APPROVAL
   EXECUTIVE_APPROVAL
@@ -928,4 +931,119 @@ model ForeignTradeAttachment {
   uploadedBy User                  @relation("ForeignTradeUploader", fields: [uploadedById], references: [id])
 
   @@index([orderId])
+}
+
+// =====================================================================
+// 1С ERP-ээс татсан өгөгдөл (lib/onec/*). Хүснэгт бүр сар/өдрөөр нь бүхэлд нь солигддог.
+// =====================================================================
+
+model OnecSales {
+  id         BigInt   @id @default(autoincrement())
+  date       DateTime @db.Date
+  org        String   @default("")
+  itemCode   String   @default("") @map("item_code")
+  item       String   @default("")
+  unit       String   @default("")
+  qty        Decimal  @default(0) @db.Decimal(18, 4)
+  amount     Decimal  @default(0) @db.Decimal(18, 2)
+  vat        Decimal  @default(0) @db.Decimal(18, 2)
+  cost       Decimal  @default(0) @db.Decimal(18, 2)
+  clientCode String   @default("") @map("client_code")
+  client     String   @default("")
+  clientReg  String   @default("") @map("client_reg")
+  dept       String   @default("")
+  doc        String   @default("")
+  rowType    String   @default("") @map("row_type")
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([date])
+  @@index([itemCode, date])
+  @@index([clientCode, date])
+  @@map("onec_sales")
+}
+
+model OnecPl {
+  id           BigInt   @id @default(autoincrement())
+  month        String   @db.Char(7)
+  itemCode     String   @default("") @map("item_code")
+  item         String   @default("")
+  account      String   @default("")
+  accountGroup String   @default("") @map("account_group")
+  side         String   @default("")
+  amount       Decimal  @default(0) @db.Decimal(18, 2)
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([month, accountGroup])
+  @@map("onec_pl")
+}
+
+model OnecStock {
+  id            BigInt   @id @default(autoincrement())
+  snapshotDate  DateTime @map("snapshot_date") @db.Date
+  org           String   @default("")
+  warehouseCode String   @default("") @map("warehouse_code")
+  warehouse     String   @default("")
+  itemCode      String   @default("") @map("item_code")
+  item          String   @default("")
+  unit          String   @default("")
+  account       String   @default("")
+  qty           Decimal  @default(0) @db.Decimal(18, 4)
+  amount        Decimal  @default(0) @db.Decimal(18, 2)
+  syncedAt      DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([snapshotDate, warehouseCode])
+  @@index([itemCode, snapshotDate])
+  @@map("onec_stock")
+}
+
+model OnecCash {
+  id         BigInt   @id @default(autoincrement())
+  date       DateTime @db.Date
+  account    String   @default("")
+  clientCode String   @default("") @map("client_code")
+  client     String   @default("")
+  itemCode   String   @default("") @map("item_code")
+  item       String   @default("")
+  inflow     Decimal  @default(0) @db.Decimal(18, 2)
+  outflow    Decimal  @default(0) @db.Decimal(18, 2)
+  memo       String   @default("")
+  doc        String   @default("")
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([date])
+  @@index([account, date])
+  @@map("onec_cash")
+}
+
+// Авлага (/hs/dash/receivables?asof=): stock-той адил өдрийн агшин зургаар хадгална
+model OnecReceivable {
+  id           BigInt   @id @default(autoincrement())
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  type         String   @default("")
+  clientCode   String   @default("") @map("client_code")
+  client       String   @default("")
+  doc          String   @default("")
+  docDate      String   @default("") @map("doc_date")
+  due          String   @default("")
+  amount       Decimal  @default(0) @db.Decimal(18, 2)
+  balance      Decimal  @default(0) @db.Decimal(18, 2)
+  overdueDays  Int      @default(0) @map("overdue_days")
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([snapshotDate, clientCode])
+  @@map("onec_receivables")
+}
+
+model OnecSyncLog {
+  id         BigInt   @id @default(autoincrement())
+  kind       String
+  period     String
+  rows       Int      @default(0)
+  ok         Boolean
+  message    String?
+  startedAt  DateTime @map("started_at") @db.Timestamptz
+  finishedAt DateTime @default(now()) @map("finished_at") @db.Timestamptz
+
+  @@index([kind, finishedAt(sort: Desc)])
+  @@map("onec_sync_log")
 }
