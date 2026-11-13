@@ -41,3 +41,7 @@ next-env.d.ts
 
 # 1C integration source package (copied into lib/onec, scripts, app/api/dashboard); never commit
 /onec-sync/
+
+# Playwright run output and generated wasm build output
+/e2e/results-*/
+/native/history-engine/dist/
