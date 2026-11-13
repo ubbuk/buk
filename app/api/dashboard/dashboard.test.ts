@@ -387,3 +387,106 @@ describe("/api/dashboard/refresh: өнгөрсөн сарыг зөвхөн ADMIN
     expect((await REFRESH(post({ kind: "stock", month: currentMonth() }))).status).toBe(200);
   });
 });
+
+describe("/api/dashboard/refresh: Vercel дээр хүнд татаалт GitHub Actions-д (workflow_dispatch), route дотор ажиллахгүй", () => {
+  const github = vi.fn();
+  let ghStatus = 204;
+  const clean = () => prisma.$executeRaw`DELETE FROM onec_sync_lock WHERE name LIKE 'dispatch-%'`;
+  beforeEach(async () => {
+    github.mockReset();
+    ghStatus = 204;
+    await clean();
+    await prisma.onecSyncLog.deleteMany({ where: { kind: { in: ["sales", "pl", "cash", "receivables-odata"] }, period: { in: [currentMonth(), addMonths(currentMonth(), -2), asOfDate(currentMonth())] } } });
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("GITHUB_DISPATCH_TOKEN", "github_pat_test_token");
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/erp");
+    const inner = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (String(url).startsWith("https://api.github.com/")) {
+          github(url, init);
+          return new Response(null, { status: ghStatus });
+        }
+        return inner(url, init);
+      })
+    );
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await clean();
+  });
+  const body = (c = 0) => JSON.parse(String((github.mock.calls[c] as [string, RequestInit])[1].body));
+  const oneCCalls = () => (fetchCalls.mock.calls as [string][]).filter(([u]) => u.includes("1c.test"));
+
+  it("«Шинэчлэх» (сар): GitHub-ийг нэг удаа дуудаж «dispatched» буцаана, 1С-д route-оос огт хандахгүй; давхар товшилт «busy»", async () => {
+    as("DIRECTOR");
+    const r = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["cash"] }))).json();
+    expect(r.status).toBe("dispatched");
+    expect(Date.parse(r.dispatchedAt)).toBeGreaterThan(Date.now() - 5000);
+    expect(github).toHaveBeenCalledTimes(1);
+    expect(body()).toEqual({ ref: "main", inputs: { mode: "month", month: currentMonth() } });
+    expect(oneCCalls()).toHaveLength(0);
+    const again = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["cash"] }))).json();
+    expect(again).toEqual({ status: "busy", via: "actions" });
+    expect(github).toHaveBeenCalledTimes(1);
+  });
+
+  it("авлагын агшин зураг: mode=receivables, 1С дуудахгүй", async () => {
+    as("CHIEF_ACCOUNTANT");
+    const r = await (await REFRESH(post({ kind: "receivables", month: currentMonth() }))).json();
+    expect(r.status).toBe("dispatched");
+    expect(body().inputs).toEqual({ mode: "receivables", month: currentMonth() });
+    expect(oneCCalls()).toHaveLength(0);
+  });
+
+  it("хуудас нээгдэхэд автоматаар (auto) дуудахгүй: «scheduled», GitHub-д ч хандахгүй", async () => {
+    as("DIRECTOR");
+    expect((await (await REFRESH(post({ kind: "month", month: currentMonth(), auto: true }))).json()).status).toBe("scheduled");
+    expect((await (await REFRESH(post({ kind: "receivables", month: currentMonth(), auto: true }))).json()).status).toBe("scheduled");
+    expect(github).not.toHaveBeenCalled();
+    expect(oneCCalls()).toHaveLength(0);
+  });
+
+  it("өгөгдөл шинэхэн (5 минутын дотор татсан) бол «recent», GitHub-д хандахгүй", async () => {
+    await prisma.onecSyncLog.createMany({ data: ["sales", "pl", "cash"].map((kind) => ({ kind, period: currentMonth(), ok: true, startedAt: new Date() })) });
+    as("DIRECTOR");
+    const r = await (await REFRESH(post({ kind: "month", month: currentMonth() }))).json();
+    expect(r.status).toBe("recent");
+    expect(r.retryAfterSeconds).toBeGreaterThan(0);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("өнгөрсөн сарыг зөвхөн ADMIN: DIRECTOR 403, ADMIN бол тэр сараар dispatch", async () => {
+    const past = addMonths(currentMonth(), -2);
+    as("DIRECTOR");
+    expect((await REFRESH(post({ kind: "month", month: past }))).status).toBe(403);
+    expect(github).not.toHaveBeenCalled();
+    as("ADMIN");
+    expect((await (await REFRESH(post({ kind: "month", month: past }))).json()).status).toBe("dispatched");
+    expect(body().inputs.month).toBe(past);
+  });
+
+  it("токен тохируулаагүй бол «unavailable» (товч хуваарийг заана), Агуулах шууд шинэчлэгдсээр", async () => {
+    vi.stubEnv("GITHUB_DISPATCH_TOKEN", "");
+    await prisma.onecSyncLog.deleteMany({ where: { kind: "stock", period: asOfDate(currentMonth()) } }); // өмнөх тестийн оролдлого 60 секундийн хязгаарт орохгүй
+    as("DIRECTOR");
+    expect((await (await REFRESH(post({ kind: "month", month: currentMonth() }))).json()).status).toBe("unavailable");
+    expect((await (await REFRESH(post({ kind: "receivables", month: currentMonth() }))).json()).status).toBe("unavailable");
+    expect(github).not.toHaveBeenCalled();
+    const stock = await REFRESH(post({ kind: "stock" }));
+    expect(stock.status).toBe(200);
+    expect((fetchCalls.mock.calls as [string][]).some(([u]) => u.includes("/hs/dash/stock"))).toBe(true);
+    await prisma.onecSyncLog.deleteMany({ where: { kind: "stock", period: asOfDate(currentMonth()) } });
+  });
+
+  it("GitHub алдаа өгвөл 502 (токенгүй мессеж), түрээс суллагдсан тул дахин оролдож болно", async () => {
+    ghStatus = 500;
+    as("DIRECTOR");
+    const res = await REFRESH(post({ kind: "month", month: currentMonth() }));
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).not.toMatch(/github_pat|token/i);
+    ghStatus = 204;
+    expect((await (await REFRESH(post({ kind: "month", month: currentMonth() }))).json()).status).toBe("dispatched");
+  });
+});

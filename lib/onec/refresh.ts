@@ -115,7 +115,7 @@ export type MonthRefresh =
   | { status: "busy" };
 
 /** Асуусан төрлүүдийн (таб бүр өөрийнхөөрөө) хамгийн хуучин сүүлийн оролдлогын нас (ms). Нэг нь ч татагдаагүй бол Infinity. */
-async function monthAgeMs(month: string, now: number, kinds: readonly MonthKind[]): Promise<number> {
+export async function monthAgeMs(month: string, now: number, kinds: readonly MonthKind[]): Promise<number> {
   let oldest = Infinity;
   for (const kind of kinds) {
     const last = await lastAttempt(kind, month);

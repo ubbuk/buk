@@ -75,25 +75,8 @@ export async function startReceivablesRefresh(asOf: string, schedule: (job: () =
   const startedAt = new Date(now());
   try {
     schedule(async () => {
-      const failed: string[] = [];
-      let total = 0;
       try {
-        for (const code of STAGES) {
-          try {
-            const rows = await fetchStage(asOf, code);
-            if (rows) {
-              await writeStage(asOf, code, rows);
-              total += rows.length;
-            }
-          } catch {
-            failed.push(code); // нэг данс алдаа гарсан ч бусдыг үргэлжлүүлнэ; хуучин мөр хэвээр
-          }
-          await renewLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK).catch(() => {});
-        }
-        const secs = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
-        await prisma.onecSyncLog.create({
-          data: { kind: RECEIVABLES_LOG_KIND, period: asOf, rows: total, ok: failed.length === 0, message: failed.length ? `Татаж чадаагүй данс: ${failed.join(", ")}` : `${secs}s`, startedAt },
-        });
+        await syncReceivablesSnapshot(asOf, () => renewLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK).catch(() => {}));
       } finally {
         await releaseLock(holder, RECEIVABLES_LOCK).catch(() => {});
       }
@@ -105,7 +88,46 @@ export async function startReceivablesRefresh(asOf: string, schedule: (job: () =
   return { status: "started", startedAt: startedAt.toISOString() };
 }
 
-export async function receivablesState(asOf: string): Promise<{ refreshing: boolean; lastAttemptOk: boolean | null }> {
+/**
+ * Агшин зургийн ажил (дансуудыг дарааллаар татаж Postgres руу бичнэ, дуусмагц onec_sync_log-д тэмдэглэнэ). Нэг данс алдаа гарсан ч
+ * бусдыг үргэлжлүүлнэ; алдаатай дансны хуучин мөр хэвээр. Vercel-ийн route биш GitHub Actions (scripts/sync-1c.ts) дээр ажиллана;
+ * Vercel-ээс гадуур (dev, staging) startReceivablesRefresh-ээр ар талд ажиллана. `renew`: түрээсийг сунгана.
+ */
+export async function syncReceivablesSnapshot(asOf: string, renew: () => Promise<void> = async () => {}): Promise<{ ok: boolean; rows: number; failed: string[] }> {
+  const startedAt = new Date();
+  const failed: string[] = [];
+  let total = 0;
+  for (const code of STAGES) {
+    try {
+      const rows = await fetchStage(asOf, code);
+      if (rows) {
+        await writeStage(asOf, code, rows);
+        total += rows.length;
+      }
+    } catch {
+      failed.push(code);
+    }
+    await renew();
+  }
+  const secs = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
+  await prisma.onecSyncLog.create({
+    data: { kind: RECEIVABLES_LOG_KIND, period: asOf, rows: total, ok: failed.length === 0, message: failed.length ? `Татаж чадаагүй данс: ${failed.join(", ")}` : `${secs}s`, startedAt },
+  });
+  return { ok: failed.length === 0, rows: total, failed };
+}
+
+/** Агшин зургийн ажлыг түрээстэй (өөр ажилтай зэрэг ажиллахгүй) ажиллуулна: GitHub Actions-ийн CLI. Түрээс завгүй бол null. */
+export async function syncReceivablesSnapshotLocked(asOf: string): Promise<{ ok: boolean; rows: number; failed: string[] } | null> {
+  const holder = randomUUID();
+  if (!(await acquireLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK))) return null;
+  try {
+    return await syncReceivablesSnapshot(asOf, () => renewLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK).catch(() => {}));
+  } finally {
+    await releaseLock(holder, RECEIVABLES_LOCK).catch(() => {});
+  }
+}
+
+export async function receivablesState(asOf: string): Promise<{ refreshing: boolean; lastAttemptOk: boolean | null; lastAttemptAt: string | null }> {
   const [refreshing, last] = await Promise.all([isLocked(RECEIVABLES_LOCK), lastAttempt(RECEIVABLES_LOG_KIND, asOf)]);
-  return { refreshing, lastAttemptOk: last ? last.ok : null };
+  return { refreshing, lastAttemptOk: last ? last.ok : null, lastAttemptAt: last ? last.at.toISOString() : null };
 }

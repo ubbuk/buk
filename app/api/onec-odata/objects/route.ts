@@ -10,6 +10,8 @@ import { loadViewer } from "@/lib/onec-odata/viewer";
 import { listObjects } from "@/lib/onec-odata/service";
 
 export const dynamic = "force-dynamic";
+// 1С OData дуудлага бүр 30 сек хүртэл (lib/onec-odata/config.ts), Vercel-ийн анхдагч хязгаараас хамаарахгүй
+export const maxDuration = 60;
 
 export async function GET() {
   const session = await getServerSession(authOptions);

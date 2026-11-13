@@ -12,11 +12,15 @@ import { authOptions } from "@/lib/auth";
 import { requireFinanceAccess } from "@/lib/onec/access";
 import { asOfDate, currentMonth, isMonth } from "@/lib/onec/dates";
 import { refreshStock, startMonthRefresh } from "@/lib/onec/refresh";
+import { DispatchError, heavyRefreshMode } from "@/lib/github-dispatch";
+import { requestHeavyRefresh } from "@/lib/onec/refresh-dispatch";
 import { startReceivablesRefresh } from "@/lib/onec/receivables-store";
 
 export const dynamic = "force-dynamic";
+// Агуулахын шууд татаалт (1С 10 сек + бичилт) ба GitHub Actions-ийг дуудах хүсэлт; хүнд татаалт энд ажиллахгүй (Vercel дээр)
+export const maxDuration = 60;
 
-const bodySchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("stock"), month: z.string().optional() }), z.object({ kind: z.enum(["month", "receivables"]), month: z.string().optional(), kinds: z.array(z.enum(["sales", "pl", "cash"])).min(1).max(3).optional() })]);
+const bodySchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("stock"), month: z.string().optional() }), z.object({ kind: z.enum(["month", "receivables"]), month: z.string().optional(), kinds: z.array(z.enum(["sales", "pl", "cash"])).min(1).max(3).optional(), auto: z.boolean().optional() })]);
 
 // Хариуны дараа ажиллуулна (Vercel дээр ч үргэлжилнэ); request scope-оос гадуур бол шууд эхлүүлнэ
 const schedule = (job: () => Promise<void>) => {
@@ -44,6 +48,15 @@ export const POST = withTiming("POST /api/dashboard/refresh", async (req: Reques
 
   if (parsed.data.kind === "stock") {
     return NextResponse.json(await refreshStock({ date: asOfDate(month) }), { headers: { "Cache-Control": "no-store" } });
+  }
+  // Vercel: хүнд татаалт (сар, авлагын агшин зураг) route дотор биш GitHub Actions дээр (workflow_dispatch). Агуулах дээрх шиг шууд биш.
+  if (heavyRefreshMode() !== "inline") {
+    try {
+      return NextResponse.json(await requestHeavyRefresh({ kind: parsed.data.kind, month, kinds: parsed.data.kinds, auto: parsed.data.auto }), { headers: { "Cache-Control": "no-store" } });
+    } catch (e) {
+      if (e instanceof DispatchError) return NextResponse.json({ error: "GitHub Actions-ийг дуудаж чадсангүй. Хуваарийн дагуу 15 минутын дотор шинэчлэгдэнэ." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+      throw e;
+    }
   }
   if (parsed.data.kind === "receivables") {
     // Агшин зургийг ар талд шинэчилнэ (Balance 10-110 сек); хуудас Postgres-оос шууд харуулсаар байна

@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 const TZ = "Asia/Ulaanbaatar";
 const POLL_MS = 3000;
 const POLL_MAX_MS = 6 * 60_000;
+// GitHub Actions: дараалалд орж, эхэлж (~1 мин), татаж (1-3 мин) дуусна
+const POLL_ACTIONS_MAX_MS = 10 * 60_000;
 const DONE_VISIBLE_MS = 6000;
 
 /** "14:05" (Улаанбаатарын цагаар) */
@@ -113,16 +115,24 @@ export function StockRefreshNote({ phase, lastSyncedAt }: { phase: StockPhase; l
 // ---- борлуулалт, мөнгөн хөрөнгө: ар талд ----
 
 export type MonthKind = "sales" | "pl" | "cash";
-export type MonthPhase = "idle" | "starting" | "running" | "done" | "failed" | "recent" | "error";
+export type MonthPhase = "idle" | "starting" | "running" | "done" | "failed" | "recent" | "error" | "unavailable" | "slow";
 
 interface SyncStatus {
   running: boolean;
   month: { kinds: Record<string, { at: string; ok: boolean } | null>; lastSyncedAt: string | null };
 }
 
+type RefreshResponse =
+  | { status: "started" | "recent" | "busy"; retryAfterSeconds?: number; via?: "actions" }
+  /** Vercel: GitHub Actions-д өгсөн (lib/onec/refresh-dispatch.ts) */
+  | { status: "dispatched"; dispatchedAt: string }
+  | { status: "scheduled" | "unavailable" };
+
 /**
  * Энэ сар хуучирсан (5 минутаас илүү) бол ар талд татаж эхэлнэ; хэрэглэгч хүлээхгүй. Дуусмагц onDone() (хуудас дахин ачаална).
  * kind "receivables": Авлагын агшин зургийг (Balance 10-110 сек) ар талд шинэчилнэ; дууссаныг авлагын төлвөөр шалгана.
+ * Vercel дээр хүнд татаалт GitHub Actions дээр ажиллана: сервер «dispatched» гэж хариулж, дуусахыг onec_sync_log-ийн шинэ бичлэгээр
+ * (since-ээс хойших) мэднэ. Автоматаар (хуудас нээгдэхэд) дуудахгүй: одоогийн сарыг workflow-ийн 15 минутын хуваарь шинэчилнэ.
  * `refresh()` нь «Одоо шинэчлэх» товч: сервер мөн адил 5 минутын хязгаарыг дагана.
  */
 export function useMonthRefresh(month: string, onDone: () => void, kind: "month" | "receivables" = "month", kinds?: readonly MonthKind[]) {
@@ -140,21 +150,21 @@ export function useMonthRefresh(month: string, onDone: () => void, kind: "month"
     };
   }, []);
 
-  const poll = useCallback(async (m: string) => {
+  const poll = useCallback(async (m: string, since?: number) => {
     if (polling.current) return;
     polling.current = true;
     const started = Date.now();
     let seen: string | null | undefined;
     try {
-      while (alive.current && Date.now() - started < POLL_MAX_MS) {
+      while (alive.current && Date.now() - started < (since === undefined ? POLL_MAX_MS : POLL_ACTIONS_MAX_MS)) {
         await new Promise((r) => setTimeout(r, POLL_MS));
         if (!alive.current) return;
         let failed: boolean;
         if (kind === "receivables") {
           const res = await fetch(`/api/dashboard/receivables?month=${m}`).catch(() => null);
           if (!res?.ok) continue;
-          const s = (await res.json()) as { refreshing: boolean; lastAttemptOk: boolean | null; lastSyncedAt: string | null };
-          if (s.refreshing) {
+          const s = (await res.json()) as { refreshing: boolean; lastAttemptOk: boolean | null; lastAttemptAt: string | null; lastSyncedAt: string | null };
+          if (since !== undefined ? !s.lastAttemptAt || Date.parse(s.lastAttemptAt) <= since : s.refreshing) {
             // Данс бүр дуусах бүрд хуудас шинэчлэгдэнэ: 1201 (~10 сек) ирмэгц харагдана, удаан НӨАТ-ын данс дараа нь
             if (seen !== undefined && s.lastSyncedAt !== seen) cb.current();
             seen = s.lastSyncedAt;
@@ -165,15 +175,16 @@ export function useMonthRefresh(month: string, onDone: () => void, kind: "month"
           const res = await fetch(`/api/dashboard/sync-status?month=${m}`).catch(() => null);
           if (!res?.ok) continue;
           const s = (await res.json()) as SyncStatus;
-          if (s.running) continue;
-          failed = Object.entries(s.month.kinds).some(([name, k]) => (!kinds || kinds.includes(name as MonthKind)) && (!k || !k.ok));
+          const mine = Object.entries(s.month.kinds).filter(([name]) => !kinds || kinds.includes(name as MonthKind));
+          if (since !== undefined ? mine.some(([, k]) => !k || Date.parse(k.at) <= since) : s.running) continue; // Actions: хүссэн төрөл бүр since-ээс хойш бүртгэгдтэл
+          failed = mine.some(([, k]) => !k || !k.ok);
         }
         cb.current(); // хуудсыг шинэ өгөгдлөөр дахин ачаална
         setPhase(failed ? "failed" : "done");
         if (!failed) setTimeout(() => alive.current && setPhase((p) => (p === "done" ? "idle" : p)), DONE_VISIBLE_MS);
         return;
       }
-      if (alive.current) setPhase("error");
+      if (alive.current) setPhase(since === undefined ? "error" : "slow");
     } finally {
       polling.current = false;
     }
@@ -183,13 +194,20 @@ export function useMonthRefresh(month: string, onDone: () => void, kind: "month"
     async (manual: boolean) => {
       setPhase("starting");
       try {
-        const r = await postRefresh<{ status: "started" | "recent" | "busy"; retryAfterSeconds?: number }>({ kind, month, ...(kinds ? { kinds } : {}) });
+        const r = await postRefresh<RefreshResponse>({ kind, month, ...(kinds ? { kinds } : {}), ...(manual ? {} : { auto: true }) });
         if (!alive.current) return;
-        if (r.status === "started" || r.status === "busy") {
+        if (r.status === "dispatched") {
+          setPhase("running");
+          void poll(month, Date.parse(r.dispatchedAt) - 2000); // цагийн бага зөрүү
+        } else if (r.status === "scheduled") {
+          setPhase("idle"); // Vercel: одоогийн сарыг workflow-ийн хуваарь шинэчилнэ
+        } else if (r.status === "unavailable") {
+          setPhase(manual ? "unavailable" : "idle");
+        } else if (r.status === "started" || r.status === "busy") {
           setPhase("running"); // «busy»: өөр хүн эхлүүлсэн таталт явж байна, дууссаныг мөн хүлээнэ
-          void poll(month);
+          void poll(month, "via" in r && r.via === "actions" ? Date.now() - 5 * 60_000 : undefined);
         } else {
-          setRetryAt(Date.now() + (r.retryAfterSeconds ?? 0) * 1000);
+          setRetryAt(Date.now() + ("retryAfterSeconds" in r ? r.retryAfterSeconds ?? 0 : 0) * 1000);
           setPhase(manual ? "recent" : "idle"); // автомат: шинэхэн бол чимээгүй; товчоор: хэзээ дахин боломжтойг хэлнэ
         }
       } catch {
@@ -249,6 +267,20 @@ export function MonthRefreshNote({ phase, retryAt }: { phase: MonthPhase; retryA
     return (
       <Note tone="warning" icon={<CloudOff className="size-4" />}>
         1С-ээс зарим өгөгдлийг татаж чадсангүй. Сүүлд хадгалсан өгөгдлийг харуулж байна.
+      </Note>
+    );
+  }
+  if (phase === "unavailable") {
+    return (
+      <Note tone="muted" icon={<RefreshCw className="size-4" />}>
+        Энэ мэдээлэл 15 минут тутам автоматаар шинэчлэгддэг. Товчоор шинэчлэх боломжгүй байна.
+      </Note>
+    );
+  }
+  if (phase === "slow") {
+    return (
+      <Note tone="warning" icon={<CloudOff className="size-4" />}>
+        Татаалт эхэлсэн боловч удаж байна. Дуусмагц хуудсыг дахин нээхэд шинэ өгөгдөл харагдана.
       </Note>
     );
   }

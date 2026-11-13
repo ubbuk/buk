@@ -9,6 +9,8 @@ import { OdataError } from "@/lib/onec/odata-read";
 import { loadUsage } from "@/lib/onec/usage";
 
 export const dynamic = "force-dynamic";
+// 1С OData дуудлага бүр 30 сек хүртэл (lib/onec-odata/config.ts), Vercel-ийн анхдагч хязгаараас хамаарахгүй
+export const maxDuration = 60;
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export const GET = withTiming("GET /api/dashboard/usage", async (req: Request) => {

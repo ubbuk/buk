@@ -87,11 +87,22 @@ export interface FetchOpts {
   retries?: number;
 }
 
+/**
+ * Анхдагч timeout, оролдлого. sync (CLI, GitHub Actions) дээр 1С удаан тул 5 минут × 3 оролдлого (ONEC_TIMEOUT_MS-ээр өөрчилнө).
+ * Vercel дээр функц хэдэн секундээр хязгаартай тул 60 сек × 1 оролдлого (ONEC_TIMEOUT_MS нь 60 сек-ээс хэтэрч болохгүй).
+ */
+export function defaultFetchOpts(env: Record<string, string | undefined> = process.env): Required<FetchOpts> {
+  const configured = Number(env.ONEC_TIMEOUT_MS);
+  if (env.VERCEL) return { timeoutMs: configured > 0 ? Math.min(configured, 60_000) : 60_000, retries: 1 }; // функцийн maxDuration (60 сек)-ээс хэтрэхгүй
+  return { timeoutMs: configured > 0 ? configured : 300_000, retries: 3 };
+}
+
 async function getRows<T>(path: string, params: Record<string, string>, opts: FetchOpts = {}): Promise<T[]> {
   const base = env("ONEC_BASE_URL").replace(/\/+$/, "");
   const url = `${base}${path}?${new URLSearchParams(params)}`;
-  const timeoutMs = opts.timeoutMs ?? Number(process.env.ONEC_TIMEOUT_MS ?? 300_000); // 1С удаан тул 5 мин
-  const retries = opts.retries ?? 3;
+  const defaults = defaultFetchOpts();
+  const timeoutMs = opts.timeoutMs ?? defaults.timeoutMs;
+  const retries = opts.retries ?? defaults.retries;
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {

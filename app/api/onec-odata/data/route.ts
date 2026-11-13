@@ -14,6 +14,8 @@ import { queryObject, resolveObject } from "@/lib/onec-odata/service";
 import { loadViewer } from "@/lib/onec-odata/viewer";
 
 export const dynamic = "force-dynamic";
+// 1С OData дуудлага бүр 30 сек хүртэл (lib/onec-odata/config.ts), Vercel-ийн анхдагч хязгаараас хамаарахгүй
+export const maxDuration = 60;
 
 const int = (v: string | null) => (v !== null && /^\d{1,6}$/.test(v) ? Number(v) : undefined);
 
