@@ -8,7 +8,7 @@ const MONTH = "2031-03";
 const OTHER_MONTH = "2031-04";
 const ENV = { ONEC_BASE_URL: "http://1c.test/base", ONEC_USER: "svc", ONEC_PASSWORD: "pw" };
 
-type Mode = "ok" | "fail" | "timeout" | "empty" | "cash-fails";
+type Mode = "ok" | "fail" | "timeout" | "empty" | "pl-fails";
 let mode: Mode = "ok";
 const calls: { url: string; init: RequestInit }[] = [];
 
@@ -22,7 +22,7 @@ const respond = (url: string): Response => {
   if (mode === "fail") return new Response("1С алдаа", { status: 500 });
   const rows = mode === "empty" ? [] : url.includes("/stock") ? [stockRow] : url.includes("/sales") ? [salesRow] : url.includes("/pl") ? [plRow] : [cashRow];
   // 401 is not retried by the client (the sync backs off 5 s / 10 s on other errors): keeps the test fast
-  if (mode === "cash-fails" && url.includes("/cash")) return new Response("no", { status: 401 });
+  if (mode === "pl-fails" && url.includes("/pl")) return new Response("no", { status: 401 });
   return new Response(JSON.stringify({ rows, count: rows.length, generated: "x" }), { status: 200 });
 };
 
@@ -147,8 +147,8 @@ describe("stock: refreshed from 1С on page open", () => {
   });
 });
 
-describe("month (sales, P&L, cash): refreshed in the background", () => {
-  it("starts when never pulled: returns at once, does the work later, one job at a time, three sequential reads", async () => {
+describe("month (sales, P&L): refreshed in the background; cash is no longer pulled from the 1С HTTP service", () => {
+  it("starts when never pulled: returns at once, does the work later, one job at a time, two sequential reads, none for cash (the tab reads OData now)", async () => {
     const s = scheduler();
     const r = await startMonthRefresh(MONTH, s.schedule);
     expect(r.status).toBe("started");
@@ -156,23 +156,23 @@ describe("month (sales, P&L, cash): refreshed in the background", () => {
     expect(dataCalls()).toHaveLength(0); // the caller did not wait for 1С
     expect(await isLocked()).toBe(true); // the lock is taken before the answer, so no second job can start
     await s.runAll();
-    expect(dataCalls().map((c) => c.url.match(/\/hs\/dash\/(\w+)/)![1])).toEqual(["sales", "pl", "cash"]);
-    expect(await monthRows()).toEqual({ sales: 1, pl: 1, cash: 1 });
+    expect(dataCalls().map((c) => c.url.match(/\/hs\/dash\/(\w+)/)![1])).toEqual(["sales", "pl"]);
+    expect(await monthRows()).toEqual({ sales: 1, pl: 1, cash: 0 });
     expect(await isLocked()).toBe(false);
     for (const c of calls) expect(c.init.method ?? "GET").toBe("GET");
   });
 
-  it("only the kinds the open tab needs are pulled (Expenses: P&L only, Cash: cash only); the 5 minute limit follows the same kinds", async () => {
+  it("only the kinds the open tab needs are pulled (Expenses: P&L only, Sales: sales + P&L); the 5 minute limit follows the same kinds", async () => {
     const s = scheduler();
     expect((await startMonthRefresh(MONTH, s.schedule, undefined, ["pl"])).status).toBe("started");
     await s.runAll();
     expect(dataCalls().map((c) => c.url.match(/\/hs\/dash\/(\w+)/)![1])).toEqual(["pl"]);
     expect(await monthRows()).toEqual({ sales: 0, pl: 1, cash: 0 });
-    // P&L is fresh, cash was never pulled: the Cash tab may start its own pull right away
+    // P&L is fresh, sales was never pulled: the Sales tab may start its own pull right away
     expect((await startMonthRefresh(MONTH, s.schedule, undefined, ["pl"])).status).toBe("recent");
-    expect((await startMonthRefresh(MONTH, s.schedule, undefined, ["cash"])).status).toBe("started");
+    expect((await startMonthRefresh(MONTH, s.schedule, undefined, ["sales"])).status).toBe("started");
     await s.runAll();
-    expect(await monthRows()).toEqual({ sales: 0, pl: 1, cash: 1 });
+    expect(await monthRows()).toEqual({ sales: 1, pl: 1, cash: 0 });
   });
 
   it("does nothing while the data is under 5 minutes old, and says when it may be asked again (the button follows the same limit)", async () => {
@@ -186,7 +186,7 @@ describe("month (sales, P&L, cash): refreshed in the background", () => {
       expect(again.retryAfterSeconds).toBeLessThanOrEqual(300);
     }
     expect(s.pending()).toBe(0);
-    expect(dataCalls()).toHaveLength(3);
+    expect(dataCalls()).toHaveLength(2);
     // 4m59s: still fresh; 5m01s: stale again
     expect((await startMonthRefresh(MONTH, s.schedule, () => Date.now() + MONTH_STALE_MS - 1_000)).status).toBe("recent");
     expect((await startMonthRefresh(MONTH, s.schedule, () => Date.now() + MONTH_STALE_MS + 1_000)).status).toBe("started");
@@ -199,7 +199,7 @@ describe("month (sales, P&L, cash): refreshed in the background", () => {
     expect(results.filter((r) => r.status !== "started").every((r) => r.status === "busy" || r.status === "recent")).toBe(true);
     expect(s.pending()).toBe(1);
     await s.runAll();
-    expect(dataCalls()).toHaveLength(3);
+    expect(dataCalls()).toHaveLength(2);
   });
 
   it("a job running for one month blocks another month too (one pull at a time overall)", async () => {
@@ -210,17 +210,16 @@ describe("month (sales, P&L, cash): refreshed in the background", () => {
   });
 
   it("one failing source does not stop the others; the lock is released; the status says which one failed", async () => {
-    mode = "cash-fails";
+    mode = "pl-fails";
     const s = scheduler();
     await startMonthRefresh(MONTH, s.schedule);
     await s.runAll();
-    expect(await monthRows()).toEqual({ sales: 1, pl: 1, cash: 0 });
+    expect(await monthRows()).toEqual({ sales: 1, pl: 0, cash: 0 });
     expect(await isLocked()).toBe(false);
     const status = await getSyncStatus(MONTH);
     expect(status.running).toBe(false);
     expect(status.month.kinds.sales?.ok).toBe(true);
-    expect(status.month.kinds.pl?.ok).toBe(true);
-    expect(status.month.kinds.cash?.ok).toBe(false);
+    expect(status.month.kinds.pl?.ok).toBe(false);
     expect(status.month.lastSyncedAt).toBeTruthy();
     // the failed attempt counts too: not retried at once
     expect((await startMonthRefresh(MONTH, s.schedule)).status).toBe("recent");

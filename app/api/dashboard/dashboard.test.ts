@@ -98,7 +98,7 @@ const ROUTES = {
   expenses: () => EXPENSES(get(`/api/dashboard/expenses?month=${MONTH}`)),
   yearSales: () => YEAR(get(`/api/dashboard/year?tab=sales&year=${YR}`)),
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
-  cash: () => CASH(get(`/api/dashboard/cash?month=${MONTH}`)),
+  cash: () => CASH(get(`/api/dashboard/cash?month=${currentMonth()}`)),
   syncStatus: () => SYNC_STATUS(get(`/api/dashboard/sync-status?month=${MONTH}`)),
   refreshStock: () => REFRESH(post({ kind: "stock" })),
   refreshMonth: () => REFRESH(post({ kind: "month", month: MONTH })),
@@ -421,13 +421,13 @@ describe("/api/dashboard/refresh: Vercel дээр хүнд татаалт GitHub
 
   it("«Шинэчлэх» (сар): GitHub-ийг нэг удаа дуудаж «dispatched» буцаана, 1С-д route-оос огт хандахгүй; давхар товшилт «busy»", async () => {
     as("DIRECTOR");
-    const r = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["cash"] }))).json();
+    const r = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["pl"] }))).json();
     expect(r.status).toBe("dispatched");
     expect(Date.parse(r.dispatchedAt)).toBeGreaterThan(Date.now() - 5000);
     expect(github).toHaveBeenCalledTimes(1);
     expect(body()).toEqual({ ref: "main", inputs: { mode: "month", month: currentMonth() } });
     expect(oneCCalls()).toHaveLength(0);
-    const again = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["cash"] }))).json();
+    const again = await (await REFRESH(post({ kind: "month", month: currentMonth(), kinds: ["pl"] }))).json();
     expect(again).toEqual({ status: "busy", via: "actions" });
     expect(github).toHaveBeenCalledTimes(1);
   });
@@ -449,7 +449,7 @@ describe("/api/dashboard/refresh: Vercel дээр хүнд татаалт GitHub
   });
 
   it("өгөгдөл шинэхэн (5 минутын дотор татсан) бол «recent», GitHub-д хандахгүй", async () => {
-    await prisma.onecSyncLog.createMany({ data: ["sales", "pl", "cash"].map((kind) => ({ kind, period: currentMonth(), ok: true, startedAt: new Date() })) });
+    await prisma.onecSyncLog.createMany({ data: ["sales", "pl"].map((kind) => ({ kind, period: currentMonth(), ok: true, startedAt: new Date() })) });
     as("DIRECTOR");
     const r = await (await REFRESH(post({ kind: "month", month: currentMonth() }))).json();
     expect(r.status).toBe("recent");

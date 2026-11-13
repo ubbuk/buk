@@ -1,60 +1,31 @@
-// GET /api/dashboard/cash?month=2026-10
-// Мөнгөн хөрөнгийн орлого/зарлага: нийт, данс тус бүрээр, өдрөөр, зүйлээр
+// GET /api/dashboard/cash?month=2026-10[&refresh=1] — сарын мөнгөн хөрөнгө: орлого, зарлага, дотоод шилжүүлэг, эхний/эцсийн үлдэгдэл.
+// 1С-ийн OData-аас шууд (ЗӨВХӨН УНШИХ; AccountingRegister_Хозрасчетный, 11xx данс), 5 минутын cache; 1С холбогдохгүй бол сүүлд хадгалсан
+// (meta.stale). refresh=1 нь cache-ийг тойрно, гэхдээ хамгийн багадаа 60 сек тутамд. Хуучин onec_cash, /hs/dash/cash ашиглагдахгүй.
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess } from "@/lib/onec/access";
-import { currentMonth, isMonth, monthRange } from "@/lib/onec/dates";
+import { loadCash } from "@/lib/onec/cash";
+import { currentMonth, isMonth } from "@/lib/onec/dates";
+import { OdataError } from "@/lib/onec/odata-read";
 
 export const dynamic = "force-dynamic";
+// 1С OData дуудлага бүр хамгийн ихдээ 60 сек (lib/onec/cash.ts)
+export const maxDuration = 60;
+const NO_STORE = { "Cache-Control": "no-store" };
 
 export const GET = withTiming("GET /api/dashboard/cash", async (req: Request) => {
   const denied = await requireFinanceAccess("cash");
   if (denied) return denied;
 
-  const month = new URL(req.url).searchParams.get("month") ?? currentMonth();
-  if (!isMonth(month)) {
-    return NextResponse.json({ error: "month нь YYYY-MM хэлбэртэй байх ёстой" }, { status: 400 });
+  const sp = new URL(req.url).searchParams;
+  const month = sp.get("month") ?? currentMonth();
+  if (!isMonth(month) || month > currentMonth()) return NextResponse.json({ error: "month нь YYYY-MM хэлбэртэй, ирээдүйн сар биш байх ёстой" }, { status: 400, headers: NO_STORE });
+
+  try {
+    const { value, meta } = await loadCash(month, sp.get("refresh") === "1");
+    return NextResponse.json({ ...value, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+  } catch (e) {
+    if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
+    throw e;
   }
-  const { from, to } = monthRange(month);
-
-  const [totals, daily, byAccount, byItem, recent, lastSync] = await Promise.all([
-    prisma.$queryRaw<{ inflow: number; outflow: number; transactions: number; accounts: number }[]>`
-      SELECT coalesce(sum(inflow),0)::float8 AS inflow, coalesce(sum(outflow),0)::float8 AS outflow,
-             count(*)::int AS transactions, count(DISTINCT account)::int AS accounts
-        FROM onec_cash WHERE date BETWEEN ${from}::date AND ${to}::date`,
-    prisma.$queryRaw<{ date: string; inflow: number; outflow: number }[]>`
-      SELECT date::text AS date, sum(inflow)::float8 AS inflow, sum(outflow)::float8 AS outflow
-        FROM onec_cash WHERE date BETWEEN ${from}::date AND ${to}::date
-       GROUP BY date ORDER BY date`,
-    prisma.$queryRaw<{ account: string; inflow: number; outflow: number }[]>`
-      SELECT account, sum(inflow)::float8 AS inflow, sum(outflow)::float8 AS outflow
-        FROM onec_cash WHERE date BETWEEN ${from}::date AND ${to}::date
-       GROUP BY account ORDER BY sum(inflow) + sum(outflow) DESC`,
-    prisma.$queryRaw<{ item: string; inflow: number; outflow: number }[]>`
-      SELECT item, sum(inflow)::float8 AS inflow, sum(outflow)::float8 AS outflow
-        FROM onec_cash WHERE date BETWEEN ${from}::date AND ${to}::date
-       GROUP BY item ORDER BY sum(inflow) + sum(outflow) DESC LIMIT 10`,
-    prisma.$queryRaw<
-      { id: string; date: string; account: string; client: string; item: string; inflow: number; outflow: number; memo: string; doc: string }[]
-    >`
-      SELECT id::text AS id, date::text AS date, account, client, item, inflow::float8 AS inflow, outflow::float8 AS outflow, memo, doc
-        FROM onec_cash WHERE date BETWEEN ${from}::date AND ${to}::date
-       ORDER BY date DESC, id DESC LIMIT 100`,
-    prisma.onecSyncLog.findFirst({
-      where: { ok: true, kind: "cash" },
-      orderBy: { finishedAt: "desc" },
-      select: { finishedAt: true },
-    }),
-  ]);
-
-  return NextResponse.json({
-    month,
-    totals: totals[0],
-    daily,
-    byAccount,
-    byItem,
-    recent,
-    lastSyncedAt: lastSync?.finishedAt ?? null,
-  });
 });

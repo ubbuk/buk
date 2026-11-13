@@ -4,7 +4,7 @@
 //   npm run sync:1c -- stock 2026-10-31         -> тухайн өдрийн үлдэгдэл
 //   npm run sync:1c -- receivables [2026-10-31] -> өнөөдрийн авлагын агшин зураг
 //   npm run sync:1c -- receivables-odata [2026-10 | 2026-10-31] -> «Авлага» табын агшин зураг (OData Balance, ONEC_ODATA_*); сар өгвөл сарын эцэс/өнөөдөр
-//   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L + мөнгөн хөрөнгө
+//   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L
 //   npm run sync:1c -- recent                   -> энэ сар + өмнөх сар
 //   npm run sync:1c -- range 2026-01 2026-10    -> эхний удаа өнгөрсөн саруудыг татах
 //   ... --force                                 -> 1С 0 мөр буцаасан ч солих

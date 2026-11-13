@@ -162,11 +162,11 @@ export function syncReceivables(date = today(), force = false) {
   });
 }
 
-/** Нэг сарын борлуулалт + P&L + мөнгөн хөрөнгө. Нэг нь алдаа гарсан ч бусдыг үргэлжлүүлнэ. */
+/** Нэг сарын борлуулалт + P&L (мөнгөн хөрөнгө одоо OData-аас, lib/onec/cash.ts). Нэг нь алдаа гарсан ч бусдыг үргэлжлүүлнэ. */
 export async function syncMonth(ym: string, force = false): Promise<boolean> {
   // 1С-ийн ачаалал, лицензийн хэрэглээг бууруулахын тулд зэрэг биш, дараалан дуудна
   let ok = true;
-  for (const job of [syncSalesMonth, syncPlMonth, syncCashMonth]) {
+  for (const job of [syncSalesMonth, syncPlMonth]) { // мөнгөн хөрөнгө одоо OData-аас (lib/onec/cash.ts): syncCashMonth ашиглагдахгүй
     try {
       await job(ym, force);
     } catch {

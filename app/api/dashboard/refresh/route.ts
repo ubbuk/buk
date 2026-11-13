@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 // Агуулахын шууд татаалт (1С 10 сек + бичилт) ба GitHub Actions-ийг дуудах хүсэлт; хүнд татаалт энд ажиллахгүй (Vercel дээр)
 export const maxDuration = 60;
 
-const bodySchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("stock"), month: z.string().optional() }), z.object({ kind: z.enum(["month", "receivables"]), month: z.string().optional(), kinds: z.array(z.enum(["sales", "pl", "cash"])).min(1).max(3).optional(), auto: z.boolean().optional() })]);
+const bodySchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("stock"), month: z.string().optional() }), z.object({ kind: z.enum(["month", "receivables"]), month: z.string().optional(), kinds: z.array(z.enum(["sales", "pl"])).min(1).max(2).optional(), auto: z.boolean().optional() })]);
 
 // Хариуны дараа ажиллуулна (Vercel дээр ч үргэлжилнэ); request scope-оос гадуур бол шууд эхлүүлнэ
 const schedule = (job: () => Promise<void>) => {

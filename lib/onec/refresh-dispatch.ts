@@ -18,7 +18,7 @@ export type HeavyResult =
   | { status: "busy"; via: "actions" };
 
 const DISPATCH_LEASE_MS = 5 * 60_000;
-const ALL_KINDS: readonly MonthKind[] = ["sales", "pl", "cash"];
+const ALL_KINDS: readonly MonthKind[] = ["sales", "pl"];
 
 /** Vercel дээр л хэрэглэнэ (heavyRefreshMode() !== "inline") */
 export async function requestHeavyRefresh(opts: { kind: "month" | "receivables"; month: string; kinds?: readonly MonthKind[]; auto?: boolean }, now: () => number = Date.now): Promise<HeavyResult> {

@@ -114,7 +114,7 @@ export function StockRefreshNote({ phase, lastSyncedAt }: { phase: StockPhase; l
 
 // ---- борлуулалт, мөнгөн хөрөнгө: ар талд ----
 
-export type MonthKind = "sales" | "pl" | "cash";
+export type MonthKind = "sales" | "pl";
 export type MonthPhase = "idle" | "starting" | "running" | "done" | "failed" | "recent" | "error" | "unavailable" | "slow";
 
 interface SyncStatus {

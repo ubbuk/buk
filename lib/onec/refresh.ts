@@ -9,7 +9,7 @@
 //    хаалт өөрөө суллагдана. Хаалт дотор хязгаарыг дахин шалгана (хоёр хүсэлт зэрэг ирвэл нэг нь л татна).
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { syncCashMonth, syncPlMonth, syncSalesMonth, syncStock, today } from "./sync";
+import { syncPlMonth, syncSalesMonth, syncStock, today } from "./sync";
 
 export const STOCK_MIN_INTERVAL_MS = 60_000;
 export const STOCK_TIMEOUT_MS = 10_000;
@@ -17,9 +17,10 @@ export const MONTH_STALE_MS = 5 * 60_000;
 const STOCK_LOCK_TTL_MS = 60_000; // 10 сек таталт + DB-д бичих
 const MONTH_LOCK_TTL_MS = 15 * 60_000; // борлуулалт ~1 мин, мөнгөн хөрөнгө ~30 сек; ажил хооронд сунгана
 const LOCK_NAME = "onec-sync";
-const MONTH_KINDS = ["sales", "pl", "cash"] as const;
+// «cash» (1С /hs/dash/cash, onec_cash) одоо ашиглагдахгүй: Мөнгөн хөрөнгө таб OData-аас (lib/onec/cash.ts). syncCashMonth код хэвээр.
+const MONTH_KINDS = ["sales", "pl"] as const;
 export type MonthKind = (typeof MONTH_KINDS)[number];
-const MONTH_JOBS = { sales: syncSalesMonth, pl: syncPlMonth, cash: syncCashMonth } as const;
+const MONTH_JOBS = { sales: syncSalesMonth, pl: syncPlMonth } as const;
 
 // ---- хаалт (lease) ----
 
@@ -128,7 +129,7 @@ export async function monthAgeMs(month: string, now: number, kinds: readonly Mon
 /**
  * Сарыг ар талд татах ажлыг эхлүүлнэ (хэрэглэгчийг хүлээлгэхгүй). `schedule` нь ажлыг хариуны дараа ажиллуулна
  * (route: next/server `after`). Ажил дуусмагц эсвэл алдаа гарахад хаалтыг заавал суллана.
- * `kinds`: зөвхөн нээлттэй табд хэрэгтэй төрлүүдийг татна (Борлуулалт: sales+pl, Зардал: pl, Мөнгөн хөрөнгө: cash); анхдагч нь гурвууланг.
+ * `kinds`: зөвхөн нээлттэй табд хэрэгтэй төрлүүдийг татна (Борлуулалт: sales+pl, Зардал: pl); анхдагч нь хоёуланг.
  */
 export async function startMonthRefresh(
   month: string,
@@ -187,14 +188,13 @@ export interface SyncStatus {
 }
 
 export async function getSyncStatus(month: string): Promise<SyncStatus> {
-  const [running, stock, salesPl, cash, ...attempts] = await Promise.all([
+  const [running, stock, salesPl, ...attempts] = await Promise.all([
     isLocked(),
     lastSuccess(["stock"]),
     lastSuccess(["sales", "pl"]),
-    lastSuccess(["cash"]),
     ...MONTH_KINDS.map((k) => lastAttempt(k, month)),
   ]);
   const kinds = Object.fromEntries(MONTH_KINDS.map((k, i) => [k, attempts[i] ? { at: attempts[i]!.at.toISOString(), ok: attempts[i]!.ok } : null])) as SyncStatus["month"]["kinds"];
-  const newest = [salesPl, cash].filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0];
+  const newest = salesPl;
   return { running, stock: { lastSyncedAt: stock?.toISOString() ?? null }, month: { month, kinds, lastSyncedAt: newest?.toISOString() ?? null } };
 }

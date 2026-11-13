@@ -2,8 +2,8 @@
 # Алдааг GitHub-ийн анхааруулга (warning) болгон харуулна; дэлгэрэнгүй нь ERP-ийн onec_sync_log хүснэгтэд.
 #
 # Хуваарь нь UTC: Улаанбаатар = UTC+8.
-#   "*/15 1-11 * * 1-6" → 09:00–19:59 УБ, Даваа–Бямба: 15 минут тутам stock, receivables, current (sales, pl, cash),
-#                          receivables-odata («Авлага» табын агшин зураг, OData Balance)
+#   "*/15 1-11 * * 1-6" → 09:00–19:59 УБ, Даваа–Бямба: 15 минут тутам stock, receivables, current (sales, pl),
+#                          receivables-odata («Авлага» табын агшин зураг, OData Balance). Мөнгөн хөрөнгө (cash) энд татагдахгүй: OData-аас шууд.
 #   "0 2 1-3 * *"       → сарын 1–3-ны 10:00 УБ: өмнөх сар + энэ сар (өмнөх сарыг эцэслэх)
 # Хүнд татаалт (сар, авлагын агшин зураг) Vercel-ийн route дээр биш ЭНД ажиллана: ERP-ийн «Шинэчлэх» товч workflow_dispatch-ыг
 # GitHub API-аар дуудна (mode=month | receivables, month=YYYY-MM; lib/github-dispatch.ts). Ажил дуусахад onec_sync_log-д бүртгэгдэж,
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl+cash); receivables = нэг өдрийн авлагын агшин зураг"
+        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг"
         type: choice
         options: [regular, recent, backfill, month, receivables]
         default: regular
