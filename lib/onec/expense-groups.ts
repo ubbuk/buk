@@ -6,6 +6,7 @@ const LABELS: Record<string, string> = {
   admin: "Удирдлагын зардал",
   selling: "Борлуулалтын зардал",
   finance: "Санхүүгийн зардал",
+  tax: "Татвар",
   other: "Бусад",
 };
 

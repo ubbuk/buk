@@ -18,7 +18,7 @@ const SALES_KINDS = ["sales", "pl"] as const;
 
 interface Summary {
   month: string;
-  kpi: { revenue: number; cost: number; gross_profit: number; documents: number; clients: number };
+  kpi: { revenue: number; cost: number; cost_documents: number; cost_requisitions: number; gross_profit: number; documents: number; clients: number };
   daily: { date: string; revenue: number; gross_profit: number }[];
   topItems: { item_code: string; item: string; qty: number; revenue: number; gross_profit: number }[];
   topClients: { client_code: string; client: string; revenue: number }[];
@@ -82,6 +82,33 @@ export default function SalesPage() {
                   </>
                 ) : null}
               </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Борлуулалтын өртгийн задаргаа</CardTitle>
+                  <span className="text-xs text-text-muted">Нийт өртөг, бохир ашиг өөрчлөгдөхгүй</span>
+                </CardHeader>
+                <CardBody>
+                  {data ? (
+                    <dl className="grid gap-2 text-sm sm:max-w-xl">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt className="text-text-muted">Борлуулсан барааны өртөг (баримтаар)</dt>
+                        <dd className="tabular-nums text-text">{money(data.kpi.cost_documents)}</dd>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt className="text-text-muted">Шаардах хуудсаар шууд өртөгт бичсэн</dt>
+                        <dd className="tabular-nums text-text">{money(data.kpi.cost_requisitions)}</dd>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4 border-t border-border pt-2">
+                        <dt className="font-medium text-text">Борлуулалтын өртөг (нийт)</dt>
+                        <dd className="tabular-nums font-medium text-text">{money(data.kpi.cost)}</dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <Skeleton className="h-20" />
+                  )}
+                </CardBody>
+              </Card>
 
               <Card>
                 <CardHeader>

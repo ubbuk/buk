@@ -20,9 +20,12 @@ export const GET = withTiming("GET /api/dashboard/summary", async (req: Request)
 
   const [kpi, daily, topItems, topClients, pl, lastSync] = await Promise.all([
     prisma.$queryRaw<
-      { revenue: number; cost: number; gross_profit: number; documents: number; clients: number }[]
+      { revenue: number; cost: number; cost_documents: number; cost_requisitions: number; gross_profit: number; documents: number; clients: number }[]
     >`SELECT coalesce(sum(amount),0)::float8        AS revenue,
              coalesce(sum(cost),0)::float8          AS cost,
+             -- Өртгийн задаргаа (нийт өртөг өөрчлөгдөхгүй): борлуулалтын баримтаар ба шаардах хуудсаар шууд өртөгт (6101) бичсэн (орлогогүй, row_type cost_only)
+             coalesce(sum(cost) FILTER (WHERE row_type <> 'cost_only'),0)::float8 AS cost_documents,
+             coalesce(sum(cost) FILTER (WHERE row_type = 'cost_only'),0)::float8  AS cost_requisitions,
              coalesce(sum(amount - cost),0)::float8 AS gross_profit,
              count(DISTINCT doc)::int               AS documents,
              count(DISTINCT client_code)::int       AS clients

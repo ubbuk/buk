@@ -18,7 +18,8 @@
     "sync:1c": "tsx --env-file=.env scripts/sync-1c.ts",
     "onec:objects": "tsx --env-file=.env scripts/onec-odata-objects.ts",
     "onec:labels-doc": "tsx scripts/gen-onec-labels-doc.ts",
-    "onec:cash-check": "tsx --env-file=.env scripts/onec-cash-check.ts"
+    "onec:cash-check": "tsx --env-file=.env scripts/onec-cash-check.ts",
+    "onec:reconcile": "tsx --env-file=.env scripts/onec-reconcile.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",

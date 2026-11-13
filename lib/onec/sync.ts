@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fetchCash, fetchPl, fetchReceivables, fetchSales, fetchStock, type FetchOpts } from "./client";
+import { fetchPlTaxRows, odataConfigured } from "./pl-tax";
 import { addMonths, currentMonth, isDate, isMonth, monthRange, monthsBetween, today } from "./dates";
 
 export { addMonths, currentMonth, isDate, isMonth, monthRange, monthsBetween, today };
@@ -89,7 +90,8 @@ export function syncPlMonth(ym: string, force = false) {
     period: ym,
     force,
     fetch: async () =>
-      (await fetchPl(from, to)).map((r) => ({
+      // /hs/dash/pl нь 5xxx-7xxx; 8xxx-9xxx (татвар)-ийг OData регистрээс нэмнэ (lib/onec/pl-tax.ts). OData тохируулаагүй орчинд (dev) алгасна.
+      [...(await fetchPl(from, to)), ...(odataConfigured() ? await fetchPlTaxRows(ym, from, to) : [])].map((r) => ({
         month: s(r.month) || ym, itemCode: s(r.item_code), item: s(r.item), account: s(r.account),
         accountGroup: s(r.group), side: s(r.side), amount: n(r.amount),
       })),

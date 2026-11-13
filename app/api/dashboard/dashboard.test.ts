@@ -18,6 +18,7 @@ import { GET as STOCK } from "./stock/route";
 import { GET as SUMMARY } from "./summary/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
 import { GET as USAGE } from "./usage/route";
+import { GET as WIP } from "./wip/route";
 import { GET as YEAR } from "./year/route";
 
 const ENV = { ONEC_BASE_URL: "http://1c.test/b", ONEC_USER: "u", ONEC_PASSWORD: "p", ONEC_ODATA_BASE_URL: "http://1c.test/b/odata/standard.odata", ONEC_ODATA_USER: "u", ONEC_ODATA_PASSWORD: "p" };
@@ -95,6 +96,7 @@ const ROUTES = {
   usage: () => USAGE(get(`/api/dashboard/usage?month=${MONTH}`)),
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
   receivables: () => RECEIVABLES(get(`/api/dashboard/receivables?month=${currentMonth()}`)),
+  wip: () => WIP(get(`/api/dashboard/wip?month=${currentMonth()}`)),
   expenses: () => EXPENSES(get(`/api/dashboard/expenses?month=${MONTH}`)),
   yearSales: () => YEAR(get(`/api/dashboard/year?tab=sales&year=${YR}`)),
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
@@ -122,7 +124,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
     expect(fetchCalls).not.toHaveBeenCalled();
   });
 
-  it("нярав зөвхөн Агуулах, Зарцуулалтыг (болон зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) авна; Борлуулалт, Авлага, Зардал, жилийн харагдац, Мөнгөн хөрөнгө, сарын татаалт 403", async () => {
+  it("нярав зөвхөн Агуулах, Зарцуулалтыг (болон зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) авна; Борлуулалт, Авлага, Дуусаагүй үйлдвэрлэл, Зардал, жилийн харагдац, Мөнгөн хөрөнгө, сарын татаалт 403", async () => {
     as("STOREKEEPER");
     for (const [name, call] of Object.entries(ROUTES)) {
       const res = await call();
@@ -134,7 +136,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "usage", "sales", "receivables", "wip", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -488,5 +490,37 @@ describe("/api/dashboard/refresh: Vercel дээр хүнд татаалт GitHub
     expect(JSON.stringify(await res.json())).not.toMatch(/github_pat|token/i);
     ghStatus = 204;
     expect((await (await REFRESH(post({ kind: "month", month: currentMonth() }))).json()).status).toBe("dispatched");
+  });
+});
+
+describe("/api/dashboard/summary: өртгийн задаргаа (нийт өртөг, бохир ашиг өөрчлөгдөхгүй)", () => {
+  const MON = "2020-06";
+  const row = (date: string, rowType: string, amount: number, cost: number) => ({ ...sale(date, amount), doc: "dash-cost-test", rowType, cost });
+  beforeAll(async () => {
+    await prisma.onecSales.createMany({ data: [row(`${MON}-05`, "sale", 1000, 600), row(`${MON}-06`, "sale", 500, 200), row(`${MON}-07`, "reversal", -100, 0), row(`${MON}-08`, "cost_only", 0, 150)] });
+  });
+  afterAll(() => prisma.onecSales.deleteMany({ where: { doc: "dash-cost-test" } }));
+
+  it("баримтаар (sale, reversal) ба шаардах хуудсаар шууд өртөгт бичсэн (cost_only) хоёр мөр, нийлбэр нь нийт өртөгтэй тэнцүү", async () => {
+    as("DIRECTOR");
+    const r = await (await SUMMARY(get(`/api/dashboard/summary?month=${MON}`))).json();
+    expect(r.kpi).toMatchObject({ revenue: 1400, cost: 950, cost_documents: 800, cost_requisitions: 150, gross_profit: 450 });
+    expect(r.kpi.cost_documents + r.kpi.cost_requisitions).toBe(r.kpi.cost);
+  });
+});
+
+describe("/api/dashboard/wip: Дуусаагүй үйлдвэрлэл (142x), 1С OData Balance", () => {
+  it("үлдэгдэл нийт, данс бүрээр; зөвхөн GET; 5 минутын cache; ирээдүйн сар 400", async () => {
+    as("CHIEF_ACCOUNTANT");
+    const r = await (await ROUTES.wip()).json();
+    expect(r.asOf).toBe(asOfDate(currentMonth()));
+    expect(typeof r.total).toBe("number");
+    const balanceCall = (fetchCalls.mock.calls as [string, RequestInit][]).map(([u]) => decodeURIComponent(u)).find((u) => u.includes("/Balance("))!;
+    expect(balanceCall).toContain(`Period=datetime'${balanceBoundary(asOfDate(currentMonth()))}'`);
+    for (const [, init] of fetchCalls.mock.calls as [string, RequestInit][]) expect(init.method ?? "GET").toBe("GET");
+    const calls = fetchCalls.mock.calls.length;
+    expect((await (await ROUTES.wip()).json()).meta.cached).toBe(true);
+    expect(fetchCalls.mock.calls.length).toBe(calls);
+    expect((await WIP(get(`/api/dashboard/wip?month=${addMonths(currentMonth(), 1)}`))).status).toBe(400);
   });
 });

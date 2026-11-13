@@ -1,17 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, Package, Warehouse } from "lucide-react";
+import { AlertTriangle, Boxes, Factory, Package, Warehouse } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell, NUM, inputClass, money } from "@/components/finance/FinanceShell";
 import { useFinanceData } from "@/components/finance/useFinanceData";
+import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { asOfDate, monthRange } from "@/lib/onec/dates";
+import { canViewTab } from "@/lib/onec/roles";
+import type { WipResult } from "@/lib/onec/wip";
 import { formatNumber } from "@/lib/utils";
 
 interface StockItem {
@@ -33,6 +37,25 @@ interface StockResponse {
   warehouses: { warehouse_code: string; warehouse: string; items: number; amount: number }[];
   items: StockItem[];
   lastSyncedAt: string | null;
+}
+
+/**
+ * «Дуусаагүй үйлдвэрлэл» (142x): бараатай холихгүй тусдаа KPI. Эдгээр нь агуулахын бараа биш, үйлдвэрлэлд хуримтлагдсан зардал тул
+ * агуулахын нийт дүнд ордоггүй. 1С-ийн OData Balance (сарын эцэс), хуудсыг хүлээлгүй тусад нь ачаална; зөвхөн удирдлагад.
+ */
+function WipCard({ month }: { month: string }) {
+  const { data, error } = useOdataData<WipResult & { meta: OdataMeta }>(`/api/dashboard/wip?month=${month}`);
+  if (!data) {
+    return error ? <KpiCard label="Дуусаагүй үйлдвэрлэл" value="—" icon={Factory} hint="1С холбогдохгүй байна" /> : <Skeleton className="h-24 rounded-xl" />;
+  }
+  return (
+    <KpiCard
+      label="Дуусаагүй үйлдвэрлэл"
+      value={money(data.total)}
+      icon={Factory}
+      hint={`${data.asOf}-ны байдлаар · ${data.accounts.map((a) => a.code.replace(/\..*$/, "")).join(", ")} · барааны дүнд ороогүй`}
+    />
+  );
 }
 
 const LIMIT = 5000;
@@ -63,6 +86,7 @@ export default function StockPage() {
   // Сонгосон сарын эцсийн өдрийн үлдэгдэл; одоогийн сар бол хамгийн сүүлийн (өнөөдрийн) агшин зураг
   const { ym, isCurrent } = useYm();
   const isAdmin = useIsAdmin();
+  const showWip = canViewTab(useSession().data?.user?.role, "sales"); // нярав харахгүй (нягтлан бодох бүртгэлийн дүн)
   const [warehouse, setWarehouse] = useState("");
   const params = new URLSearchParams({ limit: String(LIMIT) });
   if (!isCurrent) params.set("date", monthRange(ym).to);
@@ -99,7 +123,7 @@ export default function StockPage() {
         <MissingMonth busy={refresh.phase === "refreshing"} onLoad={refresh.refresh} />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className={`grid grid-cols-2 gap-3 ${showWip ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
             {loading && !data ? (
               Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
             ) : data?.totals ? (
@@ -110,6 +134,7 @@ export default function StockPage() {
                 <KpiCard label="Хасах үлдэгдэлтэй мөр" value={formatNumber(data.totals.negative_rows, 0)} icon={AlertTriangle} tone={data.totals.negative_rows ? "danger" : "success"} />
               </>
             ) : null}
+            {showWip && <WipCard month={ym} />}
           </div>
 
           <Card>
