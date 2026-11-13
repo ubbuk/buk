@@ -41,6 +41,8 @@ describe("page rules for a direct URL", () => {
       expect(pageAllowed(role, "/admin"), role).toBe(false);
       expect(pageAllowed(role, "/admin/audit"), role).toBe(false);
     }
+    expect(pageAllowed("ADMIN", "/onec")).toBe(true); // 1С OData хөтөч: зөвхөн ADMIN
+    for (const role of ["DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS", "STOREKEEPER", "EMPLOYEE", "MANAGER", "ENGINEERING"]) expect(pageAllowed(role, "/onec"), role).toBe(false);
     expect(pageAllowed("CHIEF_ACCOUNTANT", "/accounting")).toBe(true);
     expect(pageAllowed("ADMIN", "/accounting")).toBe(true);
     expect(pageAllowed("EMPLOYEE", "/accounting")).toBe(false);

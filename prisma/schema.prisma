@@ -49,6 +49,8 @@ model User {
   title         String?
   departmentId  String?
   isActive      Boolean  @default(true)
+  // 1С OData хөтөч: цалингийн объектыг харах хүн тус бүрийн эрх (role-оос үл хамаарна, зөвхөн ADMIN өөрчилнө).
+  canViewPayroll Boolean   @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   lastLoginAt   DateTime?
@@ -700,6 +702,9 @@ enum AuditAction {
   FT_SHARE
   FT_SELECT_SUPPLIER
   FT_MESSAGE
+  ONEC_ODATA_VIEW
+  ONEC_ODATA_DENIED
+  ONEC_PAYROLL_ACCESS
 }
 
 model AuditLog {

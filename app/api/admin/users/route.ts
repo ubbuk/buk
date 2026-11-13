@@ -28,6 +28,7 @@ export async function GET() {
       departmentId: u.departmentId,
       departmentName: u.department?.name ?? null,
       isActive: u.isActive,
+      canViewPayroll: u.canViewPayroll,
       createdAt: u.createdAt.toISOString(),
       lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
       hasPinSet: pinByUser.has(u.id),

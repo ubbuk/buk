@@ -47,6 +47,7 @@ interface AdminUser {
   departmentId: string | null;
   departmentName: string | null;
   isActive: boolean;
+  canViewPayroll: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   hasPinSet: boolean;
@@ -143,6 +144,31 @@ export default function AdminPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // «Цалин харах»: 1С хөтчийн цалингийн объектын эрх. Тусдаа API (зөвхөн ADMIN, аудитлагдана). Олгох ба хасах ХОЁУЛАНД
+  // шалтгаан заавал, админы өөрийн нууц үг дахин шаардагдана: step-up dialog нээгдэнэ.
+  function togglePayroll(target: AdminUser, next: boolean) {
+    setGrantAsk({
+      title: next ? "Цалин харах эрх олгох" : "Цалин харах эрхийг хасах",
+      summary: next
+        ? `${target.name} (${target.email}): 1С хөтчийн цалин, хувь хүний мэдээллийг харах эрх олгох`
+        : `${target.name} (${target.email}): 1С хөтчийн цалин харах эрхийг хасах`,
+      actionLabel: next ? "Эрх олгох" : "Эрх хасах",
+      confirmText: next ? undefined : "Би энэ хүнээс дээрх эрхийг хасахыг баталгаажуулна.",
+      run: async (step) => {
+        const res = await fetch(`/api/admin/users/${target.id}/payroll-access`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ canViewPayroll: next, ...step }),
+        });
+        if (!res.ok) return (await res.json().catch(() => ({})))?.error ?? "Эрх өөрчилж чадсангүй";
+        setEditUser((cur) => (cur && cur.id === target.id ? { ...cur, canViewPayroll: next } : cur));
+        push({ kind: "success", title: next ? "Цалин харах эрх олголоо" : "Цалин харах эрхийг хаслаа" });
+        await load(true);
+        return null;
+      },
+    });
   }
 
   async function saveUserEdit() {
@@ -353,6 +379,13 @@ export default function AdminPage() {
       render: (u) => (
         <span className={u.isActive ? "text-success" : "text-text-muted"}>{u.isActive ? "Идэвхтэй" : "Идэвхгүй"}</span>
       ),
+    },
+    {
+      key: "canViewPayroll",
+      header: "Цалин",
+      sortable: true,
+      accessor: (u) => (u.canViewPayroll ? 1 : 0),
+      render: (u) => (u.canViewPayroll ? <span className="text-warning">Харна</span> : <span className="text-text-muted">—</span>),
     },
     {
       key: "hasPinSet",
@@ -780,6 +813,18 @@ export default function AdminPage() {
                 onChange={(e) => setEditUser({ ...editUser, isActive: e.target.checked })}
               />
               Идэвхтэй
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-bg-elevated/40 p-2.5 text-sm text-text">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={editUser.canViewPayroll}
+                onChange={(e) => togglePayroll(editUser, e.target.checked)}
+              />
+              <span>
+                Цалин харах
+                <span className="block text-xs text-text-muted">1С хөтчийн цалин, хувь хүний объект. Эрхээс үл хамаарна, ADMIN ч чагтгүй бол харахгүй. Өөрчлөхөд шалтгаан, өөрийн нууц үг шаардаж, бүртгэнэ.</span>
+              </span>
             </label>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setEditUser(null)}>

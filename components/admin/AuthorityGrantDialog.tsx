@@ -18,6 +18,9 @@ export interface GrantRequest {
   title: string;
   /** One line naming what is being granted to whom. */
   summary: string;
+  /** Defaults for granting authority; set them for another sensitive action (e.g. taking an access away). */
+  actionLabel?: string;
+  confirmText?: string;
   /** Sends the request again with the step-up fields; resolves to an error message, or null when it succeeded. */
   run: (step: GrantStepUp) => Promise<string | null>;
 }
@@ -72,7 +75,7 @@ export function AuthorityGrantDialog({ request, onClose }: { request: GrantReque
             </p>
           )}
           <label className="block space-y-1 text-xs text-text-muted">
-            Эрх олгох шалтгаан (заавал)
+            Шалтгаан (заавал)
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -83,7 +86,7 @@ export function AuthorityGrantDialog({ request, onClose }: { request: GrantReque
           </label>
           <label className="flex items-start gap-2 rounded-lg border border-border bg-bg-elevated/40 p-3 text-xs text-text">
             <input type="checkbox" className="mt-0.5 size-4" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-            <span>Би энэ хүнд дээрх эрхийг өгөх эрхтэй бөгөөд хариуцлагыг хүлээнэ.</span>
+            <span>{request.confirmText ?? "Би энэ хүнд дээрх эрхийг өгөх эрхтэй бөгөөд хариуцлагыг хүлээнэ."}</span>
           </label>
           <label className="block space-y-1 text-xs text-text-muted">
             Таны өөрийн нууц үг
@@ -100,7 +103,7 @@ export function AuthorityGrantDialog({ request, onClose }: { request: GrantReque
               Болих
             </Button>
             <Button loading={busy} disabled={!confirmed || reason.trim().length < 3 || adminPassword.length === 0} onClick={() => void submit()}>
-              Эрх олгох
+              {request.actionLabel ?? "Эрх олгох"}
             </Button>
           </div>
         </div>
