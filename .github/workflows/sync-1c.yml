@@ -156,4 +156,6 @@ jobs:
             echo "### 1С sync ($mode)"
             if [ ${#failed[@]} -eq 0 ]; then echo "Бүх алхам амжилттай."; else echo "Амжилтгүй: ${failed[*]}"; fi
           } >> "$GITHUB_STEP_SUMMARY"
+          # Бүх алхам ажиллаж дууссаны ДАРАА: аль нэг нь унасан бол run failure болж GitHub бүтэлгүйтлийн имэйл илгээнэ
+          if [ ${#failed[@]} -ne 0 ]; then echo "::error::Амжилтгүй алхам: ${failed[*]}"; exit 1; fi
           exit 0
