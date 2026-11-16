@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { AlertTriangle, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -12,6 +11,7 @@ import { ErrorNote, FinanceShell, connectionFrom, money } from "@/components/fin
 import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, type ViewMode } from "@/components/finance/NgParts";
 import { StockTree } from "@/components/finance/StockTree";
 import { useFinanceData } from "@/components/finance/useFinanceData";
+import { useUrlFilters } from "@/components/finance/useUrlFilters";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth } from "@/components/finance/YearSection";
@@ -54,68 +54,11 @@ function WipCard({ month }: { month: string }) {
 const UNKNOWN_WAREHOUSE = "Агуулах тодорхойгүй";
 // «нярав оноогоогүй» шүүлтийн утга (API-тай ижил)
 const NO_KEEPER = "none";
-const SEARCH_DEBOUNCE_MS = 300;
 
-/**
- * Шүүлтүүд (хайлт, нярав, склад) URL-д хадгалагдана: ?q=&keeper=&wh= (сарын ?ym=-тэй хамт). Хайлтын талбар 300 мс-ийн дараа URL-д бичигдэнэ.
- */
+/** Шүүлтүүд (хайлт, нярав, склад) URL-д: ?q=&keeper=&wh= (components/finance/useUrlFilters.ts) */
 function useStockFilters() {
-  const sp = useSearchParams();
-  const pathname = usePathname();
-  const router = useRouter();
-  const q = sp.get("q") ?? "";
-  const keeper = sp.get("keeper") ?? "";
-  const wh = sp.get("wh") ?? "";
-
-  // Хугацаатай (debounce) дуудлага хуучирсан searchParams-аар буцаан бичихгүйн тулд үргэлж хамгийн сүүлийн утгыг ашиглана
-  const latest = useRef({ sp, q });
-  latest.current = { sp, q };
-
-  const set = (patch: Record<string, string>) => {
-    const next = new URLSearchParams(latest.current.sp.toString());
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
-    }
-    router.replace(`${pathname}?${next}`, { scroll: false });
-  };
-
-  const [qInput, setQInput] = useState(q);
-  const pushed = useRef(q);
-  // URL-аас (буцах товч, цэвэрлэх) ирсэн өөрчлөлтийг талбарт тусгана
-  useEffect(() => {
-    if (q !== pushed.current) {
-      pushed.current = q;
-      setQInput(q);
-    }
-  }, [q]);
-  useEffect(() => {
-    const value = qInput.trim();
-    if (value === q) return;
-    const t = setTimeout(() => {
-      if (value === latest.current.q) return; // энэ хооронд URL аль хэдийн тэр утгатай болсон (жишээ нь «Шүүлт арилгах»)
-      pushed.current = value;
-      set({ q: value });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qInput]);
-
-  return {
-    q,
-    keeper,
-    wh,
-    qInput,
-    setQInput,
-    setKeeper: (v: string) => set({ keeper: v }),
-    setWh: (v: string) => set({ wh: v }),
-    clear: () => {
-      pushed.current = "";
-      setQInput("");
-      set({ q: "", keeper: "", wh: "" });
-    },
-    active: Boolean(q || keeper || wh),
-  };
+  const f = useUrlFilters(["keeper", "wh"] as const);
+  return { q: f.q, keeper: f.values.keeper, wh: f.values.wh, qInput: f.qInput, setQInput: f.setQInput, setKeeper: (v: string) => f.set("keeper", v), setWh: (v: string) => f.set("wh", v), clear: () => f.clear(), active: f.active };
 }
 
 export default function StockPage() {

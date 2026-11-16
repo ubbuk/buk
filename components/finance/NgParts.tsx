@@ -169,3 +169,31 @@ export function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v:
     </div>
   );
 }
+
+/** Таб (tablist): идэвхтэй нь алтан. ViewToggle-тэй ижил загвар, дурын тоотой таб. */
+export function SegmentedTabs<T extends string>({ value, onChange, tabs, label }: { value: T; onChange: (v: T) => void; tabs: readonly { value: T; label: string; /** нарийн дэлгэц дээрх богино нэр */ shortLabel?: string; icon?: LucideIcon }[]; label: string }) {
+  return (
+    <div role="tablist" aria-label={label} className="ng-panel flex w-full gap-1 overflow-x-auto rounded-xl p-1 sm:w-fit">
+      {tabs.map(({ value: v, label: text, shortLabel, icon: Icon }) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={value === v}
+          onClick={() => onChange(v)}
+          className={cn("focus-ring inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm transition-colors max-sm:flex-1 max-sm:justify-center max-sm:px-2 whitespace-nowrap", value === v ? "bg-[rgba(245,181,35,0.16)] text-[#ffd56b] shadow-[0_0_0_1px_rgba(255,213,107,0.5)_inset]" : "text-text-muted hover:text-text")}
+        >
+          {Icon && <Icon className="size-4 max-sm:hidden" aria-hidden />}
+          {shortLabel ? (
+            <>
+              <span className="sm:hidden">{shortLabel}</span>
+              <span className="max-sm:hidden">{text}</span>
+            </>
+          ) : (
+            text
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}

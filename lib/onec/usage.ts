@@ -33,6 +33,8 @@ export interface UsageDocument {
   date: string;
   department: string;
   warehouse: string;
+  /** 1С складын код (Catalog_Склады.Code): Warehouse.onecCode-той таарна; олдохгүй бол "" */
+  warehouseCode: string;
   recipient: string;
   purpose: string;
   amount: number;
@@ -53,7 +55,7 @@ export interface UsageInputs {
   /** Регистрын бичилтүүд (RecordsWithExtDimensions) */
   records: Row[];
   /** GUID -> нэр */
-  names: { items: Map<string, { name: string; unit: string }>; departments: Map<string, string>; warehouses: Map<string, string>; contractors: Map<string, string> };
+  names: { items: Map<string, { name: string; unit: string }>; departments: Map<string, string>; warehouses: Map<string, string>; contractors: Map<string, string>; /** склад GUID -> 1С код */ warehouseCodes?: Map<string, string> };
 }
 
 const UNKNOWN = "Тодорхойгүй";
@@ -98,6 +100,7 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
         date: String(d.Date ?? ""),
         department: nameOf(names.departments, realKey(d["ПодразделениеЗатрат_Key"]) ?? d["ПодразделениеОрганизации_Key"]),
         warehouse: nameOf(names.warehouses, d["Склад_Key"]),
+        warehouseCode: (realKey(d["Склад_Key"]) && names.warehouseCodes?.get(realKey(d["Склад_Key"])!)) || "",
         recipient: String(d["Получатель_Type"] ?? "").endsWith("Catalog_Контрагенты") ? nameOf(names.contractors, d["Получатель"]) : "",
         purpose: String(d["Комментарий"] ?? "").trim(),
         amount: round2(perDoc.get(id) ?? 0),
@@ -164,7 +167,7 @@ async function fetchUsageIn(month: string): Promise<UsageResult> {
   const [items, departments, warehouses, contractors] = await Promise.all([
     lookupRows("Catalog_Номенклатура", itemKeys, "Description,ЕдиницаИзмерения_Key"),
     lookupRows("Catalog_ПодразделенияОрганизаций", deptKeys, "Description"),
-    lookupRows("Catalog_Склады", keys(docs, "Склад_Key"), "Description"),
+    lookupRows("Catalog_Склады", keys(docs, "Склад_Key"), "Description,Code"),
     lookupRows("Catalog_Контрагенты", keys(docs, "Получатель", (r) => String(r["Получатель_Type"] ?? "").endsWith("Catalog_Контрагенты")), "Description"),
   ]);
   const unitRows = await lookupRows(
@@ -182,6 +185,7 @@ async function fetchUsageIn(month: string): Promise<UsageResult> {
       items: new Map([...items].map(([k, r]) => [k, { name: String(r?.Description ?? ""), unit: String(unitRows.get(realKey(r?.["ЕдиницаИзмерения_Key"]) ?? "")?.Description ?? "") }])),
       departments: toNames(departments),
       warehouses: toNames(warehouses),
+      warehouseCodes: new Map([...warehouses].map(([k, r]) => [k, String(r?.Code ?? "").trim()] as const).filter(([, c]) => c)),
       contractors: toNames(contractors),
     },
   });
