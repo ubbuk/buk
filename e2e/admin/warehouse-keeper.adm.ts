@@ -176,6 +176,18 @@ test.describe.serial("step 2 keeper routing", () => {
     await emp.context.close();
   });
 
+  test("the /warehouses catalog is read from the database: groups with their keeper, locations below", async ({ browser }) => {
+    const emp = await signIn(browser, ids.emp);
+    await emp.page.goto("/warehouses");
+    const groupA = emp.page.getByRole("button", { name: new RegExp(NAME.topA) });
+    await expect(groupA).toContainText(`Нярав: ${NAME.keeperA}`);
+    await expect(emp.page.getByRole("button", { name: new RegExp(NAME.topC) })).toContainText("Нярав байхгүй");
+    await groupA.click();
+    await emp.page.getByRole("link", { name: new RegExp(`Байршил А ${TAG}`) }).click();
+    await expect(emp.page.getByRole("heading", { name: `Байршил А ${TAG}` })).toBeVisible();
+    await emp.context.close();
+  });
+
   test("the admin screen has no horizontal scroll on a phone", async ({ browser }) => {
     const context = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": nextIp() }, viewport: { width: 375, height: 800 } });
     const page = await context.newPage();
