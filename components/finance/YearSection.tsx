@@ -4,7 +4,7 @@ import { CalendarRange, Download, TrendingUp } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KpiCard } from "@/components/ui/KpiCard";
+import { FinanceKpi as KpiCard } from "./NgParts";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "./DailyBarChart";
 import { ErrorNote, NUM, money } from "./FinanceShell";
@@ -62,7 +62,7 @@ export function YearSection({ tab, year, label }: { tab: "sales" | "expenses"; y
           Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
         ) : data ? (
           <>
-            <KpiCard label={`${year} оны ${label}`} value={money(data.total)} icon={CalendarRange} tone="accent" />
+            <KpiCard featured label={`${year} оны ${label}`} value={money(data.total)} icon={CalendarRange} tone="accent" />
             <KpiCard
               label={`${year - 1} онтой харьцуулахад`}
               value={data.changePct === null ? "—" : `${data.changePct > 0 ? "+" : ""}${formatNumber(data.changePct, 1)}%`}

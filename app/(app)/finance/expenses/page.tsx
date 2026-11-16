@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Minus, Receipt, TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Layers, Minus, Receipt, TrendingUp } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { KpiCard } from "@/components/ui/KpiCard";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
-import { ErrorNote, FinanceShell, NUM, money } from "@/components/finance/FinanceShell";
+import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
+import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { MonthRefreshNote, RefreshButton, useMonthRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth, YearSection } from "@/components/finance/YearSection";
@@ -43,7 +44,7 @@ interface ExpensesResponse {
   lastSyncedAt: string | null;
 }
 
-const PALETTE = ["rgb(var(--color-accent))", "rgb(var(--color-warning))", "rgb(var(--color-danger))", "rgb(var(--color-success))", "rgb(var(--color-text-muted))"];
+const PALETTE = ["rgb(var(--color-accent))", "#4f8ff0", "#34d399", "#f87171", "#a78bfa"];
 
 /** Өсөлт (зардал нэмэгдсэн) нь улаан, буурсан нь ногоон */
 function Change({ pct }: { pct: number | null }) {
@@ -68,91 +69,132 @@ const groupColumns: DataTableColumn<GroupRow>[] = [
 ];
 
 const accountColumns: DataTableColumn<AccountRow>[] = [
-  { key: "account", header: "Данс", sortable: true, accessor: (r) => r.account, render: (r) => <span className="text-text">{r.account}</span> },
+  { key: "account", header: "Данс", sortable: true, accessor: (r) => r.account, render: (r) => <span className="ng-num text-text">{r.account}</span> },
   { key: "name", header: "Нэр", sortable: true, accessor: (r) => r.name, render: (r) => r.name || <span className="text-text-muted">—</span> },
   { key: "group", header: "Бүлэг", sortable: true, accessor: (r) => r.group, render: (r) => r.group },
   { key: "amount", header: "Дүн", sortable: true, accessor: (r) => r.amount, className: NUM, render: (r) => money(r.amount) },
   { key: "share", header: "Эзлэх хувь", sortable: true, accessor: (r) => r.share, className: NUM, render: (r) => `${formatNumber(r.share, 1)}%` },
 ];
 
+const ALL = "";
+
 export default function ExpensesPage() {
   const { ym: month, isCurrent, view, year } = useYm();
   const isAdmin = useIsAdmin();
+  const [group, setGroup] = useState(ALL);
+  const [mode, setMode] = useState<ViewMode>("chart");
   const { data, error, loading, reload } = useFinanceData<ExpensesResponse>(view === "month" ? `/api/dashboard/expenses?month=${month}` : null);
   // Postgres-ээс шууд; 5 минутаас илүү хуучирсан бол ар талд 1С-ээс татаж, дуусмагц дахин ачаална (Борлуулалттай нэг татаалт)
   const sync = useMonthRefresh(month, reload, "month", EXPENSE_KINDS);
   const canRefresh = isCurrent || isAdmin; // өнгөрсөн сарыг зөвхөн админ татна
   const empty = data && data.accounts.length === 0 && data.groups.length === 0;
 
+  // Сүүлийн 6 сарын нийт зардлын бодит цуваа: гол KPI-ийн sparkline
+  const spark = useMemo(() => (data ? data.months.map((m) => m.total) : []), [data]);
+  const accounts = useMemo(() => (data ? data.accounts.filter((a) => !group || a.group === group) : []), [data, group]);
+  const groupCols = useMemo(() => (data ? [rankColumn(data.groups), ...groupColumns] : groupColumns), [data]);
+  const accountCols = useMemo(() => (data ? [rankColumn(accounts), ...accountColumns] : accountColumns), [data, accounts]);
+
   return (
     <FinanceShell
       title="Зардал"
+      subtitle="Зардлын бүлэг, дансаар задаргаа, өмнөх сартай харьцуулалт"
+      icon={BarChart3}
       withView
       lastSyncedAt={data?.lastSyncedAt}
+      connection={connectionFrom(data?.lastSyncedAt, sync.phase === "failed" || sync.phase === "error")}
       notice={view === "month" ? <MonthRefreshNote phase={sync.phase} retryAt={sync.retryAt} /> : undefined}
       refresh={view === "month" && canRefresh ? <RefreshButton busy={sync.busy} retryAt={sync.retryAt} onClick={sync.refresh} /> : undefined}
+      controls={view === "month" && data && <FilterSelect icon={Layers} label="Зардлын бүлэг" value={group} onChange={setGroup} options={[{ value: ALL, label: "Бүх бүлэг" }, ...data.groups.map((g) => ({ value: g.group, label: g.group }))]} />}
+      trailing={view === "month" ? <ViewToggle value={mode} onChange={setMode} /> : undefined}
     >
       {view === "year" ? (
         <YearSection tab="expenses" year={year} label="зардал" />
       ) : (
-      <>
-      {error && <ErrorNote message={error} />}
-
-      {empty ? (
-        <MissingMonth busy={sync.busy} onLoad={sync.refresh} />
-      ) : (
         <>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {loading && !data ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-        ) : data ? (
-          <>
-            <KpiCard label="Нийт зардал" value={money(data.total)} icon={Receipt} tone="accent" />
-            <KpiCard label="Өмнөх сар" value={money(data.prevTotal)} icon={Receipt} />
-            <KpiCard
-              label="Өмнөх сартай харьцуулахад"
-              value={data.changePct === null ? "—" : `${data.changePct > 0 ? "+" : ""}${formatNumber(data.changePct, 1)}%`}
-              icon={TrendingUp}
-              tone={data.changePct === null || data.changePct === 0 ? undefined : data.changePct > 0 ? "danger" : "success"}
-            />
-          </>
-        ) : null}
-      </div>
+          {error && <ErrorNote message={error} />}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Сүүлийн 6 сарын зардал</CardTitle>
-            </CardHeader>
-            <CardBody>
-              {data ? (
-                <DailyBarChart
-                  data={data.months.map((m) => ({ date: m.month, ...m.groups }))}
-                  series={data.seriesGroups.map((g, i) => ({ key: g, label: g, color: PALETTE[i % PALETTE.length] }))}
-                  label={(d) => d.slice(5)}
-                  unit="сараар"
-                />
-              ) : (
-                <Skeleton className="h-56" />
+          {empty ? (
+            <MissingMonth busy={sync.busy} onLoad={sync.refresh} />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                {loading && !data ? (
+                  Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
+                ) : data ? (
+                  <>
+                    <KpiCard featured spark={spark} label="Нийт зардал" value={money(data.total)} icon={Receipt} tone="accent" delta={data.changePct} deltaCostLike hint={data.changePct === null ? undefined : "Өмнөх сараас"} />
+                    <KpiCard label="Өмнөх сар" value={money(data.prevTotal)} icon={Receipt} />
+                    <KpiCard
+                      label="Өмнөх сартай харьцуулахад"
+                      value={data.changePct === null ? "—" : `${data.changePct > 0 ? "+" : ""}${formatNumber(data.changePct, 1)}%`}
+                      icon={TrendingUp}
+                      tone={data.changePct === null || data.changePct === 0 ? undefined : data.changePct > 0 ? "danger" : "success"}
+                    />
+                  </>
+                ) : null}
+              </div>
+
+              {mode === "chart" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Сүүлийн 6 сарын зардал</CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    {data ? (
+                      <DailyBarChart
+                        data={data.months.map((m) => ({ date: m.month, ...m.groups }))}
+                        series={data.seriesGroups.map((g, i) => ({ key: g, label: g, color: PALETTE[i % PALETTE.length] }))}
+                        label={(d) => d.slice(5)}
+                        unit="сараар"
+                      />
+                    ) : (
+                      <Skeleton className="h-56" />
+                    )}
+                  </CardBody>
+                </Card>
               )}
-            </CardBody>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Бүлгээр</CardTitle>
-            </CardHeader>
-            {data ? <DataTable data={data.groups} columns={groupColumns} getRowId={(r) => r.group} searchPlaceholder="Бүлэг хайх..." /> : <SkeletonTable rows={4} cols={5} />}
-          </Card>
+              <Card>
+                {data ? (
+                  <DataTable
+                    heading={
+                      <>
+                        <Layers className="size-4 text-[#ffd56b]" />
+                        Бүлгээр
+                      </>
+                    }
+                    data={data.groups}
+                    columns={groupCols}
+                    getRowId={(r) => r.group}
+                    searchPlaceholder="Бүлэг хайх..."
+                  />
+                ) : (
+                  <SkeletonTable rows={4} cols={5} />
+                )}
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Дансаар</CardTitle>
-            </CardHeader>
-            {data ? <DataTable data={data.accounts} columns={accountColumns} getRowId={(r) => `${r.account}|${r.group}`} searchPlaceholder="Данс, нэрээр хайх..." /> : <SkeletonTable rows={6} cols={5} />}
-          </Card>
+              <Card>
+                {data ? (
+                  <DataTable
+                    heading={
+                      <>
+                        <Receipt className="size-4 text-[#ffd56b]" />
+                        Дансаар
+                      </>
+                    }
+                    data={accounts}
+                    columns={accountCols}
+                    getRowId={(r) => `${r.account}|${r.group}`}
+                    searchPlaceholder="Данс, нэрээр хайх..."
+                  />
+                ) : (
+                  <SkeletonTable rows={6} cols={5} />
+                )}
+              </Card>
+            </>
+          )}
         </>
-      )}
-      </>
       )}
     </FinanceShell>
   );

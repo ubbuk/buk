@@ -24,7 +24,7 @@ export function KeeperLabel({ keeper }: { keeper: KeeperRef | null }) {
   );
 }
 
-function Toggle({ open, onClick, controls, children, level }: { open: boolean; onClick: () => void; controls: string; children: React.ReactNode; level: 1 | 2 }) {
+export function Toggle({ open, onClick, controls, children, level }: { open: boolean; onClick: () => void; controls: string; children: React.ReactNode; level: 1 | 2 }) {
   return (
     <button
       type="button"
@@ -74,6 +74,17 @@ function ItemRow({ r }: { r: StockRow }) {
   );
 }
 
+/** «Дахиад харуулах (N үлдсэн)»: олон мөртэй жагсаалтыг PAGE_SIZE-аар нэмж харуулна (хуудас удаашрахгүй) */
+export function ShowMore({ remaining, onClick }: { remaining: number; onClick: () => void }) {
+  return (
+    <div className="border-t border-border/60 py-2 pl-14 pr-4">
+      <button type="button" onClick={onClick} className="focus-ring rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text hover:bg-bg-elevated">
+        Дахиад харуулах ({formatNumber(remaining, 0)} үлдсэн)
+      </button>
+    </div>
+  );
+}
+
 /** Барааны мөрүүд, PAGE_SIZE-аар нэмж харуулна */
 function ItemList({ rows }: { rows: StockRow[] }) {
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -84,13 +95,7 @@ function ItemList({ rows }: { rows: StockRow[] }) {
           <ItemRow key={r.id} r={r} />
         ))}
       </ul>
-      {rows.length > shown && (
-        <div className="border-t border-border/60 py-2 pl-14 pr-4">
-          <button type="button" onClick={() => setShown((n) => n + PAGE_SIZE)} className="focus-ring rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text hover:bg-bg-elevated">
-            Дахиад харуулах ({formatNumber(rows.length - shown, 0)} үлдсэн)
-          </button>
-        </div>
-      )}
+      {rows.length > shown && <ShowMore remaining={rows.length - shown} onClick={() => setShown((n) => n + PAGE_SIZE)} />}
     </>
   );
 }

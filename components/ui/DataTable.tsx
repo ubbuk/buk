@@ -23,6 +23,7 @@ export function DataTable<T>({
   onRowClick,
   emptyTitle = "Өгөгдөл олдсонгүй",
   emptyDescription,
+  heading,
 }: {
   data: T[];
   columns: DataTableColumn<T>[];
@@ -31,6 +32,8 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Хайлтын зүүн талд харагдах гарчиг (дүрс + нэр) */
+  heading?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -77,6 +80,7 @@ export function DataTable<T>({
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3 sm:px-5">
+        {heading && <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-text">{heading}</div>}
         <div className="relative w-full max-w-xs max-sm:min-w-0 max-sm:flex-1 max-sm:basis-40">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
           <input

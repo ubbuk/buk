@@ -20,6 +20,9 @@ export function formatHm(iso: string | null | undefined): string {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 
+/** Улаанбаатарын цагаар өнөөдөр: "2026-11-13" */
+export const todayUb = (): string => new Date().toLocaleString("sv-SE", { timeZone: TZ }).slice(0, 10);
+
 export const currentMonthUb = (): string => new Date().toLocaleString("sv-SE", { timeZone: TZ }).slice(0, 7);
 
 async function postRefresh<T>(body: unknown): Promise<T> {
