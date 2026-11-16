@@ -39,7 +39,7 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
   {
     id: "w-bold",
     slug: "bold",
-    name: "Болд",
+    name: "Механик, арматур, силос",
     locations: [
       loc("00-000005", "Механик цехийн агуулах"),
       loc("00-000016", "Бутлан ангилах үйлдвэр"),
@@ -51,7 +51,7 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
   {
     id: "w-uuganzetseg",
     slug: "uuganzetseg",
-    name: "Ууганцэцэг (хангамж)",
+    name: "Хангамжийн агуулах",
     keeper: "uuganzetseg",
     locations: [
       // "w-central" is the warehouse that already exists in every database (stock rows point at it), so it is
@@ -66,7 +66,7 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
   {
     id: "w-sarangerel",
     slug: "sarangerel",
-    name: "Сарангэрэл",
+    name: "Төмөр бетон, БАЗ",
     locations: [
       loc("00-000018", "Төмөр замын бетон дэрний цехийн агуулах"),
       loc("00-000007", "Төмөр бетон хийц эдлэлийн цехийн агуулах"),
@@ -81,7 +81,7 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
   {
     id: "w-boogii",
     slug: "boogii",
-    name: "Боогий",
+    name: "Цайны газар",
     locations: [loc("00-000008", "Цайны газрын агуулах")],
   },
   // No keeper: a request that would go here is routed to the primary keeper (lib/warehouse-keeper.ts).
