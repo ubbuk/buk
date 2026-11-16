@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { AlertTriangle, Boxes, Factory, Package, Warehouse } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { KpiCard } from "@/components/ui/KpiCard";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
-import { ErrorNote, FinanceShell, NUM, inputClass, money } from "@/components/finance/FinanceShell";
+import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
+import { DailyBarChart } from "@/components/finance/DailyBarChart";
+import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, type ViewMode } from "@/components/finance/NgParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/finance/useOnecRefresh";
@@ -88,6 +89,7 @@ export default function StockPage() {
   const isAdmin = useIsAdmin();
   const showWip = canViewTab(useSession().data?.user?.role, "sales"); // нярав харахгүй (нягтлан бодох бүртгэлийн дүн)
   const [warehouse, setWarehouse] = useState("");
+  const [mode, setMode] = useState<ViewMode>("chart");
   const params = new URLSearchParams({ limit: String(LIMIT) });
   if (!isCurrent) params.set("date", monthRange(ym).to);
   if (warehouse) params.set("warehouse", warehouse);
@@ -100,22 +102,23 @@ export default function StockPage() {
 
   return (
     <FinanceShell
-      title={`Агуулахын үлдэгдэл · ${asOfDate(ym)}`}
+      title="Агуулах"
+      subtitle={`1С-ээс татсан агуулахын үлдэгдэл · ${asOfDate(ym)}-ны байдлаар`}
+      icon={Package}
+      connection={connectionFrom(data?.lastSyncedAt, refresh.phase === "offline")}
       lastSyncedAt={data?.lastSyncedAt}
       notice={<StockRefreshNote phase={refresh.phase} lastSyncedAt={refresh.lastSyncedAt ?? data?.lastSyncedAt ?? null} />}
       refresh={canRefresh ? <RefreshButton busy={refresh.phase === "refreshing"} retryAt={refresh.retryAt} onClick={refresh.refresh} /> : undefined}
       controls={
-        <>
-          <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} aria-label="Агуулах" className={inputClass}>
-            <option value="">Бүх агуулах</option>
-            {warehouseOptions.map((w) => (
-              <option key={w.warehouse_code || NONE} value={w.warehouse_code || NONE}>
-                {warehouseLabel(w)}
-              </option>
-            ))}
-          </select>
-        </>
+        <FilterSelect
+          icon={Warehouse}
+          label="Агуулах"
+          value={warehouse}
+          onChange={setWarehouse}
+          options={[{ value: "", label: "Бүх агуулах" }, ...warehouseOptions.map((w) => ({ value: w.warehouse_code || NONE, label: warehouseLabel(w) }))]}
+        />
       }
+      trailing={<ViewToggle value={mode} onChange={setMode} />}
     >
       {error && <ErrorNote message={error} />}
 
@@ -125,10 +128,10 @@ export default function StockPage() {
         <>
           <div className={`grid grid-cols-2 gap-3 ${showWip ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
             {loading && !data ? (
-              Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
             ) : data?.totals ? (
               <>
-                <KpiCard label="Нийт үлдэгдлийн дүн" value={money(data.totals.amount)} icon={Boxes} tone="accent" hint={data.date ? `${data.date}-ны байдлаар` : undefined} />
+                <KpiCard featured label="Нийт үлдэгдлийн дүн" value={money(data.totals.amount)} icon={Boxes} tone="accent" hint={data.date ? `${data.date}-ны байдлаар` : undefined} />
                 <KpiCard label="Барааны тоо" value={formatNumber(data.totals.items, 0)} icon={Package} />
                 <KpiCard label="Агуулахын тоо" value={data.totals.warehouses ? formatNumber(data.totals.warehouses, 0) : UNKNOWN_WAREHOUSE} icon={Warehouse} />
                 <KpiCard label="Хасах үлдэгдэлтэй мөр" value={formatNumber(data.totals.negative_rows, 0)} icon={AlertTriangle} tone={data.totals.negative_rows ? "danger" : "success"} />
@@ -137,12 +140,42 @@ export default function StockPage() {
             {showWip && <WipCard month={ym} />}
           </div>
 
+          {mode === "chart" && data && data.warehouses.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Агуулах бүрийн үлдэгдлийн дүн</CardTitle>
+              </CardHeader>
+              <CardBody>
+                <DailyBarChart
+                  data={data.warehouses.slice(0, 14).map((w) => ({ date: warehouseLabel(w), amount: w.amount }))}
+                  series={[{ key: "amount", label: "Үлдэгдлийн дүн", color: "rgb(var(--color-accent))" }]}
+                  label={(d) => (d.length > 9 ? `${d.slice(0, 8)}…` : d)}
+                  unit="агуулахаар"
+                />
+              </CardBody>
+            </Card>
+          )}
+
           <Card>
-            <CardHeader>
-              <CardTitle>Бараа материалын үлдэгдэл</CardTitle>
-              {data && data.items.length >= LIMIT && <span className="text-xs text-warning">Эхний {LIMIT} мөр харагдаж байна: агуулахаар шүүнэ үү</span>}
-            </CardHeader>
-            {data ? <DataTable data={data.items} columns={columns} getRowId={(r) => r.id} searchPlaceholder="Нэр эсвэл кодоор хайх..." emptyTitle="Хайлтад тохирох бараа олдсонгүй" /> : <SkeletonTable rows={8} cols={5} />}
+            {data ? (
+              <DataTable
+                heading={
+                  <>
+                    <Boxes className="size-4 text-[#ffd56b]" />
+                    Бараа материалын үлдэгдэл
+                    {data.items.length >= LIMIT && <span className="text-xs font-normal text-warning">Эхний {LIMIT} мөр: агуулахаар шүүнэ үү</span>}
+                  </>
+                }
+                phoneLayout="scroll"
+                data={data.items}
+                columns={columns}
+                getRowId={(r) => r.id}
+                searchPlaceholder="Нэр эсвэл кодоор хайх..."
+                emptyTitle="Хайлтад тохирох бараа олдсонгүй"
+              />
+            ) : (
+              <SkeletonTable rows={8} cols={5} />
+            )}
           </Card>
         </>
       )}

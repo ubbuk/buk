@@ -1,14 +1,15 @@
 "use client";
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Landmark, Wallet } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, Landmark, ListChecks, Users, Wallet } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { KpiCard } from "@/components/ui/KpiCard";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
-import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { ErrorNote, FinanceShell, NUM, money } from "@/components/finance/FinanceShell";
+import { GranularChart } from "@/components/finance/GranularChart";
+import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
-import { RefreshButton } from "@/components/finance/useOnecRefresh";
+import { RefreshButton, todayUb } from "@/components/finance/useOnecRefresh";
 import { useYm } from "@/components/finance/useYm";
 import { formatNumber } from "@/lib/utils";
 import type { CashAccount, CashCounterpart, CashEntry, CashResult } from "@/lib/onec/cash";
@@ -42,7 +43,7 @@ const counterpartColumns: DataTableColumn<CashCounterpart>[] = [
 ];
 
 const entryColumns = (transfer: boolean): DataTableColumn<CashEntry>[] => [
-  { key: "date", header: "Огноо", sortable: true, accessor: (r) => r.date, render: (r) => r.date },
+  { key: "date", header: "Огноо", sortable: true, accessor: (r) => r.date, render: (r) => <span className="ng-num">{r.date}</span> },
   { key: "account", header: transfer ? "Зарлагадсан данс" : "Данс", accessor: (r) => r.account, render: (r) => r.account },
   { key: "counterpart", header: transfer ? "Хүлээн авсан данс" : "Харилцагч / гүйлгээний утга", accessor: (r) => `${r.counterpart} ${r.memo} ${r.article} ${r.document}`, render: (r) => (
       <div>
@@ -54,33 +55,51 @@ const entryColumns = (transfer: boolean): DataTableColumn<CashEntry>[] => [
       r.type === "inflow" ? <span className="text-success">+{money(r.amount)}</span> : r.type === "outflow" ? <span className="text-danger">−{money(r.amount)}</span> : <span className="text-text-muted">{money(r.amount)}</span> },
 ];
 
+const ALL = "";
+
 export default function CashPage() {
-  const { ym } = useYm();
+  const { ym, isCurrent } = useYm();
   const { data, error, loading, retryAt, refresh } = useOdataData<CashResponse>(`/api/dashboard/cash?month=${ym}`);
+  const [account, setAccount] = useState(ALL);
+  const [mode, setMode] = useState<ViewMode>("chart");
   const empty = data && data.totals.entries === 0 && data.accounts.length === 0;
   const diff = data ? Math.abs(data.totals.difference) : 0;
 
+  // «Бүх данс» шүүлтүүр: дансны хүснэгт, гүйлгээ, шилжүүлгийн жагсаалтад (дүн, график нь нийт хэвээр)
+  const accountName = useMemo(() => data?.accounts.find((a) => a.key === account)?.name ?? "", [data, account]);
+  const accounts = useMemo(() => (data ? data.accounts.filter((a) => !account || a.key === account) : []), [data, account]);
+  const recent = useMemo(() => (data ? data.recent.filter((e) => !account || e.account === accountName) : []), [data, account, accountName]);
+  const transfers = useMemo(() => (data ? data.transfers.filter((e) => !account || e.account === accountName || e.counterpart === accountName) : []), [data, account, accountName]);
+  const spark = useMemo(() => {
+    let acc = 0;
+    return (data?.daily ?? []).filter((d) => !isCurrent || d.date <= todayUb()).map((d) => (acc += d.inflow));
+  }, [data, isCurrent]);
+  const counterpartCols = useMemo(() => (data ? [rankColumn(data.byCounterpart), ...counterpartColumns] : counterpartColumns), [data]);
+
   return (
-    <FinanceShell title={`Мөнгөн хөрөнгө${data ? ` · ${data.asOf}-ны үлдэгдэл` : ""}`} lastSyncedAt={data?.meta.fetchedAt} refresh={<RefreshButton busy={loading} retryAt={retryAt} onClick={refresh} />}>
+    <FinanceShell
+      title={`Мөнгөн хөрөнгө`}
+      subtitle={data ? `1С-ээс татсан мөнгөн хөрөнгийн мэдээлэл · ${data.asOf}-ны үлдэгдэл` : "1С-ээс татсан мөнгөн хөрөнгийн мэдээлэл"}
+      icon={Wallet}
+      lastSyncedAt={data?.meta.fetchedAt}
+      connection={error || data?.meta.stale ? "offline" : data ? "ok" : null}
+      refresh={<RefreshButton busy={loading} retryAt={retryAt} onClick={refresh} />}
+      controls={data && <FilterSelect icon={Banknote} label="Данс" value={account} onChange={setAccount} options={[{ value: ALL, label: "Бүх данс" }, ...data.accounts.map((a) => ({ value: a.key, label: a.name }))]} />}
+      trailing={<ViewToggle value={mode} onChange={setMode} />}
+    >
       {error && <ErrorNote message={data ? `${error}. Сүүлд татсан өгөгдлийг харуулж байна.` : error} />}
       {data?.meta.stale && <ErrorNote message="1С холбогдохгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {loading && !data ? (
-          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
         ) : data ? (
           <>
+            <KpiCard featured spark={spark} label="Нийт орлого" value={money(data.totals.inflow)} icon={ArrowDownLeft} tone="accent" />
             <KpiCard label="Эхний үлдэгдэл" value={money(data.totals.opening)} icon={Wallet} hint={`${data.month}-01`} />
-            <KpiCard label="Нийт орлого" value={money(data.totals.inflow)} icon={ArrowDownLeft} tone="success" />
             <KpiCard label="Нийт зарлага" value={money(data.totals.outflow)} icon={ArrowUpRight} tone="danger" />
             <KpiCard label="Дотоод шилжүүлэг" value={money(data.totals.internal)} icon={ArrowLeftRight} hint="Орлого, зарлагад тооцоогүй" />
-            <KpiCard
-              label="Эцсийн үлдэгдэл"
-              value={money(data.totals.closing)}
-              icon={Landmark}
-              tone="accent"
-              hint={diff < 1 ? "Эхний + орлого − зарлага таарсан" : `Тулгалтад ${money(data.totals.difference)} зөрүүтэй`}
-            />
+            <KpiCard label="Эцсийн үлдэгдэл" value={money(data.totals.closing)} icon={Landmark} tone="success" hint={diff < 1 ? "Эхний + орлого − зарлага таарсан" : `Тулгалтад ${money(data.totals.difference)} зөрүүтэй`} />
           </>
         ) : null}
       </div>
@@ -91,57 +110,106 @@ export default function CashPage() {
         </Card>
       ) : (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Өдөр бүрийн орлого, зарлага</CardTitle>
-            </CardHeader>
-            <CardBody>
-              {data ? (
-                <DailyBarChart
-                  data={data.daily}
-                  series={[
-                    { key: "inflow", label: "Орлого", color: "rgb(var(--color-success))" },
-                    { key: "outflow", label: "Зарлага", color: "rgb(var(--color-danger))" },
-                  ]}
-                />
-              ) : (
-                <Skeleton className="h-56" />
-              )}
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Данс, банкаар</CardTitle>
-              {data && diff >= 1 && <span className="text-xs text-warning">Тулгалтын зөрүү {formatNumber(data.totals.difference, 2)}₮ (ханшийн зөрүү зэрэг)</span>}
-            </CardHeader>
-            {data ? <DataTable data={data.accounts} columns={accountColumns} getRowId={(r) => r.key} searchPlaceholder="Данс хайх..." /> : <SkeletonTable rows={4} cols={6} />}
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Харилцагч, харьцсан дансаар</CardTitle>
-              <span className="text-xs text-text-muted">Эхний 20</span>
-            </CardHeader>
-            {data ? <DataTable data={data.byCounterpart} columns={counterpartColumns} getRowId={(r) => r.key} searchPlaceholder="Харилцагч, данс хайх..." /> : <SkeletonTable rows={6} cols={3} />}
-          </Card>
-
-          {data && data.transfers.length > 0 && (
+          {mode === "chart" && (
             <Card>
               <CardHeader>
-                <CardTitle>Дотоод шилжүүлэг</CardTitle>
-                <span className="text-xs text-text-muted">Касс, банк, валют хоорондын: орлого, зарлагад тооцоогүй</span>
+                <CardTitle>Өдөр бүрийн орлого, зарлага</CardTitle>
               </CardHeader>
-              <DataTable data={data.transfers} columns={entryColumns(true)} getRowId={(r) => r.id} searchPlaceholder="Шилжүүлэг хайх..." />
+              <CardBody>
+                {data ? (
+                  <GranularChart
+                    data={data.daily}
+                    keys={["inflow", "outflow"]}
+                    today={isCurrent ? todayUb() : undefined}
+                    series={[
+                      { key: "inflow", label: "Орлого", color: "rgb(var(--color-accent))" },
+                      { key: "outflow", label: "Зарлага", color: "rgb(var(--color-danger))" },
+                    ]}
+                  />
+                ) : (
+                  <Skeleton className="h-56" />
+                )}
+              </CardBody>
             </Card>
           )}
 
           <Card>
-            <CardHeader>
-              <CardTitle>Сүүлийн гүйлгээнүүд</CardTitle>
-              <span className="text-xs text-text-muted">Сүүлийн 200</span>
-            </CardHeader>
-            {data ? <DataTable data={data.recent} columns={entryColumns(false)} getRowId={(r) => r.id} searchPlaceholder="Харилцагч, утга, зүйлээр хайх..." /> : <SkeletonTable rows={4} cols={4} />}
+            {data ? (
+              <DataTable
+                heading={
+                  <>
+                    <Banknote className="size-4 text-[#ffd56b]" />
+                    Данс, банкаар
+                    {diff >= 1 && <span className="text-xs font-normal text-warning">Тулгалтын зөрүү {formatNumber(data.totals.difference, 2)}₮</span>}
+                  </>
+                }
+                phoneLayout="scroll"
+                data={accounts}
+                columns={accountColumns}
+                getRowId={(r) => r.key}
+                searchPlaceholder="Данс хайх..."
+              />
+            ) : (
+              <SkeletonTable rows={4} cols={6} />
+            )}
+          </Card>
+
+          <Card>
+            {data ? (
+              <DataTable
+                heading={
+                  <>
+                    <Users className="size-4 text-[#ffd56b]" />
+                    Харилцагч, харьцсан дансаар (эхний 20)
+                  </>
+                }
+                phoneLayout="scroll"
+                data={data.byCounterpart}
+                columns={counterpartCols}
+                getRowId={(r) => r.key}
+                searchPlaceholder="Харилцагч, данс хайх..."
+              />
+            ) : (
+              <SkeletonTable rows={6} cols={3} />
+            )}
+          </Card>
+
+          {data && transfers.length > 0 && (
+            <Card>
+              <DataTable
+                heading={
+                  <>
+                    <ArrowLeftRight className="size-4 text-[#ffd56b]" />
+                    Дотоод шилжүүлэг
+                  </>
+                }
+                phoneLayout="scroll"
+                data={transfers}
+                columns={entryColumns(true)}
+                getRowId={(r) => r.id}
+                searchPlaceholder="Шилжүүлэг хайх..."
+              />
+            </Card>
+          )}
+
+          <Card>
+            {data ? (
+              <DataTable
+                heading={
+                  <>
+                    <ListChecks className="size-4 text-[#ffd56b]" />
+                    Сүүлийн гүйлгээнүүд (сүүлийн 200)
+                  </>
+                }
+                phoneLayout="scroll"
+                data={recent}
+                columns={entryColumns(false)}
+                getRowId={(r) => r.id}
+                searchPlaceholder="Харилцагч, утга, зүйлээр хайх..."
+              />
+            ) : (
+              <SkeletonTable rows={4} cols={4} />
+            )}
           </Card>
         </>
       )}

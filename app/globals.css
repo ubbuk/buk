@@ -203,3 +203,71 @@
     min-height: 44px;
   }
 }
+
+/* ------------------------------------------------------------------------------------------------
+   «Navy Gold» загвар: зөвхөн 1С хуудас (app/(app)/finance/layout.tsx -> .ng). Өгөгдөл, логикт хамаарахгүй.
+   Дизайн токенуудыг энэ хүрээнд дарж бичсэнээр Card, DataTable, товчлуур зэрэг нийтлэг бүрэлдэхүүн автоматаар шинэ өнгөтэй болно.
+   ------------------------------------------------------------------------------------------------ */
+.ng {
+  color-scheme: dark;
+  --color-bg: 4 11 26;
+  --color-bg-sidebar: 6 18 41;
+  --color-bg-surface: 8 21 46;
+  --color-bg-elevated: 13 31 64;
+  --color-border: 34 60 108;
+  --color-accent: 245 181 35;
+  --color-accent-hover: 255 213 107;
+  --color-success: 52 211 153;
+  --color-warning: 250 190 70;
+  --color-danger: 248 113 113;
+  --color-text: 232 240 255;
+  --color-text-muted: 138 163 204;
+  --ng-line: rgba(80, 140, 240, 0.4);
+  --ng-gold: #f5b523;
+  --ng-gold-soft: #ffd56b;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(80, 140, 240, 0.22);
+  color: rgb(var(--color-text));
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(ellipse 70% 38% at 50% -6%, rgba(40, 110, 230, 0.42), transparent 70%),
+    radial-gradient(ellipse 80% 30% at 50% 108%, rgba(30, 100, 230, 0.4), transparent 70%),
+    linear-gradient(180deg, #040b1a 0%, #061229 100%);
+}
+/* нарийн цэгэн сүлжээ */
+.ng::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(120, 170, 255, 0.16) 1px, transparent 1.2px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.25) 70%, rgba(0, 0, 0, 0.7));
+}
+.ng-num {
+  font-family: var(--font-mono-num), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+/* Хавтан: хөх хүрээ, хөхөөс хар хөх градиент, бүдэг цэнхэр гэрэлтэлт */
+.ng .bg-bg-surface.rounded-xl,
+.ng-panel {
+  border-radius: 17px;
+  border: 1px solid var(--ng-line);
+  background: radial-gradient(120% 90% at 0% 0%, rgba(40, 100, 220, 0.16), transparent 60%), linear-gradient(160deg, #0b1d3f 0%, #061229 100%);
+  box-shadow: 0 0 0 1px rgba(20, 50, 110, 0.3) inset, 0 8px 34px -14px rgba(40, 110, 240, 0.55);
+}
+.ng .bg-bg-surface.rounded-xl:hover { border-color: rgba(255, 213, 107, 0.45); }
+.ng .border-border { border-color: rgba(80, 140, 240, 0.22); }
+.ng thead, .ng th { background: transparent; }
+.ng input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(0.8) sepia(1) saturate(4) hue-rotate(5deg); cursor: pointer; }
+.ng-gold-text { background: linear-gradient(180deg, #ffd56b, #f5b523); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ng-glow-gold { box-shadow: 0 0 0 1px rgba(255, 213, 107, 0.55) inset, 0 0 22px -2px rgba(245, 181, 35, 0.55), 0 0 60px -20px rgba(245, 181, 35, 0.5); }
+.ng-scroll { overflow-x: auto; }
+@media (max-width: 767px) {
+  .ng { border-radius: 16px; }
+}

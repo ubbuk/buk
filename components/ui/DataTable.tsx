@@ -23,6 +23,8 @@ export function DataTable<T>({
   onRowClick,
   emptyTitle = "Өгөгдөл олдсонгүй",
   emptyDescription,
+  heading,
+  phoneLayout = "cards",
 }: {
   data: T[];
   columns: DataTableColumn<T>[];
@@ -31,12 +33,16 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Хайлтын зүүн талд харагдах гарчиг (дүрс + нэр) */
+  heading?: React.ReactNode;
+  /** Утсан дээр: "cards" = мөр бүр карт (анхдагч), "scroll" = хүснэгт хэвээр хэвтээ гүйлгэнэ */
+  phoneLayout?: "cards" | "scroll";
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Phones get one card per row (same rows, sorting, search and click handler as the table).
-  const isPhone = useMediaQuery("(max-width: 767px)");
+  const isPhone = useMediaQuery("(max-width: 767px)") && phoneLayout === "cards";
 
   const filtered = useMemo(() => {
     let rows = data;
@@ -77,6 +83,7 @@ export function DataTable<T>({
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3 sm:px-5">
+        {heading && <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-text">{heading}</div>}
         <div className="relative w-full max-w-xs max-sm:min-w-0 max-sm:flex-1 max-sm:basis-40">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
           <input
