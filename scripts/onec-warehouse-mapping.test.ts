@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classify, normalizeName } from "./onec-warehouse-mapping";
 
-const wh = (id: string, name: string, level: "дээд" | "байршил" = "байршил") => ({ id, name, level, onecCode: null, key: normalizeName(name) });
+const wh = (id: string, name: string, level: "дээд" | "байршил" = "байршил", onecCode: string | null = null) => ({ id, name, level, onecCode, key: normalizeName(name) });
 const onec = (code: string, name: string) => ({ code, name, rows: 1, lastSnapshot: "2026-11-01" });
 
 describe("1С warehouse mapping report", () => {
@@ -24,5 +24,11 @@ describe("1С warehouse mapping report", () => {
     expect(r.duplicates.sameNameManyCodes).toEqual([{ name: "төв", codes: ["1", "2"] }]);
     expect(r.duplicates.sameCodeManyNames).toEqual([{ code: "3", names: ["Бутлуур", "Бутлуур 2"] }]);
     expect(r.duplicates.manyOnecOneWarehouse.map((d) => d.wh.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("a confirmed onecCode matches even when the names differ; a blank 1С code never matches", () => {
+    const r = classify([onec("00-000002", "Хангамжийн агуулах"), onec("", "")], [wh("a", "Төв", "байршил", "00-000002"), wh("b", "", "байршил", "")]);
+    expect(r.exact.map((m) => [m.onec.code, m.wh.id])).toEqual([["00-000002", "a"]]);
+    expect(r.unmatched.map((o) => o.code)).toEqual([""]);
   });
 });

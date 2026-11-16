@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { categoriesFor, type WarehouseGroup } from "./warehouse-structure";
+import type { WarehouseGroup } from "./warehouse-structure";
 
 /**
  * The warehouse catalog as the /warehouses pages show it: every active top-level warehouse with its active
@@ -22,7 +22,7 @@ export async function getWarehouseTree(): Promise<WarehouseGroup[]> {
       id: groupId,
       name: top.name,
       keeperName: top.keeper?.name ?? null,
-      warehouses: locations.map((l) => ({ id: l.slug ?? l.id, name: l.name, categories: categoriesFor(l.slug ?? l.id) })),
+      warehouses: locations.map((l) => ({ id: l.slug ?? l.id, name: l.name, onecCode: l.onecCode })),
     };
   });
 }

@@ -79,7 +79,9 @@ async function main() {
 
   // --- Warehouse + materials + stock ---------------------------------------
   // Two-level structure (keeper on the top level, locations below); "w-central" is the Төв агуулах location.
-  await seedWarehouseStructure(prisma, { uuganzetsegKeeperId: "u-sarnai" });
+  const warehouseSeed = await seedWarehouseStructure(prisma, { uuganzetsegKeeperId: "u-sarnai" });
+  if (warehouseSeed.removed.length) console.log(`Removed obsolete warehouses: ${warehouseSeed.removed.join(", ")}`);
+  if (warehouseSeed.kept.length) console.log(`Obsolete warehouses kept (they still hold stock/reservations): ${warehouseSeed.kept.join(", ")}`);
   const warehouse = await prisma.warehouse.findUniqueOrThrow({ where: { id: "w-central" } });
 
   // Mechanical/industrial spare parts — not construction materials, per spec.

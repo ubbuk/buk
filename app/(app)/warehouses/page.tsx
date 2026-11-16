@@ -59,9 +59,7 @@ export default function WarehousesPage() {
                         <WarehouseIcon className="size-4" />
                       </div>
                       <span className="text-sm font-medium text-text">{wh.name}</span>
-                      <span className="text-xs text-text-muted">
-                        {wh.categories.map((c) => c.name).join(", ")}
-                      </span>
+                      <span className="text-xs text-text-muted">{wh.onecCode ? `1С код: ${wh.onecCode}` : "1С-тэй холбоогүй"}</span>
                     </Link>
                   ))}
                 </CardBody>

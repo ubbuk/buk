@@ -2,7 +2,7 @@
 //   npm run onec:warehouse-mapping
 // Mapping-ийг энэ скрипт ТААМАГЛАЖ БИЧИХГҮЙ: зөвхөн жагсаалт гаргана. Хүн баталсны дараа Warehouse.onecCode-г гараар бөглөнө.
 // Тайлан:
-//   1. нэрээр яг таарсан (нормчилсон нэр тэнцүү) 1С склад -> агуулах
+//   1. таарсан: Warehouse.onecCode тэнцүү (баталсан mapping), эсвэл нормчилсон нэр тэнцүү 1С склад -> агуулах
 //   2. хэсэгчлэн төстэй (нэг нь нөгөөгөө агуулсан): ГАРААР БАТЛАХ нэр дэвшигч, автоматаар холбохгүй
 //   3. бүтцэд олдоогүй 1С склад
 //   4. 1С-д олдоогүй агуулах (бүтцэд бий, 1С-д харгалзах склад алга)
@@ -34,7 +34,9 @@ export function classify(onec: OnecWarehouse[], warehouses: Wh[]) {
   const unmatched: OnecWarehouse[] = [];
   for (const o of onec) {
     const key = normalizeName(o.name);
-    const same = warehouses.filter((w) => w.key === key);
+    // a confirmed mapping (Warehouse.onecCode) wins; a blank 1С code never matches anything
+    const byCode = o.code ? warehouses.filter((w) => w.onecCode === o.code) : [];
+    const same = byCode.length > 0 ? byCode : key ? warehouses.filter((w) => w.key === key) : [];
     if (same.length > 0) {
       for (const wh of same) exact.push({ onec: o, wh });
       continue;
@@ -70,7 +72,9 @@ async function main() {
       FROM onec_stock GROUP BY warehouse_code, warehouse ORDER BY warehouse, warehouse_code`
   ).map((r) => ({ code: r.code, name: r.name, rows: Number(r.rows), lastSnapshot: r.last.toISOString().slice(0, 10) }));
   const rows = await prisma.warehouse.findMany({ where: { isActive: true }, orderBy: [{ parentId: "asc" }, { name: "asc" }] });
-  const warehouses: Wh[] = rows.map((w) => ({ id: w.id, name: w.name, level: w.parentId ? "байршил" : "дээд", onecCode: w.onecCode, key: normalizeName(w.name) }));
+  // the keeper groups (top level, with children) are not 1С warehouses: only the warehouses that can carry a 1С code are compared
+  const parents = new Set(rows.map((w) => w.parentId).filter((id): id is string => !!id));
+  const warehouses: Wh[] = rows.filter((w) => !parents.has(w.id)).map((w) => ({ id: w.id, name: w.name, level: w.parentId ? "байршил" : "дээд", onecCode: w.onecCode, key: normalizeName(w.name) }));
 
   console.log(`\n1С складын тоо (onec_stock): ${onec.length} · агуулахын бүтэц: ${warehouses.length} мөр\n`);
   if (onec.length === 0) {
@@ -82,7 +86,7 @@ async function main() {
     console.log(`\n== ${title} (${data.length}) ==`);
     if (data.length) console.table(data);
   };
-  show("1. Нэрээр яг таарсан", r.exact.map((m) => ({ "1С код": m.onec.code, "1С склад": m.onec.name, "Агуулах": m.wh.name, түвшин: m.wh.level, "одоогийн onecCode": m.wh.onecCode ?? "", мөр: m.onec.rows })));
+  show("1. Таарсан (код эсвэл нэрээр)", r.exact.map((m) => ({ "1С код": m.onec.code, "1С склад": m.onec.name, "Агуулах": m.wh.name, түвшин: m.wh.level, "одоогийн onecCode": m.wh.onecCode ?? "", мөр: m.onec.rows })));
   show("2. Хэсэгчлэн төстэй (ГАРААР БАТЛАХ, автоматаар холбоогүй)", r.partial.map((m) => ({ "1С код": m.onec.code, "1С склад": m.onec.name, "Нэр дэвшигч агуулах": m.wh.name, түвшин: m.wh.level })));
   show("3. Бүтцэд олдоогүй 1С склад", r.unmatched.map((o) => ({ код: o.code, склад: o.name, мөр: o.rows, "сүүлийн snapshot": o.lastSnapshot })));
   show("4. 1С-д олдоогүй агуулах", r.missingInOnec.map((w) => ({ агуулах: w.name, түвшин: w.level, "одоогийн onecCode": w.onecCode ?? "" })));

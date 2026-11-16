@@ -34,7 +34,9 @@ async function main() {
   });
 
   // The agreed two-level warehouse structure incl. the central warehouse (keepers are assigned in /admin).
-  await seedWarehouseStructure(prisma);
+  const warehouseSeed = await seedWarehouseStructure(prisma);
+  if (warehouseSeed.removed.length) console.log(`Removed obsolete warehouses: ${warehouseSeed.removed.join(", ")}`);
+  if (warehouseSeed.kept.length) console.log(`Obsolete warehouses kept (they still hold stock/reservations): ${warehouseSeed.kept.join(", ")}`);
 
   console.log(`Production seed complete. Admin account: ${email}`);
   console.log("Next: sign in, then create departments, users, approver positions and department heads in /admin.");
