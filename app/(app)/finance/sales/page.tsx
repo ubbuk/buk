@@ -142,7 +142,6 @@ export default function SalesPage() {
                           Борлуулалт өндөртэй 10 бараа
                         </>
                       }
-                      phoneLayout="scroll"
                       data={data.topItems}
                       columns={itemCols}
                       getRowId={(r) => r.item_code || r.item}
@@ -161,7 +160,6 @@ export default function SalesPage() {
                           Тэргүүлэх 10 харилцагч
                         </>
                       }
-                      phoneLayout="scroll"
                       data={data.topClients}
                       columns={clientCols}
                       getRowId={(r) => r.client_code || r.client}

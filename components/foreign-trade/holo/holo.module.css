@@ -143,6 +143,13 @@
   color: #ffc24d;
   box-shadow: 0 0 14px rgb(245 158 11 / 0.3), inset 0 0 10px rgb(245 158 11 / 0.12);
 }
+/* a long status ("Батлагдсан — Санхүүгийн хэлтэст шилжсэн") must wrap instead of pushing the page sideways on a phone */
+@media (max-width: 640px) {
+  .chip {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
 .chipGreen {
   border-color: rgb(var(--green) / 0.9);
   background: linear-gradient(180deg, rgb(16 185 129 / 0.16), rgb(4 40 30 / 0.4));

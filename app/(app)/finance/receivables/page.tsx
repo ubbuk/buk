@@ -116,7 +116,6 @@ export default function ReceivablesPage() {
                       Харилцагчаар
                     </>
                   }
-                  phoneLayout="scroll"
                   data={snap.customers}
                   columns={customerCols}
                   getRowId={(r) => r.key || r.name}
@@ -137,7 +136,6 @@ export default function ReceivablesPage() {
                     Авлагын дансаар
                   </>
                 }
-                phoneLayout="scroll"
                 data={snap.accounts}
                 columns={accountColumns}
                 getRowId={(r) => r.code}

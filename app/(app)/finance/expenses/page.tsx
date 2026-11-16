@@ -164,7 +164,6 @@ export default function ExpensesPage() {
                         Бүлгээр
                       </>
                     }
-                    phoneLayout="scroll"
                     data={data.groups}
                     columns={groupCols}
                     getRowId={(r) => r.group}
@@ -184,7 +183,6 @@ export default function ExpensesPage() {
                         Дансаар
                       </>
                     }
-                    phoneLayout="scroll"
                     data={accounts}
                     columns={accountCols}
                     getRowId={(r) => `${r.account}|${r.group}`}

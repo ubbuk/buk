@@ -24,7 +24,6 @@ export function DataTable<T>({
   emptyTitle = "Өгөгдөл олдсонгүй",
   emptyDescription,
   heading,
-  phoneLayout = "cards",
 }: {
   data: T[];
   columns: DataTableColumn<T>[];
@@ -35,14 +34,12 @@ export function DataTable<T>({
   emptyDescription?: string;
   /** Хайлтын зүүн талд харагдах гарчиг (дүрс + нэр) */
   heading?: React.ReactNode;
-  /** Утсан дээр: "cards" = мөр бүр карт (анхдагч), "scroll" = хүснэгт хэвээр хэвтээ гүйлгэнэ */
-  phoneLayout?: "cards" | "scroll";
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Phones get one card per row (same rows, sorting, search and click handler as the table).
-  const isPhone = useMediaQuery("(max-width: 767px)") && phoneLayout === "cards";
+  const isPhone = useMediaQuery("(max-width: 767px)");
 
   const filtered = useMemo(() => {
     let rows = data;

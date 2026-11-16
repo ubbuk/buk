@@ -7,7 +7,7 @@ import { FinanceTabs } from "./FinanceTabs";
 import { YmPicker } from "./useYm";
 
 export const inputClass =
-  "focus-ring h-9 rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
+  "focus-ring h-9 max-w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
 
 const TZ = "Asia/Ulaanbaatar";
 

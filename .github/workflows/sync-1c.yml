@@ -79,6 +79,10 @@ jobs:
           ONEC_ODATA_BASE_URL: ${{ secrets.ONEC_ODATA_BASE_URL }}
           ONEC_ODATA_USER: ${{ secrets.ONEC_ODATA_USER }}
           ONEC_ODATA_PASSWORD: ${{ secrets.ONEC_ODATA_PASSWORD }}
+          # HTTP-сервисийн «receivables» алхам (onec_receivables, зөвхөн /api/v1/onec/receivables hub API-д). 1С-ийн /hs/dash/receivables 500 өгч байгаа тул
+          # түр унтраасан. «Авлага» таб onec_receivable_balances-ийг (receivables-odata) уншдаг тул нөлөөлөхгүй. Дахин асаах (код өөрчлөхгүй):
+          #   gh variable set SYNC_HTTP_RECEIVABLES --body 1   (унтраах: gh variable delete SYNC_HTTP_RECEIVABLES)
+          SYNC_HTTP_RECEIVABLES: ${{ vars.SYNC_HTTP_RECEIVABLES }}
         shell: bash
         run: |
           set +e # нэг команд унасан ч үргэлжилнэ
@@ -124,7 +128,7 @@ jobs:
           case "$mode" in
             regular)
               run stock 240 npm run sync:1c -- stock
-              run receivables 240 npm run sync:1c -- receivables
+              if [ "$SYNC_HTTP_RECEIVABLES" = "1" ]; then run receivables 240 npm run sync:1c -- receivables; else echo "::notice title=receivables::HTTP receivables алхмыг түр унтраасан (SYNC_HTTP_RECEIVABLES=1 болговол асна); «Авлага» таб receivables-odata-аар шинэчлэгдэнэ"; fi
               run current 720 npm run sync:1c -- current
               if odata_ready; then run receivables-odata 900 npm run sync:1c -- receivables-odata; fi
               # 1-2-р сард өмнөх оны баазад хаалтын засвар орно: өмнөх оны 12-р сарыг мөн татна (бусад үед алгасна)
@@ -156,4 +160,6 @@ jobs:
             echo "### 1С sync ($mode)"
             if [ ${#failed[@]} -eq 0 ]; then echo "Бүх алхам амжилттай."; else echo "Амжилтгүй: ${failed[*]}"; fi
           } >> "$GITHUB_STEP_SUMMARY"
+          # Бүх алхам ажиллаж дууссаны ДАРАА: аль нэг нь унасан бол run failure болж GitHub бүтэлгүйтлийн имэйл илгээнэ
+          if [ ${#failed[@]} -ne 0 ]; then echo "::error::Амжилтгүй алхам: ${failed[*]}"; exit 1; fi
           exit 0

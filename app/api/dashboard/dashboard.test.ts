@@ -17,6 +17,7 @@ import { POST as REFRESH } from "./refresh/route";
 import { GET as RECEIVABLES } from "./receivables/route";
 import { GET as STOCK } from "./stock/route";
 import { GET as SUMMARY } from "./summary/route";
+import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
 import { GET as USAGE } from "./usage/route";
 import { GET as WIP } from "./wip/route";
@@ -105,12 +106,13 @@ const ROUTES = {
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
   cash: () => CASH(get(`/api/dashboard/cash?month=${currentMonth()}`)),
   syncStatus: () => SYNC_STATUS(get(`/api/dashboard/sync-status?month=${MONTH}`)),
+  stockFreshness: () => STOCK_FRESHNESS(),
   refreshStock: () => REFRESH(post({ kind: "stock" })),
   refreshMonth: () => REFRESH(post({ kind: "month", month: MONTH })),
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "refreshStock", "health"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -139,7 +141,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -160,6 +162,179 @@ describe("/api/dashboard/*: эрх табаар", () => {
     expect((await EXPENSES(get("/api/dashboard/expenses?month=bad"))).status).toBe(400);
     expect((await REFRESH(post({ kind: "month", month: "2999-01" }))).status).toBe(400); // ирээдүйн сар
     expect((await REFRESH(post({ kind: "nope" }))).status).toBe(400);
+  });
+});
+
+describe("/api/dashboard/stock-freshness: сүүлийн АМЖИЛТТАЙ stock sync, хуваарийн дагуу хуучирсан эсэх", () => {
+  const ub = (s: string) => new Date(`${s.replace(" ", "T")}:00+08:00`);
+  const clean = () => prisma.onecSyncLog.deleteMany({ where: { kind: "stock", period: "freshness-test" } });
+  const log = (finishedAt: string, ok: boolean) => prisma.onecSyncLog.create({ data: { kind: "stock", period: "freshness-test", ok, rows: 1, startedAt: ub(finishedAt), finishedAt: ub(finishedAt) } });
+  const call = async () => (await ROUTES.stockFreshness()).json();
+  beforeEach(async () => {
+    await prisma.onecSyncLog.deleteMany({ where: { kind: "stock" } }); // route нь бүх stock мөрийн сүүлийнхийг авдаг
+    as("DIRECTOR");
+  });
+  afterEach(async () => {
+    vi.useRealTimers();
+    await clean();
+  });
+  afterAll(clean);
+  const at = (now: string) => vi.useFakeTimers({ toFake: ["Date"], now: ub(now) });
+
+  it("хуваарьт цагт 1 цагаас хуучин бол шар анхааруулга ба Улаанбаатарын цагаар «сүүлд шинэчилсэн»", async () => {
+    await log("2026-11-16 09:10", true);
+    at("2026-11-16 11:30");
+    const b = await call();
+    expect(b).toMatchObject({ stale: true, never: false, lastSyncedLabel: "2026-11-16 09:10" });
+    expect(b.message).toBe("1С-ийн өгөгдөл 2 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
+  });
+  it("1 цагаас дотор бол анхааруулахгүй", async () => {
+    await log("2026-11-16 11:00", true);
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: false, message: null });
+  });
+  it("зөвхөн АМЖИЛТТАЙ sync тооцогдоно: сүүлийн оролдлого амжилтгүй бол өмнөх амжилттайг харна", async () => {
+    await log("2026-11-16 09:10", true);
+    await log("2026-11-16 11:20", false);
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: true, lastSyncedLabel: "2026-11-16 09:10" });
+  });
+  it("ням гарагт Бямбын 19:45-ийн sync хэвийн; өмнөх оройн 18:00 бол анхааруулна", async () => {
+    await log("2026-11-14 19:45", true);
+    at("2026-11-15 14:00");
+    expect((await call()).stale).toBe(false);
+    await clean();
+    await log("2026-11-14 18:00", true);
+    expect((await call()).stale).toBe(true);
+  });
+  it("хэзээ ч sync болоогүй бол анхааруулна", async () => {
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: true, never: true, lastSyncedAt: null, lastSyncedLabel: null });
+  });
+});
+
+describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → бараа (Warehouse.onecCode-оор холбоно)", () => {
+  const DATE = "2001-02-03";
+  const ids = { g1: "t-stk-g1", l1: "t-stk-l1", l2: "t-stk-l2", g2: "t-stk-g2", l3: "t-stk-l3" };
+  const codes = { l1: "T-STK-1", l2: "T-STK-2", l3: "T-STK-3" };
+  let keeper: { id: string; name: string };
+  const body = async (qs = "") => (await STOCK(get(`/api/dashboard/stock?date=${DATE}${qs}`))).json();
+  const group = (b: { groups: { id?: string; key: string }[] }, key: string) => b.groups.find((g) => g.key === key) as unknown as {
+    name: string; kind: string; keeper: { id: string; name: string } | null; items: number; amount: number; accounts: string[];
+    warehouses: { key: string; name: string; keeper: { name: string } | null; reservable: boolean; items: number; amount: number; rows: { item: string; amount: number }[] }[];
+  };
+  const clean = async () => {
+    await prisma.onecStock.deleteMany({ where: { snapshotDate: new Date(DATE) } });
+    await prisma.warehouse.deleteMany({ where: { id: { in: [ids.l1, ids.l2, ids.l3] } } });
+    await prisma.warehouse.deleteMany({ where: { id: { in: [ids.g1, ids.g2] } } });
+  };
+
+  beforeAll(async () => {
+    await clean();
+    // Нярав нь өгөгдлөөс (seed-ийн нэг STOREKEEPER): нэрийг кодонд бичихгүй
+    keeper = await prisma.user.findFirstOrThrow({ where: { role: "STOREKEEPER" }, select: { id: true, name: true } });
+    await prisma.warehouse.createMany({
+      data: [
+        { id: ids.g1, name: "Тест бүлэг 1", slug: "t-stk-g1", keeperId: keeper.id },
+        { id: ids.g2, name: "Тест бүлэг 2", slug: "t-stk-g2" }, // нярав оноогоогүй
+      ],
+    });
+    await prisma.warehouse.createMany({
+      data: [
+        { id: ids.l1, name: "Тест склад 1", slug: "t-stk-l1", parentId: ids.g1, onecCode: codes.l1 },
+        { id: ids.l2, name: "Тест бэлэн бүтээгдэхүүн", slug: "t-stk-l2", parentId: ids.g1, onecCode: codes.l2, reservable: false },
+        { id: ids.l3, name: "Тест склад 3", slug: "t-stk-l3", parentId: ids.g2, onecCode: codes.l3 },
+      ],
+    });
+    const row = (warehouseCode: string, itemCode: string, item: string, amount: number, account = "1411") => ({ snapshotDate: new Date(DATE), warehouseCode, warehouse: "", itemCode, item, unit: "ш", account, qty: 2, amount });
+    await prisma.onecStock.createMany({
+      data: [
+        row(codes.l1, "S1", "Цемент", 100),
+        row(codes.l1, "S2", "Хавтан", 900),
+        row(codes.l1, "S2", "Хавтан", 50, "1412"), // ижил бараа өөр дансанд
+        row(codes.l2, "S3", "Бэлэн блок", 10),
+        row(codes.l3, "S1", "Цемент", 5000),
+        row("", "S9", "Дансны үлдэгдэл А", 70, "1418"),
+        row("", "S8", "Дансны үлдэгдэл Б", 30, "1418"),
+      ],
+    });
+    as("DIRECTOR");
+  });
+  afterAll(clean);
+  beforeEach(() => as("DIRECTOR"));
+
+  it("бүлэг бүрт барааны тоо, нийт дүн; склад дотор дүнгээр буурахаар; нярвын нэр өгөгдлөөс", async () => {
+    const b = await body();
+    expect(b.totals).toMatchObject({ items: 5, amount: 6160 });
+    const g1 = group(b, ids.g1);
+    expect(g1).toMatchObject({ kind: "group", items: 3, amount: 1060 });
+    expect(g1.keeper).toEqual({ id: keeper.id, name: keeper.name });
+    const l1 = g1.warehouses.find((w) => w.key === codes.l1)!;
+    expect(l1).toMatchObject({ items: 2, amount: 1050, keeper: { name: keeper.name }, reservable: true });
+    expect(l1.rows.map((r) => r.amount)).toEqual([900, 100, 50]);
+  });
+
+  it("нярав оноогоогүй бүлэг/склад null; reservable=false склад тусад нь тэмдэглэгдэнэ", async () => {
+    const b = await body();
+    const g2 = group(b, ids.g2);
+    expect(g2.keeper).toBeNull();
+    expect(g2.warehouses[0].keeper).toBeNull();
+    expect(group(b, ids.g1).warehouses.find((w) => w.key === codes.l2)!.reservable).toBe(false);
+  });
+
+  it("складын код хоосон мөрүүд «Агуулах тодорхойгүй» бүлэг болж хамгийн доор, дансны кодтой", async () => {
+    const b = await body();
+    const last = b.groups.at(-1);
+    expect(last).toMatchObject({ key: "none", kind: "unknown", items: 2, amount: 100, accounts: ["1418"] });
+  });
+
+  it("шүүлтийн сонголт: нярав = нярав оноосон хэрэглэгчид, склад = 1С складууд, «тодорхойгүй» байгаа эсэх", async () => {
+    const f = (await body()).filters;
+    expect(f.keepers).toContainEqual({ id: keeper.id, name: keeper.name });
+    expect(f.hasUnassigned).toBe(true);
+    expect(f.hasUnknown).toBe(true);
+    expect(f.warehouses).toContainEqual({ code: codes.l1, name: "Тест склад 1", group: "Тест бүлэг 1" });
+  });
+
+  it("q: нэр эсвэл кодоор хайна; тоо, нийт дүн хамт шүүгдэнэ, бараагүй бүлэг гарахгүй", async () => {
+    const byName = await body("&q=" + encodeURIComponent("цемент"));
+    expect(byName.totals).toMatchObject({ items: 1, amount: 5100 });
+    expect(byName.groups.map((g: { key: string }) => g.key).sort()).toEqual([ids.g1, ids.g2].sort());
+    expect(group(byName, ids.g1)).toMatchObject({ items: 1, amount: 100 });
+    const byCode = await body("&q=S9");
+    expect(byCode.groups.map((g: { key: string }) => g.key)).toEqual(["none"]);
+  });
+
+  it("warehouse=<код> ба warehouse=none", async () => {
+    const one = await body(`&warehouse=${codes.l3}`);
+    expect(one.totals).toMatchObject({ amount: 5000, items: 1 });
+    expect(one.groups.map((g: { key: string }) => g.key)).toEqual([ids.g2]);
+    const unknown = await body("&warehouse=none");
+    expect(unknown.groups.map((g: { key: string }) => g.key)).toEqual(["none"]);
+    expect(unknown.totals.amount).toBe(100);
+  });
+
+  it("keeper=<id>: тухайн нярвын бүлгийн складууд; keeper=none: нярав оноогоогүй складууд", async () => {
+    const mine = await body(`&keeper=${keeper.id}`);
+    expect(mine.totals.amount).toBe(1060);
+    expect(mine.groups.map((g: { key: string }) => g.key)).toContain(ids.g1);
+    expect(mine.groups.map((g: { key: string }) => g.key)).not.toContain(ids.g2);
+    const none = await body("&keeper=none");
+    expect(none.groups.map((g: { key: string }) => g.key)).toContain(ids.g2);
+    expect(none.groups.map((g: { key: string }) => g.key)).not.toContain(ids.g1);
+    expect(none.totals.amount).toBeGreaterThanOrEqual(5000);
+  });
+
+  it("шүүлтүүд хоорондоо давхарлаж (AND) ажиллана", async () => {
+    const b = await body(`&keeper=${keeper.id}&q=${encodeURIComponent("хавтан")}`);
+    expect(b.totals).toMatchObject({ items: 1, amount: 950 });
+    const none = await body(`&warehouse=${codes.l3}&keeper=${keeper.id}`);
+    expect(none.groups).toEqual([]);
+    expect(none.totals.amount).toBe(0);
+  });
+
+  it("огноо буруу бол 400", async () => {
+    expect((await STOCK(get("/api/dashboard/stock?date=bad"))).status).toBe(400);
   });
 });
 

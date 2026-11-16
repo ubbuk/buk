@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Boxes, Factory, Package, Warehouse } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
-import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
+import { ErrorNote, FinanceShell, connectionFrom, money } from "@/components/finance/FinanceShell";
 import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, type ViewMode } from "@/components/finance/NgParts";
+import { StockTree } from "@/components/finance/StockTree";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/finance/useOnecRefresh";
@@ -16,27 +18,17 @@ import { MissingMonth } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { asOfDate, monthRange } from "@/lib/onec/dates";
 import { canViewTab } from "@/lib/onec/roles";
+import { UNKNOWN_WAREHOUSE_KEY, type KeeperRef, type StockGroupNode } from "@/lib/onec/stock-tree";
 import type { WipResult } from "@/lib/onec/wip";
 import { formatNumber } from "@/lib/utils";
-
-interface StockItem {
-  id: string;
-  warehouse_code: string;
-  warehouse: string;
-  item_code: string;
-  item: string;
-  unit: string;
-  account: string;
-  qty: number;
-  amount: number;
-  unit_cost: number | null;
-}
 
 interface StockResponse {
   date: string | null;
   totals: { items: number; warehouses: number; amount: number; negative_rows: number } | null;
-  warehouses: { warehouse_code: string; warehouse: string; items: number; amount: number }[];
-  items: StockItem[];
+  groups: StockGroupNode[];
+  /** шүүлтийн сонголтууд: идэвхтэй шүүлтээс хамаарахгүй */
+  filters: { keepers: KeeperRef[]; hasUnassigned: boolean; warehouses: { code: string; name: string; group: string }[]; hasUnknown: boolean };
+  truncated: boolean;
   lastSyncedAt: string | null;
 }
 
@@ -59,46 +51,98 @@ function WipCard({ month }: { month: string }) {
   );
 }
 
-const LIMIT = 5000;
 const UNKNOWN_WAREHOUSE = "Агуулах тодорхойгүй";
-// API-д агуулахгүй (код хоосон) мөрүүдийг "none" гэж шүүнэ
-const NONE = "none";
+// «нярав оноогоогүй» шүүлтийн утга (API-тай ижил)
+const NO_KEEPER = "none";
+const SEARCH_DEBOUNCE_MS = 300;
 
-const warehouseLabel = (w: { warehouse: string; warehouse_code: string }) => w.warehouse || w.warehouse_code || UNKNOWN_WAREHOUSE;
+/**
+ * Шүүлтүүд (хайлт, нярав, склад) URL-д хадгалагдана: ?q=&keeper=&wh= (сарын ?ym=-тэй хамт). Хайлтын талбар 300 мс-ийн дараа URL-д бичигдэнэ.
+ */
+function useStockFilters() {
+  const sp = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const q = sp.get("q") ?? "";
+  const keeper = sp.get("keeper") ?? "";
+  const wh = sp.get("wh") ?? "";
 
-const columns: DataTableColumn<StockItem>[] = [
-  { key: "item", header: "Бараа", sortable: true, accessor: (r) => `${r.item} ${r.item_code}`, render: (r) => (
-      <div>
-        <p className="text-text">{r.item || "—"}</p>
-        <p className="text-[11px] text-text-muted">{r.item_code}</p>
-      </div>
-    ) },
-  { key: "warehouse", header: "Агуулах", sortable: true, accessor: (r) => warehouseLabel(r), render: (r) => <span className={r.warehouse || r.warehouse_code ? "" : "text-text-muted"}>{warehouseLabel(r)}</span> },
-  { key: "qty", header: "Үлдэгдэл", sortable: true, accessor: (r) => r.qty, className: NUM, render: (r) => (
-      <span className={r.qty < 0 ? "text-danger" : undefined}>
-        {formatNumber(r.qty, 2)} {r.unit}
-      </span>
-    ) },
-  { key: "unit_cost", header: "Нэгжийн өртөг", sortable: true, accessor: (r) => r.unit_cost, className: NUM, render: (r) => money(r.unit_cost) },
-  { key: "amount", header: "Дүн", sortable: true, accessor: (r) => r.amount, className: NUM, render: (r) => money(r.amount) },
-];
+  // Хугацаатай (debounce) дуудлага хуучирсан searchParams-аар буцаан бичихгүйн тулд үргэлж хамгийн сүүлийн утгыг ашиглана
+  const latest = useRef({ sp, q });
+  latest.current = { sp, q };
+
+  const set = (patch: Record<string, string>) => {
+    const next = new URLSearchParams(latest.current.sp.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    router.replace(`${pathname}?${next}`, { scroll: false });
+  };
+
+  const [qInput, setQInput] = useState(q);
+  const pushed = useRef(q);
+  // URL-аас (буцах товч, цэвэрлэх) ирсэн өөрчлөлтийг талбарт тусгана
+  useEffect(() => {
+    if (q !== pushed.current) {
+      pushed.current = q;
+      setQInput(q);
+    }
+  }, [q]);
+  useEffect(() => {
+    const value = qInput.trim();
+    if (value === q) return;
+    const t = setTimeout(() => {
+      if (value === latest.current.q) return; // энэ хооронд URL аль хэдийн тэр утгатай болсон (жишээ нь «Шүүлт арилгах»)
+      pushed.current = value;
+      set({ q: value });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qInput]);
+
+  return {
+    q,
+    keeper,
+    wh,
+    qInput,
+    setQInput,
+    setKeeper: (v: string) => set({ keeper: v }),
+    setWh: (v: string) => set({ wh: v }),
+    clear: () => {
+      pushed.current = "";
+      setQInput("");
+      set({ q: "", keeper: "", wh: "" });
+    },
+    active: Boolean(q || keeper || wh),
+  };
+}
 
 export default function StockPage() {
   // Сонгосон сарын эцсийн өдрийн үлдэгдэл; одоогийн сар бол хамгийн сүүлийн (өнөөдрийн) агшин зураг
   const { ym, isCurrent } = useYm();
   const isAdmin = useIsAdmin();
   const showWip = canViewTab(useSession().data?.user?.role, "sales"); // нярав харахгүй (нягтлан бодох бүртгэлийн дүн)
-  const [warehouse, setWarehouse] = useState("");
+  const f = useStockFilters();
   const [mode, setMode] = useState<ViewMode>("chart");
-  const params = new URLSearchParams({ limit: String(LIMIT) });
+  const params = new URLSearchParams();
   if (!isCurrent) params.set("date", monthRange(ym).to);
-  if (warehouse) params.set("warehouse", warehouse);
+  if (f.q) params.set("q", f.q);
+  if (f.keeper) params.set("keeper", f.keeper);
+  if (f.wh) params.set("warehouse", f.wh);
   const { data, error, loading, reload } = useFinanceData<StockResponse>(`/api/dashboard/stock?${params}`);
   // Хуудас нээгдэх бүрд 1С-ээс шууд татна (сервер 1 минутад ганц удаа). Хуудас эхлээд Postgres-ийн өгөгдлөөр нээгдэнэ.
   const refresh = useStockRefresh(reload, ym);
   const canRefresh = isCurrent || isAdmin; // өнгөрсөн сарын эцсийн үлдэгдлийг зөвхөн админ татна
-  const noData = data && (data.date === null || (data.totals?.items ?? 0) === 0);
-  const warehouseOptions = data?.warehouses ?? [];
+  const noData = data && !f.active && (data.date === null || (data.totals?.items ?? 0) === 0);
+  const filters = data?.filters;
+  // склад бүрийн дүн (мод дахь дүнгээр), хамгийн их 14
+  const warehouseBars = (data?.groups ?? [])
+    .flatMap((g) => g.warehouses)
+    .filter((w) => w.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 14)
+    .map((w) => ({ date: w.name, amount: w.amount }));
 
   return (
     <FinanceShell
@@ -110,13 +154,43 @@ export default function StockPage() {
       notice={<StockRefreshNote phase={refresh.phase} lastSyncedAt={refresh.lastSyncedAt ?? data?.lastSyncedAt ?? null} />}
       refresh={canRefresh ? <RefreshButton busy={refresh.phase === "refreshing"} retryAt={refresh.retryAt} onClick={refresh.refresh} /> : undefined}
       controls={
-        <FilterSelect
-          icon={Warehouse}
-          label="Агуулах"
-          value={warehouse}
-          onChange={setWarehouse}
-          options={[{ value: "", label: "Бүх агуулах" }, ...warehouseOptions.map((w) => ({ value: w.warehouse_code || NONE, label: warehouseLabel(w) }))]}
-        />
+        <>
+          <label className="ng-panel relative flex h-10 min-w-0 flex-1 basis-56 items-center gap-2 rounded-xl px-3 text-sm text-text max-sm:basis-full">
+            <Search className="size-4 shrink-0 text-text-muted" aria-hidden />
+            <input
+              type="search"
+              value={f.qInput}
+              onChange={(e) => f.setQInput(e.target.value)}
+              placeholder="Барааны нэр эсвэл кодоор хайх..."
+              aria-label="Барааны нэр эсвэл кодоор хайх"
+              className="focus-ring h-full min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-muted"
+            />
+          </label>
+          <FilterSelect
+            icon={UserRound}
+            label="Нярав"
+            value={f.keeper}
+            onChange={f.setKeeper}
+            options={[{ value: "", label: "Бүх нярав" }, ...(filters?.keepers ?? []).map((k) => ({ value: k.id, label: k.name })), ...(filters?.hasUnassigned ? [{ value: NO_KEEPER, label: "Нярав оноогоогүй" }] : [])]}
+          />
+          <FilterSelect
+            icon={Warehouse}
+            label="Склад"
+            value={f.wh}
+            onChange={f.setWh}
+            options={[
+              { value: "", label: "Бүх склад" },
+              ...(filters?.warehouses ?? []).map((w) => ({ value: w.code, label: w.group ? `${w.group} · ${w.name}` : w.name })),
+              ...(filters?.hasUnknown ? [{ value: UNKNOWN_WAREHOUSE_KEY, label: UNKNOWN_WAREHOUSE }] : []),
+            ]}
+          />
+          {f.active && (
+            <button type="button" onClick={f.clear} className="focus-ring ng-panel inline-flex h-10 items-center gap-1 rounded-xl px-3 text-sm text-text-muted hover:text-text">
+              <X className="size-4" aria-hidden />
+              Шүүлт арилгах
+            </button>
+          )}
+        </>
       }
       trailing={<ViewToggle value={mode} onChange={setMode} />}
     >
@@ -131,7 +205,7 @@ export default function StockPage() {
               Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
             ) : data?.totals ? (
               <>
-                <KpiCard featured label="Нийт үлдэгдлийн дүн" value={money(data.totals.amount)} icon={Boxes} tone="accent" hint={data.date ? `${data.date}-ны байдлаар` : undefined} />
+                <KpiCard featured label={f.active ? "Шүүсэн үлдэгдлийн дүн" : "Нийт үлдэгдлийн дүн"} value={money(data.totals.amount)} icon={Boxes} tone="accent" hint={data.date ? `${data.date}-ны байдлаар` : undefined} />
                 <KpiCard label="Барааны тоо" value={formatNumber(data.totals.items, 0)} icon={Package} />
                 <KpiCard label="Агуулахын тоо" value={data.totals.warehouses ? formatNumber(data.totals.warehouses, 0) : UNKNOWN_WAREHOUSE} icon={Warehouse} />
                 <KpiCard label="Хасах үлдэгдэлтэй мөр" value={formatNumber(data.totals.negative_rows, 0)} icon={AlertTriangle} tone={data.totals.negative_rows ? "danger" : "success"} />
@@ -140,14 +214,14 @@ export default function StockPage() {
             {showWip && <WipCard month={ym} />}
           </div>
 
-          {mode === "chart" && data && data.warehouses.length > 0 && (
+          {mode === "chart" && warehouseBars.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Агуулах бүрийн үлдэгдлийн дүн</CardTitle>
               </CardHeader>
               <CardBody>
                 <DailyBarChart
-                  data={data.warehouses.slice(0, 14).map((w) => ({ date: warehouseLabel(w), amount: w.amount }))}
+                  data={warehouseBars}
                   series={[{ key: "amount", label: "Үлдэгдлийн дүн", color: "rgb(var(--color-accent))" }]}
                   label={(d) => (d.length > 9 ? `${d.slice(0, 8)}…` : d)}
                   unit="агуулахаар"
@@ -157,24 +231,19 @@ export default function StockPage() {
           )}
 
           <Card>
-            {data ? (
-              <DataTable
-                heading={
-                  <>
-                    <Boxes className="size-4 text-[#ffd56b]" />
-                    Бараа материалын үлдэгдэл
-                    {data.items.length >= LIMIT && <span className="text-xs font-normal text-warning">Эхний {LIMIT} мөр: агуулахаар шүүнэ үү</span>}
-                  </>
-                }
-                phoneLayout="scroll"
-                data={data.items}
-                columns={columns}
-                getRowId={(r) => r.id}
-                searchPlaceholder="Нэр эсвэл кодоор хайх..."
-                emptyTitle="Хайлтад тохирох бараа олдсонгүй"
-              />
-            ) : (
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Boxes className="size-4 text-[#ffd56b]" />
+                Бараа материалын үлдэгдэл
+              </CardTitle>
+              {data?.truncated && <span className="text-xs text-warning">Мөр хэт олон тул зөвхөн хамгийн их дүнтэйг харуулав: шүүлт хэрэглэнэ үү</span>}
+            </CardHeader>
+            {!data ? (
               <SkeletonTable rows={8} cols={5} />
+            ) : data.groups.length === 0 ? (
+              <EmptyState title="Хайлтад тохирох бараа олдсонгүй" description="Шүүлтээ өөрчилнө үү." />
+            ) : (
+              <StockTree groups={data.groups} expandAll={Boolean(f.q)} />
             )}
           </Card>
         </>

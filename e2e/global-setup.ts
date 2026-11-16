@@ -22,7 +22,8 @@ export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0].use.baseURL!;
   const password = process.env.E2E_PASSWORD ?? "ubbuk2026";
   fs.mkdirSync(AUTH_DIR, { recursive: true });
-  const browser = await chromium.launch();
+  // E2E_CHANNEL=msedge uses the installed Edge when Playwright bundled Chromium cannot launch (same switch as the other configs)
+  const browser = await chromium.launch(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {});
   for (const [role, email] of Object.entries(ROLES)) {
     const ctx = await browser.newContext({ baseURL });
     const page = await ctx.newPage();

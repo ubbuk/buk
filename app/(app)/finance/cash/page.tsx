@@ -143,7 +143,6 @@ export default function CashPage() {
                     {diff >= 1 && <span className="text-xs font-normal text-warning">Тулгалтын зөрүү {formatNumber(data.totals.difference, 2)}₮</span>}
                   </>
                 }
-                phoneLayout="scroll"
                 data={accounts}
                 columns={accountColumns}
                 getRowId={(r) => r.key}
@@ -163,7 +162,6 @@ export default function CashPage() {
                     Харилцагч, харьцсан дансаар (эхний 20)
                   </>
                 }
-                phoneLayout="scroll"
                 data={data.byCounterpart}
                 columns={counterpartCols}
                 getRowId={(r) => r.key}
@@ -183,7 +181,6 @@ export default function CashPage() {
                     Дотоод шилжүүлэг
                   </>
                 }
-                phoneLayout="scroll"
                 data={transfers}
                 columns={entryColumns(true)}
                 getRowId={(r) => r.id}
@@ -201,7 +198,6 @@ export default function CashPage() {
                     Сүүлийн гүйлгээнүүд (сүүлийн 200)
                   </>
                 }
-                phoneLayout="scroll"
                 data={recent}
                 columns={entryColumns(false)}
                 getRowId={(r) => r.id}

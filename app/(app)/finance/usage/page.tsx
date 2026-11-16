@@ -150,7 +150,6 @@ export default function UsagePage() {
                       Материалаар
                     </>
                   }
-                  phoneLayout="scroll"
                   data={materials}
                   columns={materialCols}
                   getRowId={(r) => r.key}
@@ -169,7 +168,6 @@ export default function UsagePage() {
                       Хэлтэс, цехээр
                     </>
                   }
-                  phoneLayout="scroll"
                   data={data.byDepartment}
                   columns={deptCols}
                   getRowId={(r) => r.name}
@@ -190,7 +188,6 @@ export default function UsagePage() {
                     Шаардах хуудасны жагсаалт
                   </>
                 }
-                phoneLayout="scroll"
                 data={documents}
                 columns={documentColumns}
                 getRowId={(r) => r.id}
