@@ -24,7 +24,7 @@ import { emitUserEvent } from "./events";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type GrantKind = "ROLE_ELEVATION" | "REACTIVATION" | "POSITION_ASSIGNMENT" | "DEPARTMENT_HEAD" | "PROCUREMENT_POSITION" | "USER_CREATE_PRIVILEGED";
+export type GrantKind = "ROLE_ELEVATION" | "REACTIVATION" | "POSITION_ASSIGNMENT" | "DEPARTMENT_HEAD" | "PROCUREMENT_POSITION" | "USER_CREATE_PRIVILEGED" | "WAREHOUSE_KEEPER";
 
 export interface StepUp {
   adminPassword?: string | null;

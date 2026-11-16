@@ -6,6 +6,7 @@ import { verifyPin, type PinResult } from "./pin";
 import { emitBroadcast, emitUserEvent } from "./events";
 import { openProcurement } from "./procurement";
 import { planInitialDecision, recordInitialDecision, type InitialPlan, type WantedQuantity } from "./executive-approval";
+import { allocateAcrossBalances, loadBalances, type Allocation } from "./warehouse-allocation";
 import type { MaterialRequestView } from "./types";
 
 type WorkflowResult =
@@ -17,6 +18,9 @@ const VERSION_CONFLICT_ERROR = "Баримт бичиг шинэчлэгдсэн
 const WRONG_STAGE_ERROR = "Энэ шат одоогоор идэвхгүй байна — өмнөх шат шийдвэрлэгдээгүй байна";
 const NOT_HEAD_ERROR = "Та энэ цэхийн даргын эрхгүй тул баталгаажуулах боломжгүй";
 const TERMINAL_REQUEST_STATUSES = ["COMPLETED", "PARTIALLY_COMPLETED", "CANCELLED", "ACCOUNTING_COMPLETED"];
+
+/** Thrown inside the warehouse-check transaction when a warehouse balance changed under it: rolls the transaction back. */
+class StockChangedError extends Error {}
 
 /** Lets a PinResult failure be returned directly as a WorkflowResult. */
 function pinFailure(result: PinResult & { ok: false }): WorkflowResult {
@@ -285,40 +289,31 @@ export async function warehouseCheck(
   const branchStep = request.approvalSteps.find((s) => s.type === "BRANCH_APPROVAL");
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    // There's exactly one InventoryBalance row per material in all current
-    // data (single warehouse, see prisma/seed.ts) — picking the first row
-    // keeps this simple instead of modeling multi-warehouse allocation that
-    // nothing in the UI can create or exercise yet.
-    const balances = await prisma.inventoryBalance.findMany({ where: { materialId: { in: materialIds } } });
-    const balanceByMaterial = new Map(balances.map((b) => [b.materialId, b]));
+    // A material can have stock in several warehouses. It is taken in the configured order (lib/warehouse-allocation.ts:
+    // Warehouse.sortPriority, then the larger free quantity) and one line is split over as many warehouses as it needs,
+    // each part becoming its own StockReservation with its own warehouseId. The same ordered rows feed the quantity
+    // the request showed, so what was shown and what is reserved can not differ.
+    const balancesByMaterial = await loadBalances(prisma, materialIds);
 
     const plan: {
       itemId: string;
       requestedQuantity: number;
       allocated: number;
       missing: number;
-      warehouseId?: string;
+      allocations: Allocation[];
     }[] = [];
     const consumedByBalanceId = new Map<string, number>();
 
     for (const item of request.items) {
       const requestedQuantity = Number(item.requestedQuantity);
       const clerkAvailable = countByItem.get(item.id) ?? 0;
-      let allocated = 0;
-      let warehouseId: string | undefined;
+      const wanted = Math.min(clerkAvailable, requestedQuantity);
+      const allocations = item.materialId
+        ? allocateAcrossBalances(balancesByMaterial.get(item.materialId) ?? [], wanted, consumedByBalanceId)
+        : [];
+      const allocated = allocations.reduce((s, a) => s + a.quantity, 0);
 
-      const balance = item.materialId ? balanceByMaterial.get(item.materialId) : undefined;
-      if (balance) {
-        const alreadyConsumed = consumedByBalanceId.get(balance.id) ?? 0;
-        const liveAvailable = Number(balance.quantityOnHand) - alreadyConsumed;
-        allocated = Math.min(clerkAvailable, liveAvailable, requestedQuantity);
-        if (allocated > 0) {
-          consumedByBalanceId.set(balance.id, alreadyConsumed + allocated);
-          warehouseId = balance.warehouseId;
-        }
-      }
-
-      plan.push({ itemId: item.id, requestedQuantity, allocated, missing: requestedQuantity - allocated, warehouseId });
+      plan.push({ itemId: item.id, requestedQuantity, allocated, missing: requestedQuantity - allocated, allocations });
     }
 
     const documentHash = computeDocumentHash(request.items);
@@ -334,13 +329,16 @@ export async function warehouseCheck(
       });
       if (claimed.count === 0) return "ALREADY_DECIDED" as const;
 
+      // Take the stock. Each decrement is conditional on the stock still being there, so two concurrent checks can
+      // never reserve the same units twice: the loser gets count 0 and the plan is redone from fresh balances.
+      // This must THROW, not return: the step claim above is part of this transaction and has to be rolled back
+      // with it, otherwise the retry finds the step already APPROVED and the keeper gets a spurious 409.
       for (const [balanceId, amount] of consumedByBalanceId) {
-        const balance = balances.find((b) => b.id === balanceId)!;
         const updated = await tx.inventoryBalance.updateMany({
-          where: { id: balanceId, quantityOnHand: balance.quantityOnHand },
-          data: { quantityOnHand: { decrement: amount } },
+          where: { id: balanceId, quantityOnHand: { gte: new Prisma.Decimal(amount) } },
+          data: { quantityOnHand: { decrement: new Prisma.Decimal(amount) } },
         });
-        if (updated.count === 0) return "CONFLICT" as const;
+        if (updated.count === 0) throw new StockChangedError();
       }
 
       const warehouseCheckRow = await tx.warehouseCheck.create({ data: { requestId, checkedById: actorId } });
@@ -356,17 +354,18 @@ export async function warehouseCheck(
           },
         });
 
-        if (p.allocated > 0 && p.warehouseId) {
+        // one reservation (and issue) per warehouse the line was taken from
+        for (const a of p.allocations) {
           const reservation = await tx.stockReservation.create({
             data: {
               requestItemId: p.itemId,
-              warehouseId: p.warehouseId,
-              quantity: new Prisma.Decimal(p.allocated),
+              warehouseId: a.warehouseId,
+              quantity: new Prisma.Decimal(a.quantity),
               status: "ISSUED",
             },
           });
           await tx.stockIssue.create({
-            data: { reservationId: reservation.id, issuedById: actorId, quantity: new Prisma.Decimal(p.allocated) },
+            data: { reservationId: reservation.id, issuedById: actorId, quantity: new Prisma.Decimal(a.quantity) },
           });
         }
       }
@@ -413,9 +412,12 @@ export async function warehouseCheck(
       }
 
       return tx.materialRequest.findUniqueOrThrow({ where: { id: requestId }, include: requestInclude });
+    }).catch((err: unknown) => {
+      if (err instanceof StockChangedError) return "STOCK_CHANGED" as const;
+      throw err;
     });
 
-    if (result === "CONFLICT") continue;
+    if (result === "STOCK_CHANGED") continue;
     if (result === "VERSION_CONFLICT") return { ok: false, status: 409, error: VERSION_CONFLICT_ERROR };
     if (result === "ALREADY_DECIDED") return { ok: false, status: 409, error: ALREADY_DECIDED_ERROR };
     if (result === "WRONG_STAGE") return { ok: false, status: 409, error: WRONG_STAGE_ERROR };

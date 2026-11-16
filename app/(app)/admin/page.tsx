@@ -8,6 +8,7 @@ import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/com
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
 import { ExecutiveHandoverDialog } from "@/components/admin/ExecutiveHandoverDialog";
+import { WarehouseSettings } from "@/components/admin/WarehouseSettings";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -700,6 +701,8 @@ export default function AdminPage() {
           ))}
         </CardBody>
       </Card>
+
+      <WarehouseSettings />
 
       <AuthorityGrantDialog request={grantAsk} onClose={() => setGrantAsk(null)} />
 

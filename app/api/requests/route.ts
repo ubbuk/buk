@@ -9,6 +9,8 @@ import { requestInclude, requestListSelect, serializeRequest } from "@/lib/seria
 import { apiCreateRequestSchema } from "@/lib/validation";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { withTiming } from "@/lib/api-timing";
+import { resolveStep2Keeper, recordKeeperFallback } from "@/lib/warehouse-keeper";
+import { loadBalances, totalFree } from "@/lib/warehouse-allocation";
 
 const REQUEST_YEAR = 2026;
 const START_SEQUENCE = 1372;
@@ -90,30 +92,32 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
   // for an OFFICE one) is resolved from the department's own classification —
   // there is no requester-chosen route field anymore.
   const branchPosition = department.type === "FACTORY" ? "ENGINEERING_CHIEF" : "OPERATIONS_DIRECTOR";
-  const [branchAssignment, financeAssignment, executiveAssignment, storekeeperAssignment, accountantAssignment] =
+  const requestedMaterialIds = [...new Set(input.items.map((item) => item.materialId).filter((id): id is string => !!id))];
+
+  // Step 2 (warehouse check): the primary keeper, or in BY_WAREHOUSE mode the keeper of the warehouse holding the
+  // materials (lib/warehouse-keeper.ts). null = the STOREKEEPER_LEAD position is not filled.
+  const [branchAssignment, financeAssignment, executiveAssignment, keeperResolution, accountantAssignment] =
     await Promise.all([
       prisma.approvalRoleAssignment.findFirst({ where: { role: branchPosition, isActive: true } }),
       prisma.approvalRoleAssignment.findFirst({ where: { role: "FINANCE_DIRECTOR", isActive: true } }),
       prisma.approvalRoleAssignment.findFirst({ where: { role: "EXECUTIVE_DIRECTOR", isActive: true } }),
-      prisma.approvalRoleAssignment.findFirst({ where: { role: "STOREKEEPER_LEAD", isActive: true } }),
+      resolveStep2Keeper(prisma, requestedMaterialIds),
       prisma.approvalRoleAssignment.findFirst({ where: { role: "CHIEF_ACCOUNTANT_LEAD", isActive: true } }),
     ]);
 
-  if (!branchAssignment || !financeAssignment || !executiveAssignment || !storekeeperAssignment || !accountantAssignment) {
+  if (!branchAssignment || !financeAssignment || !executiveAssignment || !keeperResolution || !accountantAssignment) {
     return NextResponse.json(
       { error: "Баталгаажуулах албан тушаалын хуваарилалт бүрэн бус байна. Админ хуудаснаас шалгана уу." },
       { status: 400 }
     );
   }
 
-  const requestedMaterialIds = [...new Set(input.items.map((item) => item.materialId).filter((id): id is string => !!id))];
   const materials = requestedMaterialIds.length
-    ? await prisma.material.findMany({
-        where: { id: { in: requestedMaterialIds } },
-        include: { inventoryBalances: true },
-      })
+    ? await prisma.material.findMany({ where: { id: { in: requestedMaterialIds } } })
     : [];
   const materialsById = new Map(materials.map((m) => [m.id, m]));
+  // The shown "in stock" is the free quantity over the same active warehouses the warehouse check reserves from.
+  const balancesByMaterial = await loadBalances(prisma, requestedMaterialIds);
 
   const resolvedItems: {
     materialId: string | null;
@@ -137,7 +141,7 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
       }
       materialId = material.id;
       materialNameAtRequest = material.name;
-      warehouseBalanceAtRequest = material.inventoryBalances.reduce((s, b) => s + Number(b.quantityOnHand), 0);
+      warehouseBalanceAtRequest = totalFree(balancesByMaterial.get(material.id) ?? []);
     }
 
     // unitPrice is optional: a request can be submitted with no price and
@@ -184,7 +188,7 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
             approvalSteps: {
               create: [
                 { type: "DEPARTMENT_HEAD", sequence: 1, status: "PENDING", assignedUserId: department.headId },
-                { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: storekeeperAssignment.userId },
+                { type: "WAREHOUSE_CHECK", sequence: 2, status: "PENDING", assignedUserId: keeperResolution.userId },
                 { type: "BRANCH_APPROVAL", sequence: 3, status: "PENDING", assignedUserId: branchAssignment.userId },
                 // Price review: any active MANAGER enters the unit prices of the shortfall (no single assignee).
                 { type: "MANAGER_PRICING", sequence: 4, status: "PENDING", assignedUserId: null },
@@ -207,6 +211,7 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
             actorId: session.user.id,
           },
         });
+        await recordKeeperFallback(tx, request.id, session.user.id, keeperResolution);
 
         await tx.notification.create({
           data: {

@@ -89,6 +89,7 @@ model User {
   foreignTradeMessages       ForeignTradeMessage[]           @relation("ForeignTradeMessageAuthor")
   foreignTradeDecisions      ForeignTradeDecision[]          @relation("ForeignTradeDecider")
   foreignTradeAttachments    ForeignTradeAttachment[]        @relation("ForeignTradeUploader")
+  warehousesKept             Warehouse[]                     @relation("WarehouseKeeper")
 
   @@index([departmentId])
 }
@@ -149,13 +150,41 @@ model Material {
   @@index([name])
 }
 
+// Two levels: a top-level warehouse owns a keeper (keeperId) and its locations are the children (parentId).
+// keeperId is null for a warehouse nobody keeps yet (e.g. "Гадна талбай"); step 2 then falls back to the primary keeper.
 model Warehouse {
-  id       String  @id @default(cuid())
-  name     String
-  location String?
+  id           String  @id @default(cuid())
+  name         String
+  location     String?
+  // Stable URL/lookup key for the /warehouses catalog (seed-defined; null for rows created elsewhere).
+  slug         String? @unique
+  parentId     String?
+  keeperId     String?
+  // 1С warehouse code (OnecStock.warehouseCode). Filled only after the mapping report is confirmed by hand.
+  onecCode     String?
+  // Lower first when stock is reserved across warehouses (see lib/warehouse-allocation.ts); ties broken by balance.
+  sortPriority Int     @default(100)
+  isActive     Boolean @default(true)
+  // false = stock here is shown in the catalog but never offered or reserved for a material request
+  // (finished-goods warehouses). Unlike isActive it does not hide anything.
+  reservable   Boolean @default(true)
 
+  parent            Warehouse?         @relation("WarehouseTree", fields: [parentId], references: [id])
+  children          Warehouse[]        @relation("WarehouseTree")
+  keeper            User?              @relation("WarehouseKeeper", fields: [keeperId], references: [id])
   inventoryBalances InventoryBalance[]
   reservations      StockReservation[]
+
+  @@index([parentId])
+  @@index([keeperId])
+}
+
+// Small admin-editable key/value settings (step-2 keeper mode, warehouse reservation order).
+model SystemSetting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
 }
 
 model InventoryBalance {

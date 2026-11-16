@@ -33,7 +33,7 @@ test("CredentialsSignin shows wrong-credentials message", async ({ page }) => {
   await page.locator('input[name="email"]').fill("a@b.co");
   await page.locator('input[name="password"]').fill("x");
   await page.getByRole("button", { name: "Нэвтрэх" }).click();
-  await expect(page.getByRole("alert")).toContainText("буруу");
+  await expect(page.locator("p[role=alert]")).toContainText("буруу");
 });
 
 test("server/config error is NOT reported as wrong password", async ({ page }) => {
@@ -42,5 +42,5 @@ test("server/config error is NOT reported as wrong password", async ({ page }) =
   await page.locator('input[name="email"]').fill("a@b.co");
   await page.locator('input[name="password"]').fill("x");
   await page.getByRole("button", { name: "Нэвтрэх" }).click();
-  await expect(page.getByRole("alert")).toContainText("системийн алдаа");
+  await expect(page.locator("p[role=alert]")).toContainText("системийн алдаа");
 });
