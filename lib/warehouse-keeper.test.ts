@@ -31,6 +31,7 @@ const LOC_A = `${P}loc-a`;
 const LOC_B = `${P}loc-b`;
 const LOC_C = `${P}loc-c`;
 const LOC_OFF = `${P}loc-off`; // inactive warehouse
+const LOC_FG = `${P}loc-fg`; // not reservable (finished goods)
 const M = {
   a: `${P}mat-a`, // stock only in loc A
   b: `${P}mat-b`, // stock only in loc B
@@ -38,6 +39,7 @@ const M = {
   none: `${P}mat-none`, // no stock anywhere
   multi: `${P}mat-multi`, // 4 in A (priority 50), 5 in B (priority 60)
   off: `${P}mat-off`, // stock only in the inactive warehouse
+  fg: `${P}mat-fg`, // stock only in the not-reservable warehouse, plus a little in loc A
   race: `${P}mat-race`, // 5 in A
 };
 
@@ -121,6 +123,7 @@ beforeAll(async () => {
       { id: LOC_B, name: "wk loc B", parentId: TOP_B, sortPriority: 60 },
       { id: LOC_C, name: "wk loc C", parentId: TOP_C, sortPriority: 70 },
       { id: LOC_OFF, name: "wk off", parentId: TOP_A, sortPriority: 1, isActive: false },
+      { id: LOC_FG, name: "wk fg", parentId: TOP_B, sortPriority: 1, reservable: false },
     ],
   });
   await prisma.material.createMany({ data: Object.values(M).map((id) => ({ id, code: id, name: id, unit: "ш", defaultPrice: 100 })) });
@@ -130,6 +133,8 @@ beforeAll(async () => {
   await setStock(M.multi, LOC_A, 4);
   await setStock(M.multi, LOC_B, 5);
   await setStock(M.off, LOC_OFF, 9);
+  await setStock(M.fg, LOC_FG, 30);
+  await setStock(M.fg, LOC_A, 2);
   await setStock(M.race, LOC_A, 5);
   await prisma.systemSetting.deleteMany({ where: { key: "step2_keeper_mode" } });
 });
@@ -282,6 +287,29 @@ describe("reservation across warehouses", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.request.items[0].allocatedQuantity).toBe(0);
     expect(await prisma.stockReservation.count({ where: { requestItemId: item.id } })).toBe(0);
+  });
+
+  it("a not-reservable warehouse stays in the database but is never shown or reserved (and never picks the keeper)", async () => {
+    // 30 units sit in the finished-goods warehouse (priority 1, i.e. first in line if it counted), 2 in loc A
+    const id = await createRequest(M.fg, 10);
+    const item = await prisma.materialRequestItem.findFirstOrThrow({ where: { requestId: id } });
+    expect(Number(item.warehouseBalanceAtRequest)).toBe(2);
+    await departmentApprove(id, HEAD, PIN, 1);
+    const result = await warehouseCheck(id, PRIMARY_KEEPER, [{ requestItemId: item.id, availableQuantity: 10 }], PIN, 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.request.items[0].allocatedQuantity).toBe(2);
+    const reservations = await prisma.stockReservation.findMany({ where: { requestItemId: item.id } });
+    expect(reservations.map((r) => [r.warehouseId, Number(r.quantity)])).toEqual([[LOC_A, 2]]);
+    const fg = await prisma.inventoryBalance.findUniqueOrThrow({ where: { materialId_warehouseId: { materialId: M.fg, warehouseId: LOC_FG } } });
+    expect(Number(fg.quantityOnHand)).toBe(30); // untouched and still visible in the database
+  });
+
+  it("BY_WAREHOUSE: stock that only sits in a not-reservable warehouse does not route the request to its keeper", async () => {
+    await prisma.inventoryBalance.deleteMany({ where: { materialId: M.fg, warehouseId: LOC_A } });
+    await prisma.$transaction((tx) => setKeeperMode(tx, "BY_WAREHOUSE", ADMIN));
+    const id = await createRequest(M.fg, 1);
+    expect((await step2(id)).assignedUserId).toBe(PRIMARY_KEEPER); // TOP_B has keeper B, but LOC_FG is not reservable
+    await prisma.$transaction((tx) => setKeeperMode(tx, "PRIMARY", ADMIN));
   });
 
   it("two requests racing for the same stock cannot reserve it twice", async () => {

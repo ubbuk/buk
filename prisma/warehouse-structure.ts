@@ -6,8 +6,8 @@ import type { PrismaClient } from "@prisma/client";
 // priorities are written only when a row is created (the one exception is the pre-existing central warehouse, see
 // below). `onecCode` is business-confirmed mapping data, so it is set on every run.
 //
-// NOT here yet: the finished-goods warehouses that must never be reserved from (00-000010, 00-000030, 00-000003).
-// They need a "do not reserve" flag that the schema does not have yet; they are added together with it.
+// The finished-goods warehouses (00-000010, 00-000030, 00-000003) are mapped too but `reservable: false`: their stock is
+// visible, yet a material request never reserves from it.
 
 interface Location {
   id: string;
@@ -16,6 +16,8 @@ interface Location {
   name: string;
   onecCode: string;
   sortPriority?: number;
+  /** false: never reserved for a material request. Default true. */
+  reservable?: boolean;
 }
 interface Top {
   id: string;
@@ -93,6 +95,17 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
       loc("00-000029", "Компанийн засвар үйлчилгээний агуулах"),
     ],
   },
+  // Finished goods: no keeper and never reserved from.
+  {
+    id: "w-finished-goods",
+    slug: "belen-buteegdehuun",
+    name: "Бэлэн бүтээгдэхүүн (нөөцлөхгүй)",
+    locations: [
+      loc("00-000010", "Гадаа талбайн бэлэн бүтээгдэхүүний агуулах", { reservable: false }),
+      loc("00-000030", "Гадаа талбайн Брак бэлэн бүтээгдэхүүний агуулах", { reservable: false }),
+      loc("00-000003", "Бэлэн бүтээгдэхүүн Брак", { reservable: false }),
+    ],
+  },
 ];
 
 /** Locations an earlier version of the seed invented. Removed (only when nothing refers to them) because the lower level is 1С. */
@@ -127,8 +140,8 @@ export async function seedWarehouseStructure(prisma: PrismaClient, opts: { uugan
     for (const l of top.locations) {
       await prisma.warehouse.upsert({
         where: { id: l.id },
-        update: { name: l.name, slug: l.slug, parentId: top.id, onecCode: l.onecCode },
-        create: { id: l.id, name: l.name, slug: l.slug, parentId: top.id, onecCode: l.onecCode, sortPriority: l.sortPriority ?? 100 },
+        update: { name: l.name, slug: l.slug, parentId: top.id, onecCode: l.onecCode, reservable: l.reservable ?? true },
+        create: { id: l.id, name: l.name, slug: l.slug, parentId: top.id, onecCode: l.onecCode, sortPriority: l.sortPriority ?? 100, reservable: l.reservable ?? true },
       });
     }
   }

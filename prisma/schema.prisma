@@ -165,6 +165,9 @@ model Warehouse {
   // Lower first when stock is reserved across warehouses (see lib/warehouse-allocation.ts); ties broken by balance.
   sortPriority Int     @default(100)
   isActive     Boolean @default(true)
+  // false = stock here is shown in the catalog but never offered or reserved for a material request
+  // (finished-goods warehouses). Unlike isActive it does not hide anything.
+  reservable   Boolean @default(true)
 
   parent            Warehouse?         @relation("WarehouseTree", fields: [parentId], references: [id])
   children          Warehouse[]        @relation("WarehouseTree")

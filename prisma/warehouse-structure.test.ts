@@ -19,14 +19,27 @@ afterAll(async () => {
 });
 
 describe("warehouse structure seed (1С warehouses)", () => {
-  it("defines the confirmed structure: 4 keeper groups + 1 keeper-less group, 1С codes unique", () => {
-    expect(WAREHOUSE_STRUCTURE.map((t) => t.name)).toEqual(["Болд", "Ууганцэцэг (хангамж)", "Сарангэрэл", "Боогий", "Нярваргүй агуулахууд"]);
-    expect(WAREHOUSE_STRUCTURE.map((t) => t.locations.length)).toEqual([5, 5, 8, 1, 3]);
+  it("defines the confirmed structure: 4 keeper groups, a keeper-less group, a finished-goods group; 1С codes unique", () => {
+    expect(WAREHOUSE_STRUCTURE.map((t) => t.name)).toEqual([
+      "Болд",
+      "Ууганцэцэг (хангамж)",
+      "Сарангэрэл",
+      "Боогий",
+      "Нярваргүй агуулахууд",
+      "Бэлэн бүтээгдэхүүн (нөөцлөхгүй)",
+    ]);
+    expect(WAREHOUSE_STRUCTURE.map((t) => t.locations.length)).toEqual([5, 5, 8, 1, 3, 3]);
     const codes = allLocations.map((l) => l.onecCode);
-    expect(new Set(codes).size).toBe(codes.length);
+    expect(new Set(codes).size).toBe(25);
     expect(codes).not.toContain("");
-    // finished-goods warehouses are not reservable and must not be seeded as ordinary warehouses
-    for (const c of ["00-000010", "00-000030", "00-000003"]) expect(codes).not.toContain(c);
+  });
+
+  it("only the three finished-goods warehouses are not reservable", async () => {
+    await seedWarehouseStructure(prisma);
+    const notReservable = await prisma.warehouse.findMany({ where: { reservable: false, id: { in: allLocations.map((l) => l.id) } }, select: { onecCode: true } });
+    expect(notReservable.map((w) => w.onecCode).sort()).toEqual(["00-000003", "00-000010", "00-000030"]);
+    // and they stay visible: active, with their keeper-less group
+    expect(await prisma.warehouse.count({ where: { onecCode: { in: ["00-000003", "00-000010", "00-000030"] }, isActive: true, parent: { keeperId: null } } })).toBe(3);
   });
 
   it("creates every 1С warehouse under its keeper group with its code, and the groups carry no code", async () => {

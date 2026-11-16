@@ -9,7 +9,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
 //   1. Warehouse.sortPriority ascending (admin-editable; the central warehouse is seeded first),
 //   2. then the larger free quantity,
 //   3. then warehouseId, so two runs over the same data always pick the same order.
-// Only active warehouses count, both for what the request shows and for what is reserved, so the two can not differ.
+// Only active, reservable warehouses count, both for what the request shows and for what is reserved, so the two can not differ.
 
 export interface BalanceRow {
   id: string;
@@ -59,12 +59,12 @@ export function allocateAcrossBalances(ordered: BalanceRow[], wanted: number, co
   return out;
 }
 
-/** Ordered balances per material, active warehouses only. */
+/** Ordered balances per material, active and reservable warehouses only. */
 export async function loadBalances(db: Db, materialIds: string[]): Promise<Map<string, BalanceRow[]>> {
   const byMaterial = new Map<string, BalanceRow[]>();
   if (materialIds.length === 0) return byMaterial;
   const rows = await db.inventoryBalance.findMany({
-    where: { materialId: { in: materialIds }, warehouse: { isActive: true } },
+    where: { materialId: { in: materialIds }, warehouse: { isActive: true, reservable: true } },
     include: { warehouse: { select: { sortPriority: true } } },
   });
   for (const r of rows) {
