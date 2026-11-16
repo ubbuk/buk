@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { seedWarehouseStructure } from "./warehouse-structure";
 
 const prisma = new PrismaClient();
 
@@ -77,11 +78,9 @@ async function main() {
   }
 
   // --- Warehouse + materials + stock ---------------------------------------
-  const warehouse = await prisma.warehouse.upsert({
-    where: { id: "w-central" },
-    update: { name: "Төв агуулах" },
-    create: { id: "w-central", name: "Төв агуулах", location: "Үйлдвэрийн талбай" },
-  });
+  // Two-level structure (keeper on the top level, locations below); "w-central" is the Төв агуулах location.
+  await seedWarehouseStructure(prisma, { uuganzetsegKeeperId: "u-sarnai" });
+  const warehouse = await prisma.warehouse.findUniqueOrThrow({ where: { id: "w-central" } });
 
   // Mechanical/industrial spare parts — not construction materials, per spec.
   const materialDefs = [

@@ -5,7 +5,9 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { findWarehouseItem } from "@/lib/warehouse-structure";
+import { useWarehouseTree } from "@/lib/use-warehouse-tree";
 import { formatNumber } from "@/lib/utils";
 
 export default function WarehouseItemDetailPage() {
@@ -15,7 +17,9 @@ export default function WarehouseItemDetailPage() {
     categoryId: string;
     itemId: string;
   }>();
-  const found = findWarehouseItem(params.groupId, params.warehouseId, params.categoryId, params.itemId);
+  const { groups, failed } = useWarehouseTree();
+  if (!groups && !failed) return <SkeletonTable />;
+  const found = groups ? findWarehouseItem(groups, params.groupId, params.warehouseId, params.categoryId, params.itemId) : null;
 
   if (!found) {
     return (

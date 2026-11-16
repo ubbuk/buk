@@ -5,11 +5,17 @@ import Link from "next/link";
 import { ChevronDown, Warehouse as WarehouseIcon } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
-import { WAREHOUSE_GROUPS } from "@/lib/warehouse-structure";
+import { useWarehouseTree } from "@/lib/use-warehouse-tree";
 import { PrintButton } from "@/components/ui/PrintButton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 
 export default function WarehousesPage() {
-  const [expandedId, setExpandedId] = useState<string | null>(WAREHOUSE_GROUPS[0]?.id ?? null);
+  const { groups, failed } = useWarehouseTree();
+  // null = the user has not picked one yet: the first group is open by default
+  const [pickedId, setPickedId] = useState<string | null | undefined>(undefined);
+  const expandedId = pickedId === undefined ? groups?.[0]?.id ?? null : pickedId;
+  const setExpandedId = setPickedId;
 
   return (
     <div className="space-y-4">
@@ -18,8 +24,11 @@ export default function WarehousesPage() {
         <PrintButton />
       </div>
 
+      {failed && <EmptyState title="Агуулахын жагсаалтыг ачаалж чадсангүй" description="Хуудсыг дахин ачаалж үзнэ үү" />}
+      {!failed && !groups && <SkeletonTable />}
+
       <div className="space-y-3">
-        {WAREHOUSE_GROUPS.map((group) => {
+        {(groups ?? []).map((group) => {
           const expanded = expandedId === group.id;
           return (
             <Card key={group.id}>
@@ -30,6 +39,7 @@ export default function WarehousesPage() {
               >
                 <span className="text-sm font-semibold text-text">{group.name}</span>
                 <span className="flex items-center gap-2 text-xs text-text-muted">
+                  {group.keeperName ? `Нярав: ${group.keeperName} · ` : "Нярав байхгүй · "}
                   {group.warehouses.length} агуулах
                   <ChevronDown
                     className={cn("size-4 transition-transform", expanded && "rotate-180")}

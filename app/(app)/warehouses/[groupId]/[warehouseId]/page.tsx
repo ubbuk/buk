@@ -5,12 +5,16 @@ import Link from "next/link";
 import { ChevronRight, PackageOpen } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 import { findSubWarehouse } from "@/lib/warehouse-structure";
+import { useWarehouseTree } from "@/lib/use-warehouse-tree";
 import { formatNumber } from "@/lib/utils";
 
 export default function WarehouseDetailPage() {
   const params = useParams<{ groupId: string; warehouseId: string }>();
-  const found = findSubWarehouse(params.groupId, params.warehouseId);
+  const { groups, failed } = useWarehouseTree();
+  if (!groups && !failed) return <SkeletonTable />;
+  const found = groups ? findSubWarehouse(groups, params.groupId, params.warehouseId) : null;
 
   if (!found) {
     return (

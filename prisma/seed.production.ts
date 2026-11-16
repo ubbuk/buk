@@ -1,12 +1,13 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { seedWarehouseStructure } from "./warehouse-structure";
 
 // Minimal, demo-free seed for a real deployment (see DEPLOY.md).
 //
 // Creates ONLY what the app cannot be set up without:
 //   * one ADMIN account (everything else -- departments, users, approver positions,
 //     department heads -- is then created by that admin in the /admin page),
-//   * one empty central warehouse row (stock levels are tracked against it).
+//   * the empty two-level warehouse structure incl. the central warehouse (stock levels are tracked against it).
 // No demo users, no demo materials, no shared demo password.
 //
 //   SEED_PASSWORD   required, at least 12 characters (no default on purpose)
@@ -32,11 +33,8 @@ async function main() {
     create: { email, name, role: "ADMIN", title: "Системийн админ", passwordHash },
   });
 
-  await prisma.warehouse.upsert({
-    where: { id: "w-central" },
-    update: {},
-    create: { id: "w-central", name: "Төв агуулах" },
-  });
+  // The agreed two-level warehouse structure incl. the central warehouse (keepers are assigned in /admin).
+  await seedWarehouseStructure(prisma);
 
   console.log(`Production seed complete. Admin account: ${email}`);
   console.log("Next: sign in, then create departments, users, approver positions and department heads in /admin.");

@@ -1,8 +1,7 @@
-// Static organizational structure for the warehouse catalog browser
-// (/warehouses). Each group (e.g. "БОЛД") contains several named
-// warehouses, each split into material categories. No live inventory
-// data is wired in yet -- categories render as empty placeholders until
-// real items (with a real balance) are attached to them.
+// Shapes and helpers for the warehouse catalog browser (/warehouses). The groups and locations themselves come from
+// the database (lib/warehouses.ts: top-level Warehouse rows and their children); only the placeholder material
+// categories of a location are still static here, keyed by the location's slug. No live inventory is attached to a
+// category yet -- they render as empty placeholders until real items (with a real balance) are wired to them.
 export interface WarehouseItem {
   id: string;
   name: string;
@@ -25,144 +24,55 @@ export interface SubWarehouse {
 export interface WarehouseGroup {
   id: string;
   name: string;
+  /** Name of the keeper of this top-level warehouse; null when nobody keeps it. */
+  keeperName: string | null;
   warehouses: SubWarehouse[];
 }
 
-export const WAREHOUSE_GROUPS: WarehouseGroup[] = [
-  {
-    id: "bold",
-    name: "БОЛД",
-    warehouses: [
-      {
-        id: "meh-tseh",
-        name: "Мех цех 1, 2",
-        categories: [
-          { id: "finished-goods", name: "Бэлэн бүтээгдэхүүн" },
-          { id: "raw-material", name: "Түүхий эд" },
-          { id: "goods-material", name: "Бараа материал" },
-        ],
-      },
-      {
-        id: "butluur",
-        name: "Бутлуур",
-        categories: [{ id: "goods-material", name: "Бараа материал" }],
-      },
-      {
-        id: "armatur",
-        name: "Арматур",
-        categories: [
-          { id: "wip", name: "Дуусаагүй үйлдвэрлэл" },
-          { id: "goods-material", name: "Бараа материал" },
-        ],
-      },
-      {
-        id: "silos",
-        name: "Силос",
-        categories: [
-          { id: "cement", name: "Цемент" },
-          { id: "ash", name: "Үнс" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "uuguntsetseg",
-    name: "УУГАНЦЭЦЭГ",
-    warehouses: [
-      {
-        id: "tov-aguulah",
-        name: "Төв агуулах",
-        categories: [{ id: "hangamj", name: "Хангамж" }],
-      },
-      {
-        id: "zasvar",
-        name: "Засвар",
-        categories: [
-          { id: "san", name: "Сан" },
-          { id: "kran", name: "Кран" },
-          { id: "zasvar", name: "Засвар" },
-          { id: "tsahilgaan", name: "Цахилгаан" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "sarangerel",
-    name: "САРАНГЭРЭЛ",
-    warehouses: [
-      {
-        id: "tomor-beton-der",
-        name: "Төмөр бетон дэр",
-        categories: [
-          { id: "raw-material", name: "Түүхий эд" },
-          { id: "goods-material", name: "Бараа материал" },
-          { id: "finished-goods", name: "Бэлэн бүтээгдэхүүн" },
-          { id: "tomor-beton-hooloi", name: "Төмөр бетон хоолой" },
-          { id: "koltso", name: "Кольцо" },
-          { id: "70x90", name: "70х90" },
-        ],
-      },
-      {
-        id: "baz-3-4",
-        name: "БАЗ 3,4",
-        categories: [
-          { id: "raw-material", name: "Түүхий эд" },
-          { id: "wip", name: "Дуусаагүй үйлдвэрлэл" },
-          { id: "chemical-additive", name: "Химийн нэмэлт" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "gadaa-talbai",
-    name: "ГАДАА ТАЛБАЙ",
-    warehouses: [
-      {
-        id: "gadaa-talbai",
-        name: "Гадаа талбай",
-        categories: [
-          { id: "raw-material", name: "Түүхий эд" },
-          { id: "finished-goods", name: "Бэлэн бүтээгдэхүүн" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "bold-1",
-    name: "БОЛД 1",
-    warehouses: [
-      {
-        id: "tsainy-gazar",
-        name: "Цайны газар",
-        categories: [
-          { id: "finished-goods", name: "Бэлэн бүтээгдэхүүн" },
-          { id: "raw-material", name: "Түүхий эд" },
-          { id: "hangamj", name: "Хангамж" },
-        ],
-      },
-    ],
-  },
-];
+const RAW = { id: "raw-material", name: "Түүхий эд" };
+const GOODS = { id: "goods-material", name: "Бараа материал" };
+const FINISHED = { id: "finished-goods", name: "Бэлэн бүтээгдэхүүн" };
+const WIP = { id: "wip", name: "Дуусаагүй үйлдвэрлэл" };
 
-export function findWarehouseGroup(groupId: string) {
-  return WAREHOUSE_GROUPS.find((g) => g.id === groupId) ?? null;
+const CATEGORIES_BY_LOCATION: Record<string, WarehouseCategory[]> = {
+  "mehanik-tseh": [FINISHED, RAW, GOODS],
+  butluur: [GOODS],
+  armatur: [WIP, GOODS],
+  silos: [
+    { id: "cement", name: "Цемент" },
+    { id: "ash", name: "Үнс" },
+  ],
+  "tov-aguulah": [{ id: "hangamj", name: "Хангамж" }],
+  zasvar: [
+    { id: "san", name: "Сан" },
+    { id: "kran", name: "Кран" },
+    { id: "zasvar", name: "Засвар" },
+    { id: "tsahilgaan", name: "Цахилгаан" },
+  ],
+  "tomor-beton": [RAW, GOODS, FINISHED],
+  "baz-3-4": [RAW, WIP, { id: "chemical-additive", name: "Химийн нэмэлт" }],
+  "gadna-talbai": [RAW, FINISHED],
+  "tsainy-gazar": [FINISHED, RAW, { id: "hangamj", name: "Хангамж" }],
+};
+
+export function categoriesFor(locationSlug: string): WarehouseCategory[] {
+  return CATEGORIES_BY_LOCATION[locationSlug] ?? [];
 }
 
-export function findSubWarehouse(groupId: string, warehouseId: string) {
-  const group = findWarehouseGroup(groupId);
+export function findWarehouseGroup(groups: WarehouseGroup[], groupId: string) {
+  return groups.find((g) => g.id === groupId) ?? null;
+}
+
+export function findSubWarehouse(groups: WarehouseGroup[], groupId: string, warehouseId: string) {
+  const group = findWarehouseGroup(groups, groupId);
   if (!group) return null;
   const warehouse = group.warehouses.find((w) => w.id === warehouseId) ?? null;
   if (!warehouse) return null;
   return { group, warehouse };
 }
 
-export function findWarehouseItem(
-  groupId: string,
-  warehouseId: string,
-  categoryId: string,
-  itemId: string
-) {
-  const found = findSubWarehouse(groupId, warehouseId);
+export function findWarehouseItem(groups: WarehouseGroup[], groupId: string, warehouseId: string, categoryId: string, itemId: string) {
+  const found = findSubWarehouse(groups, groupId, warehouseId);
   if (!found) return null;
   const category = found.warehouse.categories.find((c) => c.id === categoryId) ?? null;
   if (!category) return null;
