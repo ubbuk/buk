@@ -22,7 +22,7 @@ describe("warehouse structure seed (1С warehouses)", () => {
   it("defines the confirmed structure: 4 keeper groups (named by what they hold, never by a person), a keeper-less group, a finished-goods group; 1С codes unique", () => {
     expect(WAREHOUSE_STRUCTURE.map((t) => t.name)).toEqual([
       "Механик, арматур, силос",
-      "Хангамжийн агуулах",
+      "Хангамж, засвар",
       "Төмөр бетон, БАЗ",
       "Цайны газар",
       "Нярваргүй агуулахууд",
@@ -103,7 +103,7 @@ describe("warehouse structure seed (1С warehouses)", () => {
     await seedWarehouseStructure(prisma); // idempotent
 
     const names = Object.fromEntries((await prisma.warehouse.findMany({ where: { id: { in: ids } } })).map((w) => [w.id, w.name]));
-    expect(names).toEqual({ "w-bold": "Механик, арматур, силос", "w-uuganzetseg": "Хангамжийн агуулах", "w-sarangerel": "Төмөр бетон, БАЗ", "w-boogii": "Цайны газар" });
+    expect(names).toEqual({ "w-bold": "Механик, арматур, силос", "w-uuganzetseg": "Хангамж, засвар", "w-sarangerel": "Төмөр бетон, БАЗ", "w-boogii": "Цайны газар" });
     for (const person of Object.values(OLD)) expect(Object.values(names)).not.toContain(person);
     expect(await snapshot()).toEqual(before); // everything but the name is as it was
     expect(Number((await prisma.inventoryBalance.findFirstOrThrow({ where: { materialId: MAT, warehouseId: "w-1c-00-000005" } })).quantityOnHand)).toBe(9);

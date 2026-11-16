@@ -51,7 +51,7 @@ export const WAREHOUSE_STRUCTURE: Top[] = [
   {
     id: "w-uuganzetseg",
     slug: "uuganzetseg",
-    name: "Хангамжийн агуулах",
+    name: "Хангамж, засвар",
     keeper: "uuganzetseg",
     locations: [
       // "w-central" is the warehouse that already exists in every database (stock rows point at it), so it is
