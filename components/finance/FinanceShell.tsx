@@ -5,7 +5,7 @@ import { YmPicker } from "./useYm";
 import { formatHm } from "./useOnecRefresh";
 
 export const inputClass =
-  "focus-ring h-9 rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
+  "focus-ring h-9 max-w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
 
 /** Таб бүрийн нийтлэг хүрээ: гарчиг, «Сүүлд шинэчилсэн: HH:mm», «Шинэчлэх» товч, табууд */
 export function FinanceShell({

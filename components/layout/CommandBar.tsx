@@ -257,7 +257,7 @@ export function CommandBar() {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-border bg-bg-sidebar/90 px-3 backdrop-blur max-[359px]:gap-1.5 max-[359px]:px-2 sm:gap-3 sm:px-6">
-      <Link href="/dashboard" className="hidden shrink-0 items-center gap-2.5 min-[400px]:flex">
+      <Link href="/dashboard" className="hidden shrink-0 items-center gap-2.5 min-[440px]:flex">
         <div className="flex size-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
           <Factory className="size-5" />
         </div>
