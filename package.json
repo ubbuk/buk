@@ -14,6 +14,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:prod": "tsx prisma/seed.production.ts",
+    "db:seed:warehouses": "tsx prisma/seed.warehouses.ts",
     "test": "vitest run",
     "sync:1c": "tsx --env-file=.env scripts/sync-1c.ts",
     "onec:objects": "tsx --env-file=.env scripts/onec-odata-objects.ts",

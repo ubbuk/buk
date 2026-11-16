@@ -14,7 +14,7 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "e2e/report" }]],
   outputDir: "e2e/results",
   snapshotPathTemplate: "e2e/screenshots/{testFilePath}/{arg}{ext}",
-  use: { baseURL, browserName: "chromium", trace: "retain-on-failure" },
+  use: { baseURL, browserName: "chromium", ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}), trace: "retain-on-failure" },
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : { command: "npx next dev -p 3001", url: `${baseURL}/login`, reuseExistingServer: true, timeout: 180_000 },

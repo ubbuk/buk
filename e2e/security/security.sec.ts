@@ -132,35 +132,35 @@ test.describe.serial("session revocation", () => {
   });
 });
 
-test.describe.serial("granting authority is direct (own password + reason + confirmation, no second approval)", () => {
-  test("the administrator changes a role to STOREKEEPER in one step; a wrong password changes nothing", async ({ browser }) => {
+test.describe.serial("granting authority is direct (one step: no reason / confirmation / password form, no second approval)", () => {
+  test("the administrator changes a role to STOREKEEPER in one step; the grant is audited with the direct-grant reason", async ({ browser }) => {
     const admin = await signIn(browser, ids.admin);
     await admin.page.goto("/admin");
     await admin.page.getByPlaceholder("Хэрэглэгч хайх...").fill(NAMES.target);
     await admin.page.getByRole("button", { name: `${NAMES.target}-ийг засах` }).click();
     await admin.page.getByRole("dialog").locator("select").first().selectOption("STOREKEEPER");
     await admin.page.getByRole("dialog").getByRole("button", { name: "Хадгалах" }).click();
-    const grant = admin.page.getByRole("dialog", { name: /олгохыг баталгаажуулах/ });
-    await grant.getByLabel(/Эрх олгох шалтгаан/).fill(REASON);
-    await grant.getByRole("checkbox").check();
-    await grant.getByLabel("Таны өөрийн нууц үг").fill("wrong-admin-password");
-    await grant.getByRole("button", { name: "Эрх олгох", exact: true }).click();
-    await expect(grant.getByTestId("grant-error")).toContainText("Нууц үг буруу байна");
-    expect((await db.user.findUniqueOrThrow({ where: { id: ids.target } })).role).toBe("EMPLOYEE");
-    await grant.getByLabel("Таны өөрийн нууц үг").fill(PW);
-    await grant.getByRole("button", { name: "Эрх олгох", exact: true }).click();
-    await expect(grant).toHaveCount(0, { timeout: 15000 });
-    expect((await db.user.findUniqueOrThrow({ where: { id: ids.target } })).role).toBe("STOREKEEPER");
+    // no step-up dialog any more (2f54590): saving is the grant
+    await expect(admin.page.getByRole("dialog", { name: /олгохыг баталгаажуулах/ })).toHaveCount(0);
+    await expect.poll(async () => (await db.user.findUniqueOrThrow({ where: { id: ids.target } })).role, { timeout: 15000 }).toBe("STOREKEEPER");
     const audit = await db.auditLog.findFirstOrThrow({ where: { entityType: "AuthorityGrant", entityId: ids.target } });
-    expect(JSON.parse(audit.afterJson!)).toMatchObject({ grantKind: "ROLE_ELEVATION", reason: REASON });
+    expect(JSON.parse(audit.afterJson!)).toMatchObject({ grantKind: "ROLE_ELEVATION", reason: "Админ шууд олгосон", confirmed: true });
+    expect(JSON.stringify(audit)).not.toContain(PW);
     await admin.context.close();
   });
 
-  test("the API refuses a grant without the step-up, with a valid administrator session", async ({ browser }) => {
+  test("the API needs no step-up from the administrator, but still refuses a grant without an administrator session", async ({ browser }) => {
+    // (ids.emp's password was changed by an earlier test; the accountant is a non-administrator with the shared password)
+    const emp = await signIn(browser, ids.acct);
+    const denied = await emp.page.request.patch(`/api/admin/users/${ids.emp2}`, { data: { role: "BOSS" } });
+    expect(denied.status()).toBe(403);
+    expect((await db.user.findUniqueOrThrow({ where: { id: ids.emp2 } })).role).toBe("EMPLOYEE");
+    await emp.context.close();
+
     const admin = await signIn(browser, ids.admin);
-    const bare = await admin.page.request.patch(`/api/admin/users/${ids.emp}`, { data: { role: "BOSS" } });
-    expect(bare.status()).toBe(400);
-    expect((await bare.json()).code).toBe("STEP_UP_REQUIRED");
+    const direct = await admin.page.request.patch(`/api/admin/users/${ids.emp2}`, { data: { role: "BOSS" } });
+    expect(direct.status()).toBe(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: ids.emp2 } })).role).toBe("BOSS");
     await admin.context.close();
   });
 
