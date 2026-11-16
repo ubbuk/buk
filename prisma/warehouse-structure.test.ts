@@ -19,12 +19,12 @@ afterAll(async () => {
 });
 
 describe("warehouse structure seed (1С warehouses)", () => {
-  it("defines the confirmed structure: 4 keeper groups, a keeper-less group, a finished-goods group; 1С codes unique", () => {
+  it("defines the confirmed structure: 4 keeper groups (named by what they hold, never by a person), a keeper-less group, a finished-goods group; 1С codes unique", () => {
     expect(WAREHOUSE_STRUCTURE.map((t) => t.name)).toEqual([
-      "Болд",
-      "Ууганцэцэг (хангамж)",
-      "Сарангэрэл",
-      "Боогий",
+      "Механик, арматур, силос",
+      "Хангамжийн агуулах",
+      "Төмөр бетон, БАЗ",
+      "Цайны газар",
       "Нярваргүй агуулахууд",
       "Бэлэн бүтээгдэхүүн (нөөцлөхгүй)",
     ]);
@@ -82,6 +82,34 @@ describe("warehouse structure seed (1С warehouses)", () => {
     expect((await prisma.warehouse.findUniqueOrThrow({ where: { id: "w-1c-00-000005" } })).sortPriority).toBe(42);
     await prisma.warehouse.update({ where: { id: "w-uuganzetseg" }, data: { keeperId: original } });
     await prisma.warehouse.update({ where: { id: "w-1c-00-000005" }, data: { sortPriority: 100 } });
+  });
+
+  it("renames the groups that carried a person's name, touching only the name (slug, parent, code, keeper, priority, stock stay)", async () => {
+    const OLD: Record<string, string> = { "w-bold": "Болд", "w-uuganzetseg": "Ууганцэцэг (хангамж)", "w-sarangerel": "Сарангэрэл", "w-boogii": "Боогий" };
+    const keeper = (await prisma.user.findFirstOrThrow({ where: { role: "STOREKEEPER" }, select: { id: true } })).id;
+    const ids = Object.keys(OLD);
+    const originals = await prisma.warehouse.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, keeperId: true, sortPriority: true } });
+    // the state production is in today: the old names, an administrator-assigned keeper and priority, stock on a 1С warehouse
+    for (const id of ids) await prisma.warehouse.update({ where: { id }, data: { name: OLD[id], keeperId: keeper, sortPriority: 77 } });
+    await prisma.inventoryBalance.upsert({
+      where: { materialId_warehouseId: { materialId: MAT, warehouseId: "w-1c-00-000005" } },
+      update: { quantityOnHand: 9 },
+      create: { materialId: MAT, warehouseId: "w-1c-00-000005", quantityOnHand: 9 },
+    });
+    const snapshot = async () => (await prisma.warehouse.findMany({ where: { id: { in: ids } }, orderBy: { id: "asc" } })).map((w) => ({ id: w.id, slug: w.slug, parentId: w.parentId, onecCode: w.onecCode, keeperId: w.keeperId, sortPriority: w.sortPriority, isActive: w.isActive, reservable: w.reservable }));
+    const before = await snapshot();
+
+    await seedWarehouseStructure(prisma);
+    await seedWarehouseStructure(prisma); // idempotent
+
+    const names = Object.fromEntries((await prisma.warehouse.findMany({ where: { id: { in: ids } } })).map((w) => [w.id, w.name]));
+    expect(names).toEqual({ "w-bold": "Механик, арматур, силос", "w-uuganzetseg": "Хангамжийн агуулах", "w-sarangerel": "Төмөр бетон, БАЗ", "w-boogii": "Цайны газар" });
+    for (const person of Object.values(OLD)) expect(Object.values(names)).not.toContain(person);
+    expect(await snapshot()).toEqual(before); // everything but the name is as it was
+    expect(Number((await prisma.inventoryBalance.findFirstOrThrow({ where: { materialId: MAT, warehouseId: "w-1c-00-000005" } })).quantityOnHand)).toBe(9);
+
+    for (const o of originals) await prisma.warehouse.update({ where: { id: o.id }, data: { keeperId: o.keeperId, sortPriority: o.sortPriority } });
+    await prisma.inventoryBalance.deleteMany({ where: { materialId: MAT, warehouseId: "w-1c-00-000005" } });
   });
 
   it("assigns no keeper user by default (production: the admin UI does it)", async () => {

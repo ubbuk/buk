@@ -9,7 +9,7 @@ import { unknownTitle, type KeeperRef, type StockGroupNode, type StockRow, type 
 // Нэг удаад харуулах барааны мөр: олон мөртэй складыг нээхэд хуудас удаашрахгүй, «Дахиад харуулах»-аар нэмнэ
 export const PAGE_SIZE = 50;
 
-/** «Нярав: Болд» эсвэл саарал «Нярав оноогоогүй». Нэр нь Warehouse.keeperId → User-ээс ирнэ. */
+/** «Нярав: <нэр>» эсвэл саарал «Нярав оноогоогүй». Нэр нь Warehouse.keeperId → User-ээс ирнэ. */
 export function KeeperLabel({ keeper }: { keeper: KeeperRef | null }) {
   return keeper ? (
     <span className="inline-flex items-center gap-1 text-text-muted">
