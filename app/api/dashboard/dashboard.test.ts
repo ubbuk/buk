@@ -17,6 +17,7 @@ import { POST as REFRESH } from "./refresh/route";
 import { GET as RECEIVABLES } from "./receivables/route";
 import { GET as STOCK } from "./stock/route";
 import { GET as SUMMARY } from "./summary/route";
+import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
 import { GET as USAGE } from "./usage/route";
 import { GET as WIP } from "./wip/route";
@@ -105,12 +106,13 @@ const ROUTES = {
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
   cash: () => CASH(get(`/api/dashboard/cash?month=${currentMonth()}`)),
   syncStatus: () => SYNC_STATUS(get(`/api/dashboard/sync-status?month=${MONTH}`)),
+  stockFreshness: () => STOCK_FRESHNESS(),
   refreshStock: () => REFRESH(post({ kind: "stock" })),
   refreshMonth: () => REFRESH(post({ kind: "month", month: MONTH })),
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "refreshStock", "health"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -139,7 +141,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -160,6 +162,54 @@ describe("/api/dashboard/*: эрх табаар", () => {
     expect((await EXPENSES(get("/api/dashboard/expenses?month=bad"))).status).toBe(400);
     expect((await REFRESH(post({ kind: "month", month: "2999-01" }))).status).toBe(400); // ирээдүйн сар
     expect((await REFRESH(post({ kind: "nope" }))).status).toBe(400);
+  });
+});
+
+describe("/api/dashboard/stock-freshness: сүүлийн АМЖИЛТТАЙ stock sync, хуваарийн дагуу хуучирсан эсэх", () => {
+  const ub = (s: string) => new Date(`${s.replace(" ", "T")}:00+08:00`);
+  const clean = () => prisma.onecSyncLog.deleteMany({ where: { kind: "stock", period: "freshness-test" } });
+  const log = (finishedAt: string, ok: boolean) => prisma.onecSyncLog.create({ data: { kind: "stock", period: "freshness-test", ok, rows: 1, startedAt: ub(finishedAt), finishedAt: ub(finishedAt) } });
+  const call = async () => (await ROUTES.stockFreshness()).json();
+  beforeEach(async () => {
+    await prisma.onecSyncLog.deleteMany({ where: { kind: "stock" } }); // route нь бүх stock мөрийн сүүлийнхийг авдаг
+    as("DIRECTOR");
+  });
+  afterEach(async () => {
+    vi.useRealTimers();
+    await clean();
+  });
+  afterAll(clean);
+  const at = (now: string) => vi.useFakeTimers({ toFake: ["Date"], now: ub(now) });
+
+  it("хуваарьт цагт 1 цагаас хуучин бол шар анхааруулга ба Улаанбаатарын цагаар «сүүлд шинэчилсэн»", async () => {
+    await log("2026-11-16 09:10", true);
+    at("2026-11-16 11:30");
+    const b = await call();
+    expect(b).toMatchObject({ stale: true, never: false, lastSyncedLabel: "2026-11-16 09:10" });
+    expect(b.message).toBe("1С-ийн өгөгдөл 2 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
+  });
+  it("1 цагаас дотор бол анхааруулахгүй", async () => {
+    await log("2026-11-16 11:00", true);
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: false, message: null });
+  });
+  it("зөвхөн АМЖИЛТТАЙ sync тооцогдоно: сүүлийн оролдлого амжилтгүй бол өмнөх амжилттайг харна", async () => {
+    await log("2026-11-16 09:10", true);
+    await log("2026-11-16 11:20", false);
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: true, lastSyncedLabel: "2026-11-16 09:10" });
+  });
+  it("ням гарагт Бямбын 19:45-ийн sync хэвийн; өмнөх оройн 18:00 бол анхааруулна", async () => {
+    await log("2026-11-14 19:45", true);
+    at("2026-11-15 14:00");
+    expect((await call()).stale).toBe(false);
+    await clean();
+    await log("2026-11-14 18:00", true);
+    expect((await call()).stale).toBe(true);
+  });
+  it("хэзээ ч sync болоогүй бол анхааруулна", async () => {
+    at("2026-11-16 11:30");
+    expect(await call()).toMatchObject({ stale: true, never: true, lastSyncedAt: null, lastSyncedLabel: null });
   });
 });
 
