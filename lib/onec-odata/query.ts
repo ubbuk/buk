@@ -1,5 +1,6 @@
 // Хэрэглэгчийн оролтоос 1С руу явах URL-ийг СЕРВЕР өөрөө бүтээнэ. Хэрэглэгчийн query string-ийг дамжуулахгүй,
 // түүхий $filter хүлээж авахгүй: зөвхөн доорх бэлэн шүүлтүүрүүд (огноо, код, нэрийн хайлт) ба тоон хуудаслалт.
+import { addDays, ubDate } from "../onec/dates";
 import { DEFAULT_PAGE_SIZE, DEFAULT_RANGE_DAYS, MAX_EXPAND, MAX_PAGE, MAX_PAGE_SIZE } from "./config";
 import type { EntityInfo, Metadata } from "./metadata";
 
@@ -41,11 +42,10 @@ export const dateFieldOf = (e: EntityInfo): string | null =>
 
 const hasString = (e: EntityInfo, name: string) => e.properties.some((p) => p.name === name && p.type === "Edm.String");
 
-/** today-аас хойш N хоногийн өмнөх огноо (UTC); тестэд today-г өгнө */
+/** Улаанбаатарын өнөөдрөөс N хоногийн өмнөх огноо (серверийн UTC цаг биш); тестэд today-г өгнө */
 export function defaultRange(today: Date = new Date()): { from: string; to: string } {
-  const to = today.toISOString().slice(0, 10);
-  const from = new Date(today.getTime() - DEFAULT_RANGE_DAYS * 86_400_000).toISOString().slice(0, 10);
-  return { from, to };
+  const to = ubDate(today);
+  return { from: addDays(to, -DEFAULT_RANGE_DAYS), to };
 }
 
 export function normalizeQuery(entity: EntityInfo, input: QueryInput, today: Date = new Date()): NormalizedQuery {

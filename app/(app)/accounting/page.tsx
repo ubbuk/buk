@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { today } from "@/lib/onec/dates";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate, requestTitle } from "@/lib/utils";
@@ -38,7 +39,7 @@ function AccountingPageInner() {
 
   const [target, setTarget] = useState<MaterialRequestView | null>(null);
   const [ledgerNumber, setLedgerNumber] = useState("");
-  const [recordDate, setRecordDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [recordDate, setRecordDate] = useState(() => today()); // Улаанбаатарын өнөөдөр (UTC биш: 00:00–08:00-д өчигдөр гарахгүй)
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -53,7 +54,7 @@ function AccountingPageInner() {
   function openModal(request: MaterialRequestView) {
     setTarget(request);
     setLedgerNumber("");
-    setRecordDate(new Date().toISOString().slice(0, 10));
+    setRecordDate(today());
     setNote("");
   }
 

@@ -9,17 +9,35 @@
 //   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L
 //   npm run sync:1c -- recent                   -> энэ сар + өмнөх сар
 //   npm run sync:1c -- range 2026-01 2026-10    -> эхний удаа өнгөрсөн саруудыг татах
+//   npm run sync:1c -- prune                    -> DRY-RUN: хуучин snapshot, sync_log-ийн хадгалалтын бодлогоор юу устахыг харуулна (lib/onec/retention.ts)
+//   npm run sync:1c -- prune --apply            -> үнэхээр устгана (max(snapshot_date)-ийг хэзээ ч устгахгүй)
+//   npm run sync:1c -- import-materials         -> DRY-RUN: onec_stock-оос Material + InventoryBalance (Warehouse.onecCode-той складууд) оруулах тайлан
+//   npm run sync:1c -- import-materials --apply [--date=2026-11-17] [--refresh-balances]  -> үнэхээр оруулна (lib/onec/material-import.ts)
 //   ... --force                                 -> 1С 0 мөр буцаасан ч солих
 import { prisma } from "../lib/prisma";
 import { closingTargets, multiYear } from "../lib/onec/bases";
 import { asOfDate } from "../lib/onec/dates";
 import { checkCurrentBase, STALE_MESSAGE } from "../lib/onec/health";
+import { describeImport, importMaterials } from "../lib/onec/material-import";
 import { syncReceivablesSnapshotLocked } from "../lib/onec/receivables-store";
+import { describeRetention, runRetention } from "../lib/onec/retention";
 import { addMonths, currentMonth, isDate, isMonth, monthsBetween, syncMonth, syncReceivables, syncStock, today } from "../lib/onec/sync";
 
 async function main() {
   const [mode = "current", a, b] = process.argv.slice(2).filter((x) => !x.startsWith("--"));
   const force = process.argv.includes("--force");
+  const apply = process.argv.includes("--apply"); // prune, import-materials: --apply-гүй бол DRY-RUN
+  const flag = (name: string) => process.argv.find((x) => x.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+  if (mode === "prune") {
+    console.log(describeRetention(await runRetention({ apply })));
+    return;
+  }
+
+  if (mode === "import-materials") {
+    console.log(describeImport(await importMaterials({ apply, date: flag("date"), refreshBalances: process.argv.includes("--refresh-balances") })));
+    return;
+  }
 
   if (mode === "stock") {
     const date = a ?? today();
@@ -82,7 +100,7 @@ async function main() {
   else if (mode === "range") {
     if (!isMonth(a) || !isMonth(b)) throw new Error("Жишээ: range 2026-01 2026-10");
     months = monthsBetween(a, b);
-  } else throw new Error(`Мэдэгдэхгүй горим: ${mode} (stock | receivables | receivables-odata | closing | health | current | recent | range)`);
+  } else throw new Error(`Мэдэгдэхгүй горим: ${mode} (stock | receivables | receivables-odata | closing | health | prune | import-materials | current | recent | range)`);
 
   let allOk = true;
   // 1С-д ачаалал өгөхгүйн тулд сар сараар дараалан татна

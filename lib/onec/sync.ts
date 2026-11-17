@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fetchCash, fetchPl, fetchReceivables, fetchSales, fetchStock, type FetchOpts } from "./client";
 import { fetchPlTaxRows, odataConfigured } from "./pl-tax";
+import { stockDigest } from "./stock-digest";
 import { addMonths, currentMonth, isDate, isMonth, monthRange, monthsBetween, today } from "./dates";
 
 export { addMonths, currentMonth, isDate, isMonth, monthRange, monthsBetween, today };
@@ -20,6 +21,8 @@ async function log(kind: string, period: string, rows: number, ok: boolean, mess
  * Нэг сар/өдрийн өгөгдлийг бүхэлд нь солино: хуучин мөрүүдийг устгаад шинээр бичнэ.
  * Нэг transaction дотор хийдэг тул алдаа гарвал хуучин өгөгдөл хэвээр үлдэнэ.
  * 1С 0 мөр буцаасан ч DB-д өгөгдөл байвал устгахгүй (force-оор албадна).
+ * `unchanged`: шинэ мөрүүд DB-д байгаатай яг ижил бол true буцаана; тэгвэл устгаж дахин бичихгүй (force-оор албадна). «Амжилттай» мөр
+ * onec_sync_log-д ердийнхөөр бичигдэх тул «сүүлд шинэчилсэн», хоцролтын шалгалт өөрчлөгдөхгүй.
  */
 async function replacePeriod<Row>(opts: {
   kind: string;
@@ -27,6 +30,7 @@ async function replacePeriod<Row>(opts: {
   fetch: () => Promise<Row[]>;
   count: () => Promise<number>;
   replace: (tx: Prisma.TransactionClient, rows: Row[]) => Promise<void>;
+  unchanged?: (rows: Row[]) => Promise<boolean>;
   force?: boolean;
 }): Promise<number> {
   const startedAt = new Date();
@@ -41,6 +45,13 @@ async function replacePeriod<Row>(opts: {
         console.warn(`[${opts.kind} ${opts.period}] ${msg}`);
         return 0;
       }
+    }
+
+    if (!opts.force && rows.length > 0 && opts.unchanged && (await opts.unchanged(rows))) {
+      const secs = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
+      await log(opts.kind, opts.period, rows.length, true, `${secs}s · өөрчлөлтгүй, дахин бичээгүй`, startedAt);
+      console.log(`[${opts.kind} ${opts.period}] ${rows.length} мөр өөрчлөгдөөгүй: DB-д бичээгүй, ${secs}s`);
+      return rows.length;
     }
 
     await prisma.$transaction((tx) => opts.replace(tx, rows));
@@ -137,6 +148,13 @@ export function syncStock(date = today(), force = false, opts?: FetchOpts) {
         qty: n(r.qty), amount: n(r.amount),
       })),
     count: () => prisma.onecStock.count({ where: { snapshotDate: d(date) } }),
+    unchanged: async (rows) => {
+      const existing = await prisma.onecStock.findMany({
+        where: { snapshotDate: d(date) },
+        select: { org: true, warehouseCode: true, warehouse: true, itemCode: true, item: true, unit: true, account: true, qty: true, amount: true },
+      });
+      return existing.length === rows.length && stockDigest(existing) === stockDigest(rows);
+    },
     replace: async (tx, rows) => {
       await tx.onecStock.deleteMany({ where: { snapshotDate: d(date) } });
       await chunked(rows, (data) => tx.onecStock.createMany({ data }));
