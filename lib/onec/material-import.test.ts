@@ -42,6 +42,7 @@ beforeEach(async () => {
       { name: "IMPT dup2", onecCode: "IMP-DUP" },
       { name: "IMPT inactive", onecCode: "IMP-OFF", isActive: false },
       { name: "IMPT unmapped" }, // onecCode байхгүй
+      { name: "IMPT finished goods", onecCode: "IMP-NR", reservable: false }, // бэлэн бүтээгдэхүүний склад
     ],
   });
   // ERP-д аль хэдийн байгаа Material, үлдэгдэл: хөндөгдөх ёсгүй
@@ -62,6 +63,7 @@ beforeEach(async () => {
       row("IMP-UNMAPPED", `${P}C`, 9, 90), // 1С склад ERP-д холбогдоогүй
       row("IMP-DUP", `${P}D`, 1, 1), // хоёр агуулах ижил кодтой: тодорхойгүй
       row("IMP-OFF", `${P}E`, 3, 30), // идэвхгүй агуулах
+      row("IMP-NR", `${P}F`, 6, 60), // reservable=false склад: оруулахгүй
       row("IMP-WH1", `${P}EXIST`, 10, 100),
       row("IMP-WH2", `${P}EXIST`, 4, 40),
       row("IMP-WH2", `${P}RES`, 4, 40),
@@ -83,10 +85,10 @@ describe("importMaterials: dry-run (анхдагч)", () => {
     const r = await importMaterials({ date: D });
     expect(r.apply).toBe(false);
     expect(r.snapshot).toBe(D);
-    expect(r.stockRows).toBe(13 - 1); // A@WH1-ийн хоёр данс нэг мөр болно
+    expect(r.stockRows).toBe(14 - 1); // A@WH1-ийн хоёр данс нэг мөр болно
     expect(r.mappedWarehouses).toBeGreaterThanOrEqual(3); // WH1, WH2, DUP
     expect(r.ambiguousCodes).toContain("IMP-DUP");
-    expect(r.skipped).toEqual({ noItemCode: 1, unmappedWarehouse: 2, ambiguousWarehouse: 1, nonPositive: 2, tooLarge: 0 });
+    expect(r.skipped).toEqual({ noItemCode: 1, unmappedWarehouse: 2, nonReservableWarehouse: 1, ambiguousWarehouse: 1, nonPositive: 2, tooLarge: 0 });
     expect(r.materials).toEqual({ existing: 2, toCreate: 2, emptyUnit: 1 });
     expect(r.balances).toEqual({ toCreate: 4, existingKept: 2, toRefresh: 0, refreshBlocked: 0 });
     expect(r.unmapped.map((u) => u.code)).toEqual(expect.arrayContaining(["IMP-UNMAPPED", "IMP-OFF"]));
@@ -138,7 +140,7 @@ describe("importMaterials: apply", () => {
     expect(await bal(`${P}RES`, wh2)).toEqual({ onHand: 9, reserved: 5 });
   });
 
-  it("тэг, сөрөг, кодгүй, холбогдоогүй, давхар кодтой, идэвхгүй агуулахын мөрийг оруулахгүй", async () => {
+  it("тэг, сөрөг, кодгүй, холбогдоогүй, давхар кодтой, идэвхгүй, reservable=false агуулахын мөрийг оруулахгүй", async () => {
     await importMaterials({ apply: true, date: D });
     const codes = (await prisma.material.findMany({ where: { code: { startsWith: P } }, select: { code: true } })).map((m) => m.code).sort();
     expect(codes).toEqual([`${P}A`, `${P}B`, `${P}EXIST`, `${P}RES`]);
