@@ -151,15 +151,12 @@
 .sales-cc .cc-panel-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; border-bottom: 1px solid var(--cc-line); }
 .sales-cc .cc-panel-head h3 { font-size: 0.9375rem; font-weight: 600; color: var(--cc-text); }
 .sales-cc .cc-panel-icon { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 8px; color: var(--cc-gold); background: rgba(244, 196, 90, 0.1); border: 1px solid rgba(244, 196, 90, 0.28); }
-.sales-cc .cc-legend { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--cc-muted); }
-.sales-cc .cc-legend i { width: 0.6rem; height: 0.6rem; border-radius: 3px; background: var(--cc-gold); }
 
 /* ---------- График (shared DailyBarChart-ийг зөвхөн энд өнгө, шугамаар тохируулна) ---------- */
 .sales-cc .cc-center { overflow: visible; }
 .sales-cc .cc-chart { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.6rem 0.8rem 0.8rem; }
 /* «Өдөр / 7 хоног / Сар» сэлгэгчийг панелийн толгойн баруун талд гаргана (өөрийн байрлал, ажиллагаа өөрчлөгдөхгүй) */
 .sales-cc .cc-chart [role="group"] { position: absolute; top: -2.7rem; right: 0.9rem; z-index: 2; }
-.sales-cc .cc-center .cc-legend { margin-right: 10.5rem; }
 .sales-cc .cc-chart svg line { stroke: rgba(110, 170, 235, 0.26); }
 .sales-cc .cc-chart svg text { fill: var(--cc-muted); font-size: 12px; }
 .sales-cc .cc-chart [class*="backdrop-blur"] { border-radius: 14px; border-color: rgba(244, 196, 90, 0.4); background: rgba(8, 18, 34, 0.95); box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.85); font-size: 0.8125rem; }
@@ -224,7 +221,6 @@
   .sales-cc .cc-header-right { margin-left: 0; width: 100%; }
   .sales-cc .cc-stage { display: flex; flex-direction: column; }
   .sales-cc .cc-left, .sales-cc .cc-right { max-height: 28rem; }
-  .sales-cc .cc-center .cc-legend { margin-right: 0; }
   .sales-cc .cc-chart [role="group"] { position: static; margin: 0 0 0.5rem auto; }
   .sales-cc .cc-holo-row { display: flex; flex-direction: column; gap: 0.75rem; }
   .sales-cc .cc-holo { position: relative; inset: auto; height: 9rem; }

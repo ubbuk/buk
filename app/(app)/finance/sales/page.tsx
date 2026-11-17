@@ -189,8 +189,8 @@ export default function SalesPage() {
                   <section className="cc-card cc-center">
                     {mode === "chart" ? (
                       <>
-                        <PanelHead icon={BarChart3} title="Өдөр бүрийн борлуулалт" aside={<span className="cc-legend"><i />Борлуулалт</span>} />
-                        <div className="cc-chart">{data ? <GranularChart data={data.daily} keys={["revenue"]} today={isCurrent ? todayUb() : undefined} series={[{ key: "revenue", label: "Борлуулалт", color: "rgb(var(--color-accent))" }]} /> : <Skeleton className="h-56" />}</div>
+                        <PanelHead icon={BarChart3} title="Борлуулалт ба бохир ашиг" />
+                        <div className="cc-chart">{data ? <GranularChart data={data.daily} keys={["revenue", "gross_profit"]} today={isCurrent ? todayUb() : undefined} series={[{ key: "revenue", label: "Борлуулалт", color: "rgb(var(--color-accent))" }, { key: "gross_profit", label: "Бохир ашиг", color: "#24b8ff" }]} /> : <Skeleton className="h-56" />}</div>
                       </>
                     ) : (
                       costCard
