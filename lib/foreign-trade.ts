@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type ApprovalPosition, type NotificationType } from "@prisma/client";
 import { prisma } from "./prisma";
+import { currentYear } from "./onec/dates";
 import { storage } from "./storage";
 import { verifyPin } from "./pin";
 import { emitBroadcast, emitUserEvent } from "./events";
@@ -195,7 +196,7 @@ const itemRows = (items: FtOrderInput["items"]) =>
 export async function createOrder(actor: FtActor, input: FtOrderInput, submit: boolean): Promise<FtResult<{ id: string; orderNumber: string }>> {
   if (actor.role !== "BOSS") return fail(403, "Зөвхөн цехийн дарга (BOSS) гадаад худалдааны захиалга үүсгэнэ");
   const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { departmentId: true } });
-  const year = new Date().getFullYear();
+  const year = currentYear(); // Улаанбаатарын жил: сервер UTC-д шинэ оны эхний 8 цагт өмнөх оны дугаар олгохгүй
 
   for (let attempt = 0; attempt < 5; attempt++) {
     try {

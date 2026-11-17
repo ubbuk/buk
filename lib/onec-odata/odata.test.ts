@@ -138,6 +138,13 @@ describe("query builder: the server builds the URL, user text is only ever a quo
     expect(path).toContain("$skip=200");
   });
 
+  it("the default range is anchored to the Ulaanbaatar day, not the UTC day", () => {
+    const lateUtc = new Date("2026-11-12T20:30:00Z"); // still Nov 12 in UTC, already 04:30 on Nov 13 in Ulaanbaatar
+    expect(defaultRange(lateUtc)).toEqual({ from: "2026-10-14", to: "2026-11-13" });
+    expect(defaultRange(new Date("2026-11-13T15:59:59Z")).to).toBe("2026-11-13"); // 23:59:59 UB
+    expect(defaultRange(new Date("2026-11-13T16:00:00Z")).to).toBe("2026-11-14"); // 00:00:00 UB
+  });
+
   it("documents and registers default to the last month; catalogs do not", () => {
     expect(defaultRange(today)).toEqual({ from: "2026-10-14", to: "2026-11-13" });
     expect(normalizeQuery(doc, {}, today)).toMatchObject({ dateFrom: "2026-10-14", dateTo: "2026-11-13" });

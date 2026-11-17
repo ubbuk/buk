@@ -1,13 +1,31 @@
 const TZ = "Asia/Ulaanbaatar";
 
+/**
+ * Тухайн агшны Улаанбаатарын (UTC+8) хуанлийн өдөр: '2026-11-11'. Vercel, GitHub Actions-ийн сервер UTC-д ажилладаг тул
+ * `toISOString().slice(0, 10)` нь УБ-ын 00:00–08:00-д өчигдрийн огноог өгдөг: "өнөөдөр", "жил"-ийг үргэлж эндээс авна.
+ */
+export function ubDate(at: Date = new Date()): string {
+  return at.toLocaleString("sv-SE", { timeZone: TZ }).slice(0, 10);
+}
+
 /** Улаанбаатарын цагаар өнөөдрийн сар: '2026-11' */
 export function currentMonth(): string {
-  return new Date().toLocaleString("sv-SE", { timeZone: TZ }).slice(0, 7);
+  return ubDate().slice(0, 7);
 }
 
 /** Улаанбаатарын цагаар өнөөдөр: '2026-11-11' */
 export function today(): string {
-  return new Date().toLocaleString("sv-SE", { timeZone: TZ }).slice(0, 10);
+  return ubDate();
+}
+
+/** Улаанбаатарын цагаар энэ жил (шинэ жил УБ-ын 00:00-д эхэлнэ, UTC-ийн 16:00-д): 2026 */
+export function currentYear(at: Date = new Date()): number {
+  return Number(ubDate(at).slice(0, 4));
+}
+
+/** Огноог n хоногоор шилжүүлнэ (сөрөг ч болно): ('2026-11-01', -1) -> '2026-10-31' */
+export function addDays(date: string, n: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 }
 
 export function addMonths(ym: string, n: number): string {

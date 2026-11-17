@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
   addAttachments,
@@ -436,5 +436,32 @@ describe("lists", () => {
     expect(await ids("ops", true)).toContain(id);
     expect(await ids("mgr", true)).not.toContain(id);
     expect(await ids("boss", true)).not.toContain(id);
+  });
+});
+
+describe("order number year follows Ulaanbaatar time, not the server UTC clock", () => {
+  // Only Date is faked: the database driver keeps real timers.
+  const orderYearAt = async (iso: string) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(iso));
+    try {
+      const { id, orderNumber } = must(await createOrder(actors.boss, { items: [item] }, false));
+      const row = await prisma.foreignTradeOrder.findUniqueOrThrow({ where: { id }, select: { year: true } });
+      return { year: row.year, orderNumber };
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it("UTC is still last year but Ulaanbaatar is already the new year (Dec 31 17:00 UTC = Jan 1 01:00 UB)", async () => {
+    const r = await orderYearAt("2036-12-31T17:00:00Z");
+    expect(r.year).toBe(2037);
+    expect(r.orderNumber).toMatch(/^FT-2037-\d{4}$/);
+  });
+
+  it("one minute before midnight in Ulaanbaatar it is still the old year", async () => {
+    const r = await orderYearAt("2036-12-31T15:59:00Z"); // 23:59 UB
+    expect(r.year).toBe(2036);
+    expect(r.orderNumber).toMatch(/^FT-2036-\d{4}$/);
   });
 });
