@@ -1,0 +1,242 @@
+/* «Борлуулалтын шинжилгээ» (/finance/sales): JARVIS маягийн удирдлагын самбар. Бүх дүрэм .sales-cc-ийн дотор тул бусад 1С хуудсанд нөлөөлөхгүй. */
+.sales-cc {
+  --cc-bg: #050b16;
+  --cc-surface: #0b1729;
+  --cc-glass: #10233b;
+  --cc-text: #f4f8ff;
+  --cc-muted: #91a7c5;
+  --cc-blue: #24b8ff;
+  --cc-gold: #f4c45a;
+  --cc-green: #35d9a4;
+  --cc-amber: #f3b54a;
+  --cc-line: rgba(110, 170, 235, 0.2);
+  --cc-offset: 8.25rem; /* app толгой + хуудасны хүрээ */
+  --color-text: 244 248 255;
+  --color-text-muted: 145 167 197;
+  --color-accent: 244 196 90;
+  --color-success: 53 217 164;
+  --color-warning: 243 181 74;
+  --ng-line: var(--cc-line);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  gap: 1.1rem;
+  min-height: calc(100dvh - var(--cc-offset));
+  padding-bottom: 0.5rem;
+}
+
+/* layout.tsx-ийн доод талын үйлдвэрийн баннер: энэ хуудсанд голд нь том hologram болж давхардахгүйн тулд нууна */
+.ng:has(.sales-cc) > div[aria-hidden="true"] { display: none; }
+
+/* Кино маягийн арын гэрэл: дээр хөх, голд алтан-хөх, доор тавцангийн гэрэл */
+.sales-cc::before {
+  content: "";
+  position: absolute;
+  inset: -24px -28px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 55% 26% at 50% 0%, rgba(36, 184, 255, 0.16), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 50% 72%, rgba(36, 184, 255, 0.12), rgba(244, 196, 90, 0.05) 50%, transparent 75%),
+    radial-gradient(ellipse 70% 22% at 50% 102%, rgba(36, 184, 255, 0.2), transparent 70%);
+}
+
+.sales-cc .ng-panel,
+.sales-cc .cc-card {
+  border: 1px solid var(--cc-line);
+  background: linear-gradient(165deg, rgba(16, 35, 59, 0.74) 0%, rgba(8, 18, 34, 0.9) 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 18px 44px -26px rgba(0, 0, 0, 0.85), 0 0 36px -22px rgba(36, 184, 255, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+/* ---------- Зүүн босоо цэс (FinanceTabs, зөвхөн дүрс) ---------- */
+.sales-cc .cc-rail {
+  align-self: stretch;
+  padding: 0.6rem 0.45rem;
+  border-radius: 20px;
+  border: 1px solid var(--cc-line);
+  background: linear-gradient(180deg, rgba(16, 35, 59, 0.7), rgba(8, 18, 34, 0.9));
+  box-shadow: 0 0 36px -22px rgba(36, 184, 255, 0.55);
+}
+.sales-cc .cc-rail nav { flex-direction: column; gap: 0.5rem; overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; }
+.sales-cc .cc-rail nav a { justify-content: center; width: 3.1rem; height: 3.1rem; padding: 0; font-size: 0; border-radius: 14px; }
+.sales-cc .cc-rail nav a svg { width: 1.35rem; height: 1.35rem; }
+
+/* ---------- Тавин хэсэг ---------- */
+.sales-cc .cc-main { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; min-height: calc(100dvh - var(--cc-offset)); }
+
+/* ---------- Толгой ---------- */
+.sales-cc .cc-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; }
+.sales-cc .cc-brand { display: flex; align-items: center; gap: 0.7rem; padding-right: 1.5rem; border-right: 1px solid var(--cc-line); }
+.sales-cc .cc-brand-name { font-size: 1.2rem; font-weight: 800; letter-spacing: 0.05em; color: var(--cc-text); white-space: nowrap; }
+.sales-cc .cc-brand-sub { font-size: 0.625rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--cc-muted); white-space: nowrap; }
+.sales-cc .cc-titleblock { min-width: 0; }
+.sales-cc .cc-eyebrow-tag { font-size: 0.6875rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--cc-gold); }
+.sales-cc .cc-titleblock h1 { font-size: 1.6rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; color: var(--cc-text); }
+.sales-cc .cc-subtitle { margin-top: 0.1rem; font-size: 0.8125rem; color: var(--cc-muted); }
+.sales-cc .cc-header-right { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+
+/* ---------- Доод цэс: санхүүгийн табууд + сүүлд шинэчилсэн ---------- */
+.sales-cc .cc-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: auto; }
+.sales-cc .cc-bottom > nav { flex: 1; min-width: 0; padding: 0.4rem; border-radius: 18px; gap: 0.4rem; }
+.sales-cc .cc-bottom > nav a { flex: 1; justify-content: center; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+.sales-cc .cc-sync { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.6rem 0.4rem 0.9rem; border-radius: 18px; border: 1px solid var(--cc-line); background: rgba(8, 18, 34, 0.75); }
+.sales-cc .cc-sync-time { font-size: 0.6875rem; line-height: 1.25; color: var(--cc-muted); white-space: nowrap; }
+.sales-cc .cc-sync-time .ng-num { font-size: 0.8125rem; color: var(--cc-text); }
+.sales-cc .cc-conn { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
+.sales-cc .cc-conn::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.sales-cc .cc-conn-ok { color: var(--cc-green); }
+.sales-cc .cc-conn-off { color: var(--cc-amber); }
+
+/* ---------- Табууд (rail + bottom) ---------- */
+.sales-cc nav[aria-label="1С"] a[aria-current="page"] {
+  border-color: rgba(244, 196, 90, 0.55);
+  background: linear-gradient(180deg, rgba(244, 196, 90, 0.2), rgba(244, 196, 90, 0.05));
+  color: var(--cc-gold);
+  box-shadow: 0 0 20px -6px rgba(244, 196, 90, 0.6), 0 -2px 0 var(--cc-gold) inset;
+}
+.sales-cc nav[aria-label="1С"] a:not([aria-current]):hover { background: rgba(36, 184, 255, 0.1); color: var(--cc-text); }
+
+/* ---------- KPI ---------- */
+.sales-cc .cc-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.85rem; }
+.sales-cc .cc-kpi {
+  --a: var(--cc-gold);
+  position: relative;
+  min-width: 0;
+  height: 6.25rem;
+  overflow: hidden;
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--a) 45%, transparent);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--a) 20%, transparent), transparent 62%),
+    linear-gradient(165deg, rgba(16, 35, 59, 0.88), rgba(8, 18, 34, 0.96));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03) inset, 0 16px 40px -22px color-mix(in srgb, var(--a) 80%, transparent);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.sales-cc .cc-kpi:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--a) 75%, transparent); }
+.sales-cc .cc-gold { --a: var(--cc-gold); }
+.sales-cc .cc-green { --a: var(--cc-green); }
+.sales-cc .cc-blue { --a: var(--cc-blue); }
+.sales-cc .cc-violet { --a: #9b8cff; }
+.sales-cc .cc-kpi-icon { position: relative; flex: none; display: grid; place-items: center; width: 2.9rem; height: 2.9rem; border-radius: 50%; color: var(--a); background: color-mix(in srgb, var(--a) 14%, transparent); border: 1.5px solid color-mix(in srgb, var(--a) 60%, transparent); box-shadow: 0 0 18px -6px var(--a); }
+.sales-cc .cc-kpi-text { position: relative; min-width: 0; flex: 1; }
+.sales-cc .cc-kpi-label { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cc-muted); line-height: 1.2; }
+.sales-cc .cc-kpi-value { margin-top: 0.2rem; font-size: clamp(0.95rem, 7.2cqw, 1.7rem); font-weight: 700; line-height: 1.1; color: var(--cc-text); white-space: nowrap; }
+.sales-cc .cc-gold .cc-kpi-value { color: var(--cc-gold); }
+.sales-cc .cc-green .cc-kpi-value { color: var(--cc-green); }
+.sales-cc .cc-blue .cc-kpi-value { color: var(--cc-blue); }
+.sales-cc .cc-kpi-hint { margin-top: 0.3rem; font-size: 0.6875rem; color: var(--cc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-cc .cc-ring { position: relative; width: 3.3rem; height: 3.3rem; flex: none; color: var(--a); }
+.sales-cc .cc-kpi > svg[aria-hidden]:not(.cc-ring) { position: absolute; inset: auto 0 0 0; height: 55%; opacity: 0.4; pointer-events: none; -webkit-mask-image: linear-gradient(to top, #000 25%, transparent); mask-image: linear-gradient(to top, #000 25%, transparent); }
+
+/* ---------- Гурван баганат голлох талбар ---------- */
+.sales-cc .cc-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) minmax(0, 0.84fr);
+  grid-template-rows: minmax(18.5rem, 1fr) clamp(9.5rem, 22dvh, 15.5rem);
+  gap: 0.85rem;
+}
+.sales-cc .cc-card { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-radius: 20px; overflow: hidden; }
+.sales-cc .cc-left, .sales-cc .cc-right { overflow: auto; }
+.sales-cc .cc-year { padding: 1rem; flex: 1; overflow: auto; }
+
+.sales-cc .cc-panel-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; border-bottom: 1px solid var(--cc-line); }
+.sales-cc .cc-panel-head h3 { font-size: 0.9375rem; font-weight: 600; color: var(--cc-text); }
+.sales-cc .cc-panel-icon { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 8px; color: var(--cc-gold); background: rgba(244, 196, 90, 0.1); border: 1px solid rgba(244, 196, 90, 0.28); }
+
+/* ---------- График (shared DailyBarChart-ийг зөвхөн энд өнгө, шугамаар тохируулна) ---------- */
+.sales-cc .cc-center { overflow: visible; }
+.sales-cc .cc-chart { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.6rem 0.8rem 0.8rem; }
+/* «Өдөр / 7 хоног / Сар» сэлгэгчийг панелийн толгойн баруун талд гаргана (өөрийн байрлал, ажиллагаа өөрчлөгдөхгүй) */
+.sales-cc .cc-chart [role="group"] { position: absolute; top: -2.7rem; right: 0.9rem; z-index: 2; }
+.sales-cc .cc-chart svg line { stroke: rgba(110, 170, 235, 0.26); }
+.sales-cc .cc-chart svg text { fill: var(--cc-muted); font-size: 12px; }
+.sales-cc .cc-chart [class*="backdrop-blur"] { border-radius: 14px; border-color: rgba(244, 196, 90, 0.4); background: rgba(8, 18, 34, 0.95); box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.85); font-size: 0.8125rem; }
+
+/* ---------- Эрэмбийн хүснэгт (shared DataTable-ийг зөвхөн энд тохируулна) ---------- */
+.sales-cc .cc-table > div > div:first-child { position: sticky; top: 0; z-index: 3; padding: 0.7rem 0.9rem; background: rgba(9, 20, 38, 0.96); backdrop-filter: blur(8px); }
+.sales-cc .cc-table table { border-collapse: separate; border-spacing: 0; }
+.sales-cc .cc-table th, .sales-cc .cc-table td { padding: 0.42rem 0.6rem; }
+.sales-cc .cc-table th { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cc-muted); white-space: nowrap; }
+.sales-cc .cc-table td { font-size: 0.8125rem; border-color: rgba(110, 170, 235, 0.1); }
+.sales-cc .cc-table td.ng-num, .sales-cc .cc-table th.ng-num { white-space: nowrap; text-align: right; }
+.sales-cc .cc-table tbody tr { transition: background-color 0.18s ease; }
+.sales-cc .cc-table tbody tr:hover { background: rgba(36, 184, 255, 0.08); }
+.sales-cc .cc-table input { background: rgba(5, 11, 22, 0.6); border-color: var(--cc-line); }
+.sales-cc .cc-table input:focus-visible { border-color: rgba(244, 196, 90, 0.6); }
+.sales-cc .cc-table td .cc-name { display: block; min-width: 0; }
+.sales-cc .cc-profit { color: var(--cc-green); }
+
+.sales-cc .cc-rank { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; font-size: 0.75rem; font-weight: 700; color: var(--cc-muted); background: rgba(110, 170, 235, 0.08); border: 1px solid rgba(110, 170, 235, 0.2); }
+.sales-cc .cc-rank-top { color: var(--cc-gold); border-color: rgba(244, 196, 90, 0.55); background: rgba(244, 196, 90, 0.1); }
+.sales-cc .cc-rank-1 { color: #231902; background: linear-gradient(180deg, #ffdc82, var(--cc-gold)); border-color: transparent; box-shadow: 0 0 14px -3px rgba(244, 196, 90, 0.8); }
+.sales-cc .cc-bar { display: block; height: 3px; margin-top: 0.35rem; border-radius: 2px; background: rgba(110, 170, 235, 0.12); overflow: hidden; }
+.sales-cc .cc-bar > span { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, rgba(244, 196, 90, 0.45), var(--cc-gold)); }
+
+/* ---------- Үйлдвэрийн hologram (голд, том) ---------- */
+.sales-cc .cc-holo-row { position: relative; grid-column: 1 / -1; min-height: 0; }
+.sales-cc .cc-holo { position: absolute; inset: 0; overflow: hidden; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); }
+.sales-cc .cc-holo-img { position: absolute; left: 50%; top: 46%; width: clamp(1500px, 128%, 2400px); max-width: none; height: auto; transform: translate(-50%, -50%); opacity: 0.96; }
+.sales-cc .cc-holo-platform { position: absolute; left: 50%; bottom: 6%; width: 52%; height: 34%; transform: translateX(-50%); border-radius: 50%; border: 1px solid rgba(244, 196, 90, 0.4); background: radial-gradient(ellipse at 50% 50%, rgba(36, 184, 255, 0.2), transparent 68%); box-shadow: 0 0 46px -4px rgba(36, 184, 255, 0.45), 0 0 0 10px rgba(36, 184, 255, 0.05), 0 0 0 11px rgba(36, 184, 255, 0.18); animation: cc-ambient 7s ease-in-out infinite; }
+.sales-cc .cc-holo-cost { position: absolute; left: 0; bottom: 0; width: min(29rem, 34%); }
+.sales-cc .cc-holo-cost .cc-card { backdrop-filter: blur(14px); background: linear-gradient(165deg, rgba(16, 35, 59, 0.82), rgba(8, 18, 34, 0.94)); }
+@keyframes cc-ambient { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
+
+/* ---------- Өртгийн задаргаа ---------- */
+.sales-cc .cc-cost .cc-panel-head { padding: 0.55rem 1rem; }
+.sales-cc .cc-cost-body { display: flex; align-items: center; gap: 1rem; padding: 0.7rem 1rem; }
+.sales-cc .cc-donut { width: 5.6rem; height: 5.6rem; flex: none; }
+.sales-cc .cc-cost-list { display: grid; flex: 1; min-width: 0; gap: 0.35rem; }
+.sales-cc .cc-cost-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; font-size: 0.75rem; }
+.sales-cc .cc-cost-row dt { display: flex; align-items: center; gap: 0.4rem; min-width: 0; color: var(--cc-muted); }
+.sales-cc .cc-cost-row dt i { width: 0.55rem; height: 0.55rem; border-radius: 3px; flex: none; }
+.sales-cc .cc-cost-row dd { white-space: nowrap; color: var(--cc-text); }
+.sales-cc .cc-cost-total { padding-top: 0.35rem; border-top: 1px solid var(--cc-line); font-weight: 600; }
+.sales-cc .cc-cost-total dt { color: var(--cc-text); }
+.sales-cc .cc-cost-wide { flex: 1; }
+.sales-cc .cc-cost-wide .cc-cost-body { flex: 1; flex-direction: column; justify-content: center; gap: 1.2rem; }
+.sales-cc .cc-cost-wide .cc-donut { width: 10rem; height: 10rem; }
+.sales-cc .cc-cost-wide .cc-cost-list { width: 100%; max-width: 30rem; }
+.sales-cc .cc-cost-wide .cc-cost-row { font-size: 0.875rem; }
+
+/* ---------- Хэт өргөн биш дэлгэц: 2 багана KPI ---------- */
+@media (max-width: 1199px) {
+  .sales-cc .cc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------- Таблет / гар утас: нэг баганат, босоо гүйлгэнэ ---------- */
+@media (max-width: 1023px) {
+  .sales-cc { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .sales-cc .cc-rail { display: none; }
+  .sales-cc .cc-main { min-height: 0; }
+  .sales-cc .cc-brand { border-right: 0; padding-right: 0; }
+  .sales-cc .cc-header-right { margin-left: 0; width: 100%; }
+  .sales-cc .cc-stage { display: flex; flex-direction: column; }
+  .sales-cc .cc-left, .sales-cc .cc-right { max-height: 28rem; }
+  .sales-cc .cc-chart [role="group"] { position: static; margin: 0 0 0.5rem auto; }
+  .sales-cc .cc-holo-row { display: flex; flex-direction: column; gap: 0.75rem; }
+  .sales-cc .cc-holo { position: relative; inset: auto; height: 9rem; }
+  .sales-cc .cc-holo-cost { position: static; width: 100%; }
+  .sales-cc .cc-bottom > nav { flex-basis: 100%; }
+  .sales-cc .cc-sync { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 639px) {
+  .sales-cc .cc-kpis { grid-template-columns: minmax(0, 1fr); }
+  .sales-cc .cc-titleblock h1 { font-size: 1.3rem; }
+  .sales-cc .cc-cost-body { flex-direction: column; align-items: stretch; }
+  .sales-cc .cc-donut { align-self: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sales-cc .cc-holo-platform { animation: none; }
+  .sales-cc .cc-kpi { transition: none; }
+  .sales-cc .cc-kpi:hover { transform: none; }
+}
