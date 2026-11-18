@@ -8,6 +8,7 @@ import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell, NUM, money } from "@/components/finance/FinanceShell";
 import { GranularChart } from "@/components/finance/GranularChart";
 import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
+import { useDocDrawer } from "@/components/finance/docs/DocDrawer";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton, todayUb } from "@/components/finance/useOnecRefresh";
 import { useYm } from "@/components/finance/useYm";
@@ -18,12 +19,8 @@ import type { CashAccount, CashCounterpart, CashEntry, CashResult } from "@/lib/
 type CashResponse = CashResult & { meta: OdataMeta };
 
 const accountColumns: DataTableColumn<CashAccount>[] = [
-  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.code}`, render: (r) => (
-      <div>
-        <p className="text-text">{r.name}</p>
-        <p className="text-[11px] text-text-muted">{r.code}</p>
-      </div>
-    ) },
+  // дансны КОД биш НЭР (код нь зөвхөн tooltip-д)
+  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.code}`, render: (r) => <span className="text-text" title={r.code ? `Данс ${r.code}` : undefined}>{r.name}</span> },
   { key: "opening", header: "Эхний үлдэгдэл", sortable: true, accessor: (r) => r.opening, className: NUM, render: (r) => money(r.opening) },
   { key: "inflow", header: "Орлого", sortable: true, accessor: (r) => r.inflow, className: NUM, render: (r) => money(r.inflow) },
   { key: "outflow", header: "Зарлага", sortable: true, accessor: (r) => r.outflow, className: NUM, render: (r) => money(r.outflow) },
@@ -32,12 +29,7 @@ const accountColumns: DataTableColumn<CashAccount>[] = [
 ];
 
 const counterpartColumns: DataTableColumn<CashCounterpart>[] = [
-  { key: "name", header: "Харилцагч / харьцсан данс", sortable: true, accessor: (r) => `${r.name} ${r.account}`, render: (r) => (
-      <div>
-        <p className="text-text">{r.name}</p>
-        {r.account && <p className="text-[11px] text-text-muted">Данс {r.account}</p>}
-      </div>
-    ) },
+  { key: "name", header: "Харилцагч / харьцсан данс", sortable: true, accessor: (r) => `${r.name} ${r.account}`, render: (r) => <span className="text-text" title={r.account ? `Данс ${r.account}` : undefined}>{r.name}</span> },
   { key: "inflow", header: "Орлого", sortable: true, accessor: (r) => r.inflow, className: NUM, render: (r) => (r.inflow ? <span className="text-success">{money(r.inflow)}</span> : "—") },
   { key: "outflow", header: "Зарлага", sortable: true, accessor: (r) => r.outflow, className: NUM, render: (r) => (r.outflow ? <span className="text-danger">{money(r.outflow)}</span> : "—") },
 ];
@@ -61,6 +53,11 @@ export default function CashPage() {
   const { ym, isCurrent } = useYm();
   const { data, error, loading, retryAt, refresh } = useOdataData<CashResponse>(`/api/dashboard/cash?month=${ym}`);
   const [account, setAccount] = useState(ALL);
+  // Дарж задлах: орлого/зарлага (KPI), харилцагч (хүснэгт) -> доорх гүйлгээний жагсаалт -> баримтын drawer
+  const [flow, setFlow] = useState<"" | "inflow" | "outflow">("");
+  const [party, setParty] = useState("");
+  const { openDoc } = useDocDrawer();
+  const jump = () => requestAnimationFrame(() => document.getElementById("cash-entries")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const [mode, setMode] = useState<ViewMode>("chart");
   const empty = data && data.totals.entries === 0 && data.accounts.length === 0;
   const diff = data ? Math.abs(data.totals.difference) : 0;
@@ -68,7 +65,7 @@ export default function CashPage() {
   // «Бүх данс» шүүлтүүр: дансны хүснэгт, гүйлгээ, шилжүүлгийн жагсаалтад (дүн, график нь нийт хэвээр)
   const accountName = useMemo(() => data?.accounts.find((a) => a.key === account)?.name ?? "", [data, account]);
   const accounts = useMemo(() => (data ? data.accounts.filter((a) => !account || a.key === account) : []), [data, account]);
-  const recent = useMemo(() => (data ? data.recent.filter((e) => !account || e.account === accountName) : []), [data, account, accountName]);
+  const recent = useMemo(() => (data ? data.recent.filter((e) => (!account || e.account === accountName) && (!flow || e.type === flow) && (!party || e.counterpart === party)) : []), [data, account, accountName, flow, party]);
   const transfers = useMemo(() => (data ? data.transfers.filter((e) => !account || e.account === accountName || e.counterpart === accountName) : []), [data, account, accountName]);
   const spark = useMemo(() => {
     let acc = 0;
@@ -95,9 +92,9 @@ export default function CashPage() {
           Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
         ) : data ? (
           <>
-            <KpiCard featured spark={spark} label="Нийт орлого" value={money(data.totals.inflow)} icon={ArrowDownLeft} tone="accent" />
+            <KpiCard featured spark={spark} label="Нийт орлого" value={money(data.totals.inflow)} icon={ArrowDownLeft} tone="accent" onClick={() => { setFlow("inflow"); jump(); }} />
             <KpiCard label="Эхний үлдэгдэл" value={money(data.totals.opening)} icon={Wallet} hint={`${data.month}-01`} />
-            <KpiCard label="Нийт зарлага" value={money(data.totals.outflow)} icon={ArrowUpRight} tone="danger" />
+            <KpiCard label="Нийт зарлага" value={money(data.totals.outflow)} icon={ArrowUpRight} tone="danger" onClick={() => { setFlow("outflow"); jump(); }} />
             <KpiCard label="Дотоод шилжүүлэг" value={money(data.totals.internal)} icon={ArrowLeftRight} hint="Орлого, зарлагад тооцоогүй" />
             <KpiCard label="Эцсийн үлдэгдэл" value={money(data.totals.closing)} icon={Landmark} tone="success" hint={diff < 1 ? "Эхний + орлого − зарлага таарсан" : `Тулгалтад ${money(data.totals.difference)} зөрүүтэй`} />
           </>
@@ -146,6 +143,10 @@ export default function CashPage() {
                 data={accounts}
                 columns={accountColumns}
                 getRowId={(r) => r.key}
+                onRowClick={(r) => {
+                  setAccount(r.key);
+                  jump();
+                }}
                 searchPlaceholder="Данс хайх..."
               />
             ) : (
@@ -165,6 +166,10 @@ export default function CashPage() {
                 data={data.byCounterpart}
                 columns={counterpartCols}
                 getRowId={(r) => r.key}
+                onRowClick={(r) => {
+                  setParty(r.name);
+                  jump();
+                }}
                 searchPlaceholder="Харилцагч, данс хайх..."
               />
             ) : (
@@ -184,23 +189,45 @@ export default function CashPage() {
                 data={transfers}
                 columns={entryColumns(true)}
                 getRowId={(r) => r.id}
+                onRowClick={(r) => openDoc(r.docType, r.ref)}
                 searchPlaceholder="Шилжүүлэг хайх..."
               />
             </Card>
           )}
 
           <Card>
+            {(flow || party || account) && (
+              <div id="cash-entries" className="flex flex-wrap items-center gap-2 px-4 pt-3 text-sm">
+                <span className="text-text-muted">Шүүлт:</span>
+                {flow && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{flow === "inflow" ? "Орлого" : "Зарлага"}</span>}
+                {account && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{accountName}</span>}
+                {party && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{party}</span>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlow("");
+                    setParty("");
+                    setAccount(ALL);
+                  }}
+                  className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text"
+                >
+                  Шүүлт арилгах
+                </button>
+              </div>
+            )}
+            {!(flow || party || account) && <span id="cash-entries" />}
             {data ? (
               <DataTable
                 heading={
                   <>
                     <ListChecks className="size-4 text-[#ffd56b]" />
-                    Сүүлийн гүйлгээнүүд (сүүлийн 200)
+                    Сүүлийн гүйлгээнүүд (сүүлийн 200) · дарвал баримт нээгдэнэ
                   </>
                 }
                 data={recent}
                 columns={entryColumns(false)}
                 getRowId={(r) => r.id}
+                onRowClick={(r) => openDoc(r.docType, r.ref)}
                 searchPlaceholder="Харилцагч, утга, зүйлээр хайх..."
               />
             ) : (

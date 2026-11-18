@@ -7,11 +7,13 @@ import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
 import { FinanceKpi as KpiCard, RankBadge, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
+import { DocumentList } from "@/components/finance/docs/DocumentList";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { MonthRefreshNote, RefreshButton, useMonthRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { formatNumber } from "@/lib/utils";
+import { addDays } from "@/lib/onec/dates";
 import type { ReceivableAccount, ReceivableCustomer, ReceivablesResult } from "@/lib/onec/receivables";
 
 // Postgres-ийн агшин зургаас шууд; агшин зураг байхгүй бол missing
@@ -24,19 +26,20 @@ const customerColumns: DataTableColumn<ReceivableCustomer>[] = [
 ];
 
 const accountColumns: DataTableColumn<ReceivableAccount>[] = [
-  { key: "code", header: "Данс", sortable: true, accessor: (r) => r.code, render: (r) => <span className="ng-num text-text">{r.code}</span> },
-  { key: "name", header: "Нэр", sortable: true, accessor: (r) => r.name, render: (r) => r.name },
+  // дансны КОД биш НЭР (1С-ийн дансны төлөвлөгөөнөөс); код нь зөвхөн tooltip-д
+  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.code}`, render: (r) => <span className="text-text" title={`Данс ${r.code}`}>{r.name}</span> },
   { key: "customers", header: "Харилцагч", sortable: true, accessor: (r) => r.customers, className: NUM, render: (r) => formatNumber(r.customers, 0) },
   { key: "balance", header: "Үлдэгдэл", sortable: true, accessor: (r) => r.balance, className: NUM, render: (r) => money(r.balance) },
 ];
 
 /** Эхний 10 өртэй харилцагч: өртийн хэмжээгээр уртыг нь харуулсан алтан мөр */
-function TopDebtors({ rows }: { rows: ReceivableCustomer[] }) {
+function TopDebtors({ rows, onSelect }: { rows: ReceivableCustomer[]; onSelect: (r: ReceivableCustomer) => void }) {
   const max = Math.max(1, ...rows.map((r) => r.balance));
   return (
     <ol className="space-y-3">
       {rows.map((r, i) => (
-        <li key={r.key || i} className="space-y-1.5">
+        <li key={r.key || i}>
+          <button type="button" onClick={() => onSelect(r)} title="Дарж задлах" className="focus-ring w-full space-y-1.5 rounded-lg text-left hover:bg-white/[0.04]">
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="flex min-w-0 items-center gap-2 text-text">
               <RankBadge n={i + 1} />
@@ -49,6 +52,7 @@ function TopDebtors({ rows }: { rows: ReceivableCustomer[] }) {
           <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
             <div className="h-full rounded-full bg-[linear-gradient(90deg,#f5b523,#ffd56b)]" style={{ width: `${(r.balance / max) * 100}%` }} />
           </div>
+          </button>
         </li>
       ))}
     </ol>
@@ -59,6 +63,12 @@ export default function ReceivablesPage() {
   const { ym, isCurrent } = useYm();
   const isAdmin = useIsAdmin();
   const [mode, setMode] = useState<ViewMode>("chart");
+  // Дарж задлах: харилцагч -> тэр харилцагчийн борлуулалт, банкны орлого (сүүлийн 100 хоног) -> баримтын drawer
+  const [customer, setCustomer] = useState<ReceivableCustomer | null>(null);
+  const pick = (c: ReceivableCustomer) => {
+    setCustomer(c);
+    requestAnimationFrame(() => document.getElementById("receivable-documents")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const { data, error, reload } = useFinanceData<ReceivablesResponse>(`/api/dashboard/receivables?month=${ym}`);
   // Хуудас 1С-ийг хүлээхгүй: агшин зургийг Postgres-оос шууд харуулна. Одоогийн сар 5 минутаас илүү хуучирсан бол ар талд шинэчилнэ
   // (Balance 10-110 сек); өнгөрсөн сарыг зөвхөн админ татна (сервер мөн шалгана).
@@ -104,7 +114,7 @@ export default function ReceivablesPage() {
                 <CardHeader>
                   <CardTitle>Хамгийн их өртэй 10 харилцагч</CardTitle>
                 </CardHeader>
-                <CardBody>{snap ? snap.top.length ? <TopDebtors rows={snap.top} /> : <p className="text-sm text-text-muted">Өртэй харилцагч алга</p> : <Skeleton className="h-56" />}</CardBody>
+                <CardBody>{snap ? snap.top.length ? <TopDebtors rows={snap.top} onSelect={pick} /> : <p className="text-sm text-text-muted">Өртэй харилцагч алга</p> : <Skeleton className="h-56" />}</CardBody>
               </Card>
             )}
             <Card className={mode === "chart" ? "min-w-0 lg:col-span-3" : "min-w-0 lg:col-span-5"}>
@@ -119,6 +129,7 @@ export default function ReceivablesPage() {
                   data={snap.customers}
                   columns={customerCols}
                   getRowId={(r) => r.key || r.name}
+                  onRowClick={pick}
                   searchPlaceholder="Харилцагч хайх..."
                 />
               ) : (
@@ -126,6 +137,27 @@ export default function ReceivablesPage() {
               )}
             </Card>
           </div>
+
+          {snap && customer && customer.key && (
+            <div id="receivable-documents" className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-text-muted">Харилцагч:</span>
+                <span className="font-medium text-text">{customer.name}</span>
+                <span className="ng-num text-text-muted">· {money(customer.balance)}</span>
+                <button type="button" onClick={() => setCustomer(null)} className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text">
+                  Хаах
+                </button>
+              </div>
+              <DocumentList
+                key={customer.key}
+                url={`/api/dashboard/documents?from=${addDays(snap.asOf, -99)}&to=${snap.asOf}&kinds=sale,bank_in&party=${customer.key}`}
+                title="Борлуулалт, банкны орлого (сүүлийн 100 хоног)"
+                money
+                hideWarehouseFilter
+                emptyDescription="Сүүлийн 100 хоногт энэ харилцагчийн баримт олдсонгүй."
+              />
+            </div>
+          )}
 
           <Card>
             {snap ? (

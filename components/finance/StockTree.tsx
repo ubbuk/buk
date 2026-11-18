@@ -3,6 +3,7 @@
 import { ChevronRight, UserRound } from "lucide-react";
 import { useState } from "react";
 import { cn, formatNumber } from "@/lib/utils";
+import { useDocDrawer } from "./docs/DocDrawer";
 import { money } from "./FinanceShell";
 import { unknownTitle, type KeeperRef, type StockGroupNode, type StockRow, type StockWarehouseNode } from "@/lib/onec/stock-tree";
 
@@ -59,8 +60,15 @@ function Summary({ title, sub, amount, items, badge }: { title: string; sub?: Re
 }
 
 function ItemRow({ r }: { r: StockRow }) {
+  const { openItem } = useDocDrawer();
+  // бараа дээр дарахад барааны түүх (аль баримтаар, аль агуулахад орж гарсан) drawer-т нээгдэнэ
+  const open = () => r.item_code && openItem({ code: r.item_code, name: r.item });
   return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 border-t border-border/60 py-2 pl-14 pr-4 text-sm">
+    <li
+      data-testid="stock-item"
+      {...(r.item_code ? { role: "button", tabIndex: 0, title: "Барааны түүх харах", onClick: open, onKeyDown: (e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), open()) } : {})}
+      className={cn("grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 border-t border-border/60 py-2 pl-14 pr-4 text-sm", r.item_code && "focus-ring cursor-pointer transition-colors hover:bg-white/[0.04]")}
+    >
       <div className="min-w-0">
         <p className="text-text [overflow-wrap:anywhere]">{r.item || "—"}</p>
         <p className="text-[11px] text-text-muted">{r.item_code}</p>

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
+import { DocumentList } from "@/components/finance/docs/DocumentList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
@@ -17,6 +18,7 @@ import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/f
 import { MissingMonth } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { asOfDate, monthRange } from "@/lib/onec/dates";
+import { MOVEMENT_KINDS } from "@/lib/onec/doc-kinds";
 import { canViewTab } from "@/lib/onec/roles";
 import { UNKNOWN_WAREHOUSE_KEY, type KeeperRef, type StockGroupNode } from "@/lib/onec/stock-tree";
 import type { WipResult } from "@/lib/onec/wip";
@@ -189,6 +191,16 @@ export default function StockPage() {
               <StockTree groups={data.groups} expandAll={Boolean(f.q)} />
             )}
           </Card>
+
+          {/* Хөдөлгөөн: орлого, зарлага (шаардах хуудас, хасалт, борлуулалт), шилжүүлэг. Дээрх «Склад» шүүлтийг дагана; баримт дарвал drawer */}
+          <DocumentList
+            key={ym}
+            url={`/api/dashboard/documents?from=${monthRange(ym).from}&to=${monthRange(ym).to}&kinds=${MOVEMENT_KINDS.join(",")}`}
+            title="Хөдөлгөөн: орлого, зарлага, шилжүүлэг"
+            icon={<ArrowLeftRight className="size-4 text-[#ffd56b]" />}
+            warehouseCode={f.wh && f.wh !== UNKNOWN_WAREHOUSE_KEY ? f.wh : undefined}
+            emptyDescription="Энэ сард (сонгосон агуулахад) агуулахын баримт олдсонгүй."
+          />
         </>
       )}
     </FinanceShell>

@@ -23,9 +23,26 @@ export function BrandMark() {
 type Accent = "gold" | "green" | "blue" | "violet";
 
 /** KPI карт: зүүн талд дүрс, голд гарчиг/том тоо/тайлбар, баруун талд заавал биш ring. `ring`: 0-100 хоорондох бодит хувь */
-export function CcKpi({ label, value, icon: Icon, accent, hint, ring, spark }: { label: string; value: string; icon: LucideIcon; accent: Accent; hint?: string; ring?: number | null; spark?: React.ReactNode }) {
+export function CcKpi({ label, value, icon: Icon, accent, hint, ring, spark, onClick }: { label: string; value: string; icon: LucideIcon; accent: Accent; hint?: string; ring?: number | null; spark?: React.ReactNode; /** дарвал задлах */ onClick?: () => void }) {
   return (
-    <div className={cn("cc-kpi", `cc-${accent}`)}>
+    <div
+      {...(onClick
+        ? {
+            role: "button",
+            tabIndex: 0,
+            title: "Дарж задлах",
+            style: { cursor: "pointer" },
+            onClick,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            },
+          }
+        : {})}
+      className={cn("cc-kpi", `cc-${accent}`)}
+    >
       {spark}
       <span className="cc-kpi-icon">
         <Icon className="size-[22px]" />

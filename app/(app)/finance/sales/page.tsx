@@ -10,10 +10,13 @@ import { GranularChart } from "@/components/finance/GranularChart";
 import { Sparkline, ViewToggle, type ViewMode } from "@/components/finance/NgParts";
 import { BrandMark, CcKpi, CostDonut, Hologram, PanelHead, ShareBar, ccRankColumn } from "@/components/finance/sales/CommandParts";
 import "@/components/finance/sales/sales-cc.css";
+import { useDocDrawer } from "@/components/finance/docs/DocDrawer";
+import { DocumentList } from "@/components/finance/docs/DocumentList";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { MonthRefreshNote, RefreshButton, todayUb, useMonthRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth, YearSection } from "@/components/finance/YearSection";
 import { YmPicker, useIsAdmin, useYm } from "@/components/finance/useYm";
+import { monthRange } from "@/lib/onec/dates";
 import { cn, formatNumber } from "@/lib/utils";
 
 // Борлуулалт нь зөвхөн борлуулалт, P&L-ийг ашиглана: мөнгөн хөрөнгийг татахгүй
@@ -70,6 +73,10 @@ export default function SalesPage() {
   const { ym: month, isCurrent, view, year } = useYm();
   const isAdmin = useIsAdmin();
   const [mode, setMode] = useState<ViewMode>("chart");
+  // Дарж задлах: нийт -> харилцагч -> борлуулалтын баримтууд -> баримтын drawer; бараа -> барааны түүх
+  const [client, setClient] = useState<ClientRow | null>(null);
+  const { openItem } = useDocDrawer();
+  const jumpDocs = () => requestAnimationFrame(() => document.getElementById("sales-documents")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const { data, error, loading, reload } = useFinanceData<Summary>(view === "month" ? `/api/dashboard/summary?month=${month}` : null);
   // Хуудас Postgres-ийн өгөгдлөөр шууд нээгдэнэ; одоогийн сар 5 минутаас илүү хуучирсан бол ар талд 1С-ээс татаж, дуусмагц дахин ачаална.
   // Өнгөрсөн сарыг зөвхөн админ татна (сервер мөн шалгана).
@@ -158,7 +165,7 @@ export default function SalesPage() {
                     Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)
                   ) : data ? (
                     <>
-                      <CcKpi accent="gold" label="Нийт борлуулалт" value={money(data.kpi.revenue)} icon={Wallet} spark={<Sparkline values={spark} className="absolute inset-x-0 bottom-0 w-full" />} hint={`${formatNumber(data.kpi.documents, 0)} баримт · ${formatNumber(data.kpi.clients, 0)} харилцагч`} />
+                      <CcKpi accent="gold" onClick={() => { setClient(null); jumpDocs(); }} label="Нийт борлуулалт" value={money(data.kpi.revenue)} icon={Wallet} spark={<Sparkline values={spark} className="absolute inset-x-0 bottom-0 w-full" />} hint={`${formatNumber(data.kpi.documents, 0)} баримт · ${formatNumber(data.kpi.clients, 0)} харилцагч`} />
                       <CcKpi accent="green" label="Бохир ашиг" value={money(data.kpi.gross_profit)} icon={TrendingUp} />
                       <CcKpi accent="blue" label="Борлуулалтын өртөг" value={money(data.kpi.cost)} icon={Layers} />
                       <CcKpi accent="violet" label="Ашгийн хувь" value={margin == null ? "—" : `${margin.toFixed(1)}%`} icon={Percent} ring={margin} />
@@ -179,6 +186,7 @@ export default function SalesPage() {
                         data={data.topItems}
                         columns={itemCols}
                         getRowId={(r) => r.item_code || r.item}
+                        onRowClick={(r) => r.item_code && openItem({ code: r.item_code, name: r.item })}
                         searchPlaceholder="Бараа хайх..."
                       />
                     ) : (
@@ -209,6 +217,10 @@ export default function SalesPage() {
                         data={data.topClients}
                         columns={clientCols}
                         getRowId={(r) => r.client_code || r.client}
+                        onRowClick={(r) => {
+                          setClient(r);
+                          jumpDocs();
+                        }}
                         searchPlaceholder="Харилцагч хайх..."
                       />
                     ) : (
@@ -220,6 +232,26 @@ export default function SalesPage() {
                     <Hologram />
                     {mode === "chart" && <div className="cc-holo-cost">{costCard}</div>}
                   </div>
+                </div>
+
+                <div id="sales-documents" className="space-y-2">
+                  {client && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="text-text-muted">Харилцагч:</span>
+                      <span className="font-medium text-text">{client.client || "Тодорхойгүй"}</span>
+                      <span className="ng-num text-text-muted">· {money(client.revenue)}</span>
+                      <button type="button" onClick={() => setClient(null)} className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text">
+                        Бүх баримт
+                      </button>
+                    </div>
+                  )}
+                  <DocumentList
+                    key={client?.client_code ?? "all"}
+                    url={`/api/dashboard/documents?from=${monthRange(month).from}&to=${monthRange(month).to}&kinds=sale${client?.client_code ? `&party=${encodeURIComponent(client.client_code)}` : ""}`}
+                    title="Борлуулалтын баримтууд"
+                    money
+                    emptyDescription="Энэ сард борлуулалтын баримт олдсонгүй."
+                  />
                 </div>
               </>
             )}
