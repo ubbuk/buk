@@ -55,7 +55,7 @@ export function refKeyFilter(keys: readonly string[]): string {
     .join(" or ");
 }
 
-// ---- лавлахын нэр (1 цаг cache): GUID -> нэр ----
+// ---- лавлахын нэр (1 цаг cache): GUID -> нэр. Түлхүүрт select орно: өөр талбар сонгосон дуудлага (жишээ Code) талбаргүй мөрийг авахгүй ----
 const NAME_TTL_MS = 60 * 60_000;
 const NAME_BATCH = 25;
 const LOOKUP_CONCURRENCY = 4;
@@ -69,7 +69,7 @@ export async function lookupRows(catalog: string, keys: readonly string[], selec
   const out = new Map<string, Row | null>();
   const missing: string[] = [];
   for (const k of new Set(keys)) {
-    const hit = nameCache.get(`${yr}|${catalog}:${k}`);
+    const hit = nameCache.get(`${yr}|${catalog}|${select}:${k}`);
     if (hit && now - hit.at < NAME_TTL_MS) out.set(k, hit.row);
     else missing.push(k);
   }
@@ -81,7 +81,7 @@ export async function lookupRows(catalog: string, keys: readonly string[], selec
         const byKey = new Map(rows.map((r) => [String(r.Ref_Key).toLowerCase(), r]));
         for (const k of batch) {
           const row = byKey.get(k) ?? null;
-          nameCache.set(`${yr}|${catalog}:${k}`, { at: now, row });
+          nameCache.set(`${yr}|${catalog}|${select}:${k}`, { at: now, row });
           out.set(k, row);
         }
       })
