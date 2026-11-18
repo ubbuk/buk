@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Boxes, Receipt, TrendingUp, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Boxes, Receipt, TrendingUp, Wallet, PackageMinus, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { formatCompactMnt, formatFullMnt } from "@/lib/format-mnt";
 import type { FinanceOverview, OverviewKey } from "@/lib/onec/overview";
@@ -10,16 +10,22 @@ import { useLiveData } from "../useLiveData";
 
 // «1С · Санхүүгийн тойм»: мониторингийн 30 сек-ийн цагтай хамт шинэчлэгдэнэ, гэхдээ өгөгдөл нь Postgres-ийн sync-ийнх (1С руу хандахгүй).
 // Зөвхөн OVERVIEW_ROLES-д mount хийгдэнэ (MonitoringDashboard), API мөн сервер дээр шалгана.
-const CARDS: Record<OverviewKey, { label: string; icon: LucideIcon; href: string; tone: "amber" | "green" | undefined; hint: (asOf: string) => string }> = {
+const CARDS: Record<OverviewKey, { label: string; icon: LucideIcon; href: string; tone: "amber" | "green" | "red" | undefined; hint: (asOf: string) => string }> = {
   stock: { label: "Агуулахын үлдэгдэл", icon: Boxes, href: "/finance/stock", tone: undefined, hint: (d) => `${d}-ны байдлаар` },
   receivables: { label: "Авлага (1201)", icon: Receipt, href: "/finance/receivables", tone: "amber", hint: (d) => `${d}-ны байдлаар` },
   sales: { label: "Энэ сарын борлуулалт", icon: TrendingUp, href: "/finance/sales", tone: "green", hint: (m) => `${m.replace("-", " оны ")}-р сар` },
+  cash: { label: "Мөнгө", icon: Wallet, href: "/finance/cash", tone: "green", hint: (d) => `${d}-ны байдлаар` },
+  usage: { label: "Энэ сарын зарцуулалт", icon: PackageMinus, href: "/finance/usage", tone: "red", hint: (m) => `${m.replace("-", " оны ")}-р сар` },
 };
+const BASE_KEYS: OverviewKey[] = ["stock", "receivables", "sales"];
+const TREASURY_KEYS: OverviewKey[] = ["cash", "usage"];
 
-export function FinanceStrip({ tick, refresh }: { tick: number; refresh: () => void }) {
+/** treasury: «Мөнгө», «Энэ сарын зарцуулалт» карт (ADMIN, DIRECTOR; API мөн сервер дээр шалгана) */
+export function FinanceStrip({ tick, refresh, treasury = false }: { tick: number; refresh: () => void; treasury?: boolean }) {
   const s = useLiveData<FinanceOverview>("/api/dashboard/overview", tick);
   const d = s.data;
   const updated = d?.updatedAt ? new Date(d.updatedAt) : null;
+  const keys = treasury ? [...BASE_KEYS, ...TREASURY_KEYS] : BASE_KEYS;
   const sameDay = updated ? formatUB(updated).slice(0, 10) === formatUB(new Date()).slice(0, 10) : false;
 
   return (
@@ -34,8 +40,8 @@ export function FinanceStrip({ tick, refresh }: { tick: number; refresh: () => v
           </button>
         </p>
       )}
-      <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-3", s.fetching && "opacity-80")}>
-        {(Object.keys(CARDS) as OverviewKey[]).map((key) => {
+      <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-3", keys.length > 3 && "lg:grid-cols-5", s.fetching && "opacity-80")}>
+        {keys.map((key) => {
           const c = CARDS[key];
           const card = d?.cards.find((x) => x.key === key);
           const value = card?.value ?? null;

@@ -331,6 +331,37 @@ async function fetchCashIn(month: string): Promise<CashResult> {
   });
 }
 
+export interface CashBalanceRow {
+  /** дансны код, жишээ 1101 */
+  code: string;
+  name: string;
+  balance: number;
+}
+
+/**
+ * Өдрийн эцсийн мөнгөний дансны (10xx, 11xx) үлдэгдэл, дансны кодоор нэгтгэсэн (зөвхөн Balance, бичилтгүй тул хөнгөн). sync-ийн агшин зурагт (onec_cash_balance);
+ * нийлбэр нь «Мөнгөн хөрөнгө» табын эцсийн үлдэгдэлтэй (totals.closing) тэнцүү. Бүх үлдэгдэл 0 бол хоосон жагсаалт.
+ */
+export function fetchCashBalances(asOf: string): Promise<CashBalanceRow[]> {
+  return withOneCYear(yearOf(asOf), async () => {
+    const accounts = await fetchCashAccounts();
+    if (accounts.size === 0) throw new OdataError(502, "Мөнгөний данс 1С-ээс олдсонгүй");
+    const filter = `(${orChain("Account_Key", [...accounts.keys()])}) and СуммаBalance ne 0`;
+    const rows = await odataRows(`${enc(REGISTER)}/Balance(Period=datetime'${balanceBoundary(asOf)}')?$format=json&$filter=${enc(filter)}&$top=20000`, { timeoutMs: 60_000 });
+    if (rows.length >= 20_000) throw new OdataError(502, "Мөнгөний үлдэгдлийн мөр хэт олон байна. Админд хандана уу");
+    const per = new Map<string, CashBalanceRow>();
+    for (const r of rows) {
+      const acc = accounts.get(lower(r.Account_Key));
+      if (!acc) continue; // шүүлтийг 1С буруу биелүүлсэн ч өөр данс орохгүй
+      const code = codeKey(acc.code);
+      const cur = per.get(code) ?? { code, name: acc.name, balance: 0 };
+      cur.balance += num(r["СуммаBalance"]);
+      per.set(code, cur);
+    }
+    return [...per.values()].map((r) => ({ ...r, balance: round2(r.balance) })).sort((a, b) => a.code.localeCompare(b.code));
+  });
+}
+
 /** 5 минутын cache-тай (өдөр бүр тусдаа түлхүүр: одоогийн сарын эцсийн үлдэгдэл өдөр бүр өөр) */
 export function loadCash(month: string, refresh = false): Promise<{ value: CashResult; meta: CacheMeta }> {
   return cachedLoad(`cash:${month}:${asOfDate(month)}`, () => fetchCash(month), { refresh });
