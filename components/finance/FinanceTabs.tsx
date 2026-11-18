@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { BarChart3, Compass, Coins, Package, Receipt, ShoppingCart, Wallet } from "lucide-react";
+import { Banknote, BarChart3, Compass, Coins, Package, Receipt, ShoppingCart, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { TAB_LABELS, canViewTab, FINANCE_TABS } from "@/lib/onec/roles";
+import { TAB_LABELS, canViewTab, FINANCE_TABS, PAYROLL_ROLES } from "@/lib/onec/roles";
 import { ODATA_ROLES } from "@/lib/onec-odata/roles";
 import { cn } from "@/lib/utils";
 
@@ -29,8 +30,25 @@ function Tabs() {
   const q = ym ? `?ym=${encodeURIComponent(ym)}` : "";
   const { data: session } = useSession();
   const role = session?.user?.role;
+  // «Цалин» таб: дүр БА canViewPayroll (сервер хүсэлт бүрд DB-ээс шалгана); эрхгүй хүнд цэсэнд ч харагдахгүй
+  const [payroll, setPayroll] = useState(false);
+  useEffect(() => {
+    if (!role || !PAYROLL_ROLES.includes(role)) {
+      setPayroll(false);
+      return;
+    }
+    let live = true;
+    fetch("/api/payroll/access")
+      .then((r) => (r.ok ? r.json() : { allowed: false }))
+      .then((b: { allowed?: boolean }) => live && setPayroll(b.allowed === true))
+      .catch(() => live && setPayroll(false));
+    return () => {
+      live = false;
+    };
+  }, [role]);
   const tabs = [
     ...ORDER.filter((t) => canViewTab(role, t)).map((t) => ({ href: `/finance/${t}${q}`, label: TAB_LABELS[t], icon: ICONS[t] })),
+    ...(payroll ? [{ href: `/finance/payroll${q}`, label: "Цалин", icon: Banknote }] : []),
     ...(role && ODATA_ROLES.includes(role) ? [{ href: `/onec${q}`, label: "Хөтөч", icon: Compass }] : []),
   ];
   if (tabs.length === 0) return null;

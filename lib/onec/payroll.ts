@@ -13,6 +13,7 @@ import { loadAccountBook, shortCode, type AccountBook } from "./accounts";
 import { asOfDate, balanceBoundary, currentMonth, monthRange, monthsBetween } from "./dates";
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { chunks, enc, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
+import { NO_DEPARTMENT, UNATTRIBUTED } from "./payroll-labels";
 import { isPayrollAccount } from "./payroll-guard";
 import { withOneCYear, yearOf } from "./year-context";
 
@@ -24,8 +25,7 @@ const SALARY = "3342";
 const NDSH = "3450";
 const HHOAT = "3462";
 
-export const UNATTRIBUTED = "Ажилтан тодорхойгүй (нэгтгэсэн)";
-export const NO_DEPARTMENT = "Хэлтэс заагаагүй";
+export { NO_DEPARTMENT, UNATTRIBUTED };
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const lower = (v: unknown) => String(v ?? "").toLowerCase();

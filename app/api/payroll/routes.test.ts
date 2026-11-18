@@ -26,6 +26,7 @@ const setFlag = (role: string, v: boolean) => prisma.user.update({ where: { id: 
 
 beforeAll(async () => {
   for (const r of roles) await prisma.user.upsert({ where: { id: `${P}${r}` }, update: { role: r, canViewPayroll: false }, create: { id: `${P}${r}`, email: `${P}${r}@test.local`, name: r, role: r, passwordHash: "x" } });
+  await prisma.$executeRaw`DELETE FROM onec_payroll_month WHERE month LIKE ${`${YEAR}-%`}`; // туршилтын DB: бусад тест, sync-ийн үлдсэн мөрөөс хамаарахгүй
   await writePayrollMonth({ month: `${YEAR}-01`, accrued: 1000, employerNdsh: 100, employeeNdsh: 80, hhoat: 60, paidBank: 900, paidCash: 5, closingPayable: 20, lines: 4 });
 });
 afterAll(async () => {
