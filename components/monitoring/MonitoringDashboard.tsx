@@ -1,8 +1,10 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { canViewOverview } from "@/lib/onec/roles";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type {
   ActivityRow,
@@ -23,6 +25,7 @@ import {
   statusLabel,
   waitTone,
 } from "./format";
+import { FinanceStrip } from "./hud/FinanceStrip";
 import { HudOverview, LiveClock } from "./hud/HudOverview";
 import { DataGrid, Pager, Panel, Td, Th } from "./Panel";
 import { ProcurementMonitoring } from "./ProcurementMonitoring";
@@ -46,6 +49,8 @@ function stateOf<T>(s: ReturnType<typeof useLiveData<T>>) {
 
 export function MonitoringDashboard() {
   const { tick, refresh } = useRefreshTick();
+  // «1С · Санхүүгийн тойм»: зөвхөн 1С самбарын эрхтэй дүрүүд (API мөн сервер дээр шалгана); бусдад mount ч хийгдэхгүй, хүсэлт ч явахгүй
+  const showFinance = canViewOverview(useSession().data?.user?.role);
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("30d");
   const [pendingPage, setPendingPage] = useState(1);
   // Fetched once here: the command center (3D scene, KPIs, bottleneck card) and
@@ -94,6 +99,7 @@ export function MonitoringDashboard() {
         </div>
       </div>
 
+      {showFinance && <FinanceStrip tick={tick} refresh={refresh} />}
       <HudOverview overview={overview} pending={pending.data} range={range} tick={tick} refresh={refresh} />
       <ProcurementMonitoring range={range} tick={tick} refresh={refresh} />
       <PendingSection s={pending} setPage={setPendingPage} refresh={refresh} />
