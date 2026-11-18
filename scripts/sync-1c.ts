@@ -5,7 +5,7 @@
 //   npm run sync:1c -- receivables [2026-10-31] -> өнөөдрийн авлагын агшин зураг
 //   npm run sync:1c -- receivables-odata [2026-10 | 2026-10-31] -> «Авлага» табын агшин зураг (OData Balance, ONEC_ODATA_*); сар өгвөл сарын эцэс/өнөөдөр
 //   npm run sync:1c -- snapshots               -> мониторингийн «1С · Санхүүгийн тойм»: өнөөдрийн мөнгөний үлдэгдэл (onec_cash_balance) + энэ сарын зарцуулалт (onec_usage_month)
-//   npm run sync:1c -- payroll                  -> «Цалин» табын сарын нийт дүн (onec_payroll_month): Postgres-д байхгүй бүх сар + сүүлийн 2 сар. Зөвхөн байгууллагын нийт дүн, хүн/хэлтэс хадгалахгүй
+//   npm run sync:1c -- payroll                  -> «Цалин» табын сарын нийт дүн (onec_payroll_month): одоогийн + өмнөх сар (+ Postgres-д байхгүй сар), нийт 3 минутаас хэтрэхгүй. Зөвхөн байгууллагын нийт дүн, хүн/хэлтэс хадгалахгүй
 //   npm run sync:1c -- closing                  -> 1-2-р сард өмнөх оны 12-р сарын (бааз, хаалтын засвар) борлуулалт, P&L, агуулах, авлага (ONEC_BASES шаардана)
 //   npm run sync:1c -- health                   -> одоогийн оны баазад сүүлийн 7 хоногт шинэ баримт орсон эсэх; хоцорсон бол ADMIN-д мэдэгдэл (exit 1)
 //   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L
@@ -72,7 +72,8 @@ async function main() {
   if (mode === "payroll") {
     // Сар бүр бие даасан: нэг сар унасан ч бусад үргэлжилнэ, алдаа onec_sync_log-д (ok=false); аль нэг унасан бол exit 1
     for (const r of await syncPayroll()) {
-      if (r.ok) console.log(`[${r.kind} ${r.period}] ${r.rows} мөр, ${r.message}`);
+      if (r.period === "stopped") console.warn(`[${r.kind}] ${r.message}`); // алдаа биш: дараагийн удаа үргэлжилнэ
+      else if (r.ok) console.log(`[${r.kind} ${r.period}] ${r.rows} мөр, ${r.message}`);
       else {
         console.error(`[${r.kind} ${r.period}] АЛДАА: ${r.message}`);
         process.exitCode = 1;

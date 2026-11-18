@@ -1,14 +1,22 @@
 // «Цалин» табын сарын нийт дүнгийн агшин зураг (onec_payroll_month): 1С-ээс (OData, зөвхөн GET) sync-ээр татаж Postgres-д хадгална.
 // ЗӨВХӨН байгууллагын нийт дүн: ажилтан, хэлтсийн мэдээлэл хадгалагдахгүй (lib/onec/payroll.ts: нээх бүрд 1С-ээс шууд уншина).
-// Татах сар: Postgres-д байхгүй бүх сар (анхны удаа 1-р сараас одоог хүртэл, ONEC_BASES-д өмнөх он нэмэгдвэл тэр оныг ч автоматаар)
-// ба сүүлийн 2 сар (хожуу бичилт орж болно). Нэг сар унасан ч бусад сар үргэлжилнэ; алдаа onec_sync_log-д (ok=false).
+// Татах сар: ЗӨВХӨН одоогийн ба өмнөх сар (хожуу бичилт орж болно) + Postgres-д байхгүй сар (анхны удаа, ONEC_BASES-д өмнөх он нэмэгдвэл тэр он).
+// Өнгөрсөн сарууд (Postgres-д байгаа) дахин татагдахгүй. Дараалал: одоогийн, өмнөх, дараа нь байхгүй сарууд (шинэ нь түрүүлж).
+// 1С-ийг ачаалахгүйн тулд: нийт хугацаанд дээд хязгаар (BUDGET_MS), хүсэлт бүрийн хугацаа үлдсэн хугацаанаас хэтрэхгүй, дараалан 2 сар унавал
+// зогсооно. Зогссон үед үлдсэн сар дараагийн удаа үргэлжилнэ. Бодолтгүй сар (0 бичилт) алдаа биш: ok=true, 0 мөр.
 import { prisma } from "@/lib/prisma";
 import { configuredYears, multiYear } from "./bases";
 import { addMonths, currentMonth } from "./dates";
-import { fetchPayrollMonth, yearMonths, type PayrollMonth } from "./payroll";
+import { fetchPayrollMonth, REQUEST_TIMEOUT_MS, yearMonths, type PayrollMonth } from "./payroll";
 import type { SnapshotStep } from "./snapshots-store";
 
 export const PAYROLL_LOG_KIND = "payroll-month";
+/** Payroll алхмын нийт хугацааны дээд хязгаар (GitHub workflow-ийн timeout-аас бага) */
+export const BUDGET_MS = 180_000;
+/** Дараалан хэдэн сар унавал 1С-д ачаалал өгөхөө зогсоох вэ */
+export const MAX_CONSECUTIVE_FAILURES = 2;
+/** Үлдсэн хугацаа үүнээс бага бол шинэ хүсэлт эхлүүлэхгүй */
+const MIN_REQUEST_MS = 10_000;
 
 /** Нийт татах боломжтой сарууд: ONEC_BASES-д жагсаасан он бүрийн 1-р сараас (одоогийн оныг одоо хүртэл); нэг баазын горимд зөвхөн энэ он */
 export function payrollYears(now = currentMonth(), env: Record<string, string | undefined> = process.env): string[] {
@@ -21,10 +29,12 @@ export function candidateMonths(now = currentMonth(), env: Record<string, string
   return payrollYears(now, env).flatMap((y) => yearMonths(y, now));
 }
 
-/** Татах сарууд: Postgres-д байхгүй бүх сар + сүүлийн 2 сар */
+/** Татах сарууд, дарааллаар: одоогийн, өмнөх сар, дараа нь Postgres-д байхгүй сарууд (шинээс хуучин руу) */
 export function monthsToSync(existing: ReadonlySet<string>, now = currentMonth(), env: Record<string, string | undefined> = process.env): string[] {
-  const recent = new Set([now, addMonths(now, -1)]);
-  return candidateMonths(now, env).filter((m) => !existing.has(m) || recent.has(m));
+  const candidates = candidateMonths(now, env);
+  const recent = [now, addMonths(now, -1)].filter((m) => candidates.includes(m));
+  const missing = candidates.filter((m) => !existing.has(m) && !recent.includes(m)).reverse();
+  return [...recent, ...missing];
 }
 
 export async function writePayrollMonth(p: PayrollMonth) {
@@ -35,19 +45,39 @@ export async function writePayrollMonth(p: PayrollMonth) {
       paid_bank = EXCLUDED.paid_bank, paid_cash = EXCLUDED.paid_cash, closing_payable = EXCLUDED.closing_payable, lines = EXCLUDED.lines, synced_at = EXCLUDED.synced_at`;
 }
 
-/** Алдаа шидэхгүй: сар бүрийн үр дүнг буцаана, sync_log-д бичнэ. fetchMonth нь тестэд дуурайлгана. */
-export async function syncPayroll(fetchMonth: (month: string) => Promise<PayrollMonth> = fetchPayrollMonth, now = currentMonth()): Promise<SnapshotStep[]> {
+export type FetchPayrollMonth = (month: string, opts: { timeoutMs: number }) => Promise<PayrollMonth & { timings?: { linesMs: number; balanceMs: number; totalMs: number } }>;
+
+/** Алдаа шидэхгүй: сар бүрийн үр дүнг буцаана, sync_log-д бичнэ. fetchMonth, clock, budgetMs нь тестэд дуурайлгана. */
+export async function syncPayroll(fetchMonth: FetchPayrollMonth = fetchPayrollMonth, now = currentMonth(), opts: { budgetMs?: number; clock?: () => number } = {}): Promise<SnapshotStep[]> {
+  const budgetMs = opts.budgetMs ?? BUDGET_MS;
+  const clock = opts.clock ?? Date.now;
+  const begun = clock();
   const existing = new Set((await prisma.$queryRaw<{ month: string }[]>`SELECT month FROM onec_payroll_month`).map((r) => r.month));
+  const todo = monthsToSync(existing, now);
   const out: SnapshotStep[] = [];
-  for (const month of monthsToSync(existing, now)) {
+  let failures = 0;
+  for (const [i, month] of todo.entries()) {
+    const remaining = budgetMs - (clock() - begun);
+    const rest = todo.length - i;
+    if (remaining < MIN_REQUEST_MS) {
+      out.push({ kind: PAYROLL_LOG_KIND, period: "stopped", ok: true, rows: 0, message: `Хугацааны хязгаарт (${Math.round(budgetMs / 1000)}s) хүрсэн: ${rest} сар үлдсэн, дараагийн удаа үргэлжилнэ` });
+      break;
+    }
+    if (failures >= MAX_CONSECUTIVE_FAILURES) {
+      out.push({ kind: PAYROLL_LOG_KIND, period: "stopped", ok: true, rows: 0, message: `Дараалан ${failures} сар унасан тул 1С-д ачаалал өгөхгүйн тулд зогслоо: ${rest} сар үлдсэн, дараагийн удаа үргэлжилнэ` });
+      break;
+    }
     const startedAt = new Date();
     try {
-      const p = await fetchMonth(month);
+      const p = await fetchMonth(month, { timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remaining) });
       await writePayrollMonth(p);
-      const message = `${((Date.now() - startedAt.getTime()) / 1000).toFixed(1)}s`;
+      failures = 0;
+      const t = p.timings;
+      const message = t ? `${(t.totalMs / 1000).toFixed(1)}s (бичилт ${(t.linesMs / 1000).toFixed(1)}s, үлдэгдэл ${(t.balanceMs / 1000).toFixed(1)}s)` : `${((clock() - startedAt.getTime()) / 1000).toFixed(1)}s`;
       await prisma.onecSyncLog.create({ data: { kind: PAYROLL_LOG_KIND, period: month, rows: p.lines, ok: true, message, startedAt } }).catch(() => {});
       out.push({ kind: PAYROLL_LOG_KIND, period: month, ok: true, rows: p.lines, message });
     } catch (e) {
+      failures++;
       const message = e instanceof Error ? e.message : String(e);
       await prisma.onecSyncLog.create({ data: { kind: PAYROLL_LOG_KIND, period: month, rows: 0, ok: false, message, startedAt } }).catch(() => {});
       out.push({ kind: PAYROLL_LOG_KIND, period: month, ok: false, rows: 0, message });

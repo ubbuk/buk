@@ -100,19 +100,24 @@ export function buildPayrollMonth(month: string, lines: readonly Row[], ctx: Pay
   };
 }
 
-async function fetchLines(ctx: PayrollContext, from: string, to: string, select: string): Promise<Row[]> {
+/** 1С руу нэг хүсэлтийн анхдагч хугацаа (sync-д үлдсэн хугацаагаар богиносно) */
+export const REQUEST_TIMEOUT_MS = 45_000;
+
+async function fetchLines(ctx: PayrollContext, from: string, to: string, select: string, timeoutMs = 90_000): Promise<Row[]> {
   const filter = `(${orChain("AccountDr_Key", ctx.payroll)}) or (${orChain("AccountCr_Key", ctx.payroll)})`;
-  const rows = await odataRows(`${enc(REGISTER)}/RecordsWithExtDimensions(StartPeriod=datetime'${from}T00:00:00',EndPeriod=datetime'${to}T23:59:59',Top=${TOP})?$format=json&$select=${enc(select)}&$filter=${enc(`(${filter})`)}`, { timeoutMs: 90_000 });
+  const rows = await odataRows(`${enc(REGISTER)}/RecordsWithExtDimensions(StartPeriod=datetime'${from}T00:00:00',EndPeriod=datetime'${to}T23:59:59',Top=${TOP})?$format=json&$select=${enc(select)}&$filter=${enc(`(${filter})`)}`, { timeoutMs });
   if (rows.length >= TOP) throw new OdataError(502, "Цалингийн бичилт хэт олон байна. Админд хандана уу");
   return rows;
 }
 
+/** Сарын нийт дүнд зөвхөн Дт, Кт данс, дүн хэрэгтэй (хэлтэс, хүний талбаргүй: хариу хамгийн хөнгөн) */
+const TOTALS_SELECT = "AccountDr_Key,AccountCr_Key,Сумма";
 const LINE_SELECT = "Period,AccountDr_Key,AccountCr_Key,Сумма,ПодразделениеDr_Key";
 const PERSON_SELECT = `${LINE_SELECT},ExtDimensionDr1,ExtDimensionDr1_Type,ExtDimensionCr1,ExtDimensionCr1_Type`;
 
 /** 3342-ийн Balance(Period) мөрүүд (ExtDimension1 = ФизЛицо). Дт үлдэгдэл сөрөг (СуммаBalance = Дт − Кт). */
-async function fetchSalaryBalance(ctx: PayrollContext, period: string): Promise<Row[]> {
-  const rows = await odataRows(`${enc(REGISTER)}/Balance(Period=datetime'${period}')?$format=json&$filter=${enc(`(${orChain("Account_Key", ctx.salary)})`)}&$top=20000`, { timeoutMs: 60_000 });
+async function fetchSalaryBalance(ctx: PayrollContext, period: string, select = "СуммаBalance", timeoutMs = 60_000): Promise<Row[]> {
+  const rows = await odataRows(`${enc(REGISTER)}/Balance(Period=datetime'${period}')?$format=json&$select=${enc(select)}&$filter=${enc(`(${orChain("Account_Key", ctx.salary)})`)}&$top=20000`, { timeoutMs });
   if (rows.length >= 20_000) throw new OdataError(502, "Цалингийн өглөгийн мөр хэт олон байна. Админд хандана уу");
   return rows;
 }
@@ -125,13 +130,45 @@ async function contextFor(year: string): Promise<PayrollContext> {
   return ctx;
 }
 
-/** Нэг сарын нийт дүн (1С-ээс). sync болон «Цалин» табын D тулгалтад. */
-export function fetchPayrollMonth(month: string): Promise<PayrollMonth> {
+/** Дт 3342 болон Кт 3342-ийн цэвэр хөдөлгөөн (Кт − Дт): өглөг нэмэгдэх нь эерэг. Хоёр тал нь 3342 бол тэг. */
+export function salaryNetMovement(lines: readonly Row[], ctx: PayrollContext): number {
+  let net = 0;
+  for (const r of lines) {
+    const amount = num(r["Сумма"]);
+    if (ctx.codeOf.get(lower(r.AccountCr_Key)) === SALARY) net += amount;
+    if (ctx.codeOf.get(lower(r.AccountDr_Key)) === SALARY) net -= amount;
+  }
+  return net;
+}
+
+export interface PayrollMonthTimings {
+  linesMs: number;
+  balanceMs: number;
+  totalMs: number;
+}
+
+/**
+ * Нэг сарын нийт дүн (1С-ээс): ХОЁР хөнгөн хүсэлт. (1) сарын цалингийн дансны бичилт (зөвхөн Дт, Кт данс, дүн), (2) 3342-ийн Balance САРЫН ЭХНИЙ
+ * агшинд (00:00:00 = өмнөх сарын эцэс: 1С-ийн тооцоолсон дүнгийн хилэнд). Сарын эцсийн өглөг = эхний өглөг + (Кт − Дт 3342).
+ * Өмнө нь Balance-ийг сарын ЭЦСИЙН (одоогийн сард ирээдүйн) агшинд авдаг байсан нь 1С-д хамгийн хүнд, 60 сек-д багтдаггүй дуудлага байлаа.
+ * Бодолтгүй сар (бичилт 0) алдаа биш: 0 дүнтэй буцна. `timeoutMs`: хүсэлт тус бүрийн дээд хугацаа (sync-д үлдсэн хугацаагаар).
+ */
+export function fetchPayrollMonth(month: string, opts: { timeoutMs?: number } = {}): Promise<PayrollMonth & { timings: PayrollMonthTimings }> {
+  const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
   return withOneCYear(yearOf(month), async () => {
+    const started = Date.now();
     const ctx = await contextFor(yearOf(month));
     const { from, to } = monthRange(month);
-    const [lines, balance] = await Promise.all([fetchLines(ctx, from, to, LINE_SELECT), fetchSalaryBalance(ctx, balanceBoundary(asOfDate(month)))]);
-    return buildPayrollMonth(month, lines, ctx, payable(balance));
+    const timed = async <T,>(f: () => Promise<T>): Promise<[T, number]> => {
+      const s = Date.now();
+      const v = await f();
+      return [v, Date.now() - s];
+    };
+    // Дарааллаар (зэрэг биш): 1С-д нэг дор нэг л хүсэлт
+    const [lines, linesMs] = await timed(() => fetchLines(ctx, from, to, TOTALS_SELECT, timeoutMs));
+    const [opening, balanceMs] = await timed(() => fetchSalaryBalance(ctx, `${from}T00:00:00`, "СуммаBalance", timeoutMs));
+    const closing = payable(opening) + salaryNetMovement(lines, ctx);
+    return { ...buildPayrollMonth(month, lines, ctx, closing), timings: { linesMs, balanceMs, totalMs: Date.now() - started } };
   });
 }
 
