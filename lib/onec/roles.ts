@@ -32,3 +32,10 @@ export const canViewFinance = (role: string | undefined | null): boolean => FINA
 
 /** Тухайн таб руу орох эрхтэй дүрүүд (route-access-д) */
 export const rolesForTab = (tab: FinanceTab): string[] => [...FINANCE_ROLES, ...(WAREHOUSE_TABS.includes(tab) ? [STOREKEEPER_ROLE] : [])];
+
+/**
+ * Мониторингийн «1С · Санхүүгийн тойм» (агуулах, авлага, борлуулалтын нийт дүн): 1С самбарыг харах эрхтэй, гэхдээ ENGINEERING-гүй дүрүүд.
+ * Мониторингийн хуудас өөрөө зөвхөн ADMIN, DIRECTOR-д нээлттэй (lib/monitoring/access.ts) тул эндээс тэр эрх өргөжихгүй.
+ */
+export const OVERVIEW_ROLES: readonly string[] = ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"];
+export const canViewOverview = (role: string | undefined | null): boolean => !!role && OVERVIEW_ROLES.includes(role);
