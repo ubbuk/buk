@@ -12,7 +12,6 @@ import {
   Settings,
   ShoppingCart,
   ShieldCheck,
-  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { canViewFinance } from "@/lib/onec/roles";
@@ -28,7 +27,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/requests/new", label: "Шинэ захиалга", icon: FilePlus2 },
   { href: "/requests", label: "Миний захиалгууд", icon: ListChecks },
   { href: "/approvals", label: "Батлах хүсэлтүүд", icon: ClipboardCheck, badgeKey: "approvals" },
-  { href: "/warehouses", label: "Агуулахын жагсаалт", icon: Warehouse },
   { href: "/archive", label: "Захиалгын архив", icon: Archive },
   { href: "/reports", label: "Тайлан", icon: BarChart3 },
   { href: "/settings", label: "Тохиргоо", icon: Settings },
