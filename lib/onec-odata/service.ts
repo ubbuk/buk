@@ -1,5 +1,5 @@
 // 1С OData хөтчийн үйлчилгээ: $metadata-ийн жагсаалт, эрхийн шалгалт, хуудаслалттай унших. Зөвхөн унших.
-import { objectAllowed, roleClass, type ObjectPolicy, type Viewer } from "./access";
+import { foldLookalikes, objectAllowed, roleClass, type ObjectPolicy, type Viewer } from "./access";
 import { odataGet, OdataError } from "./client";
 import { METADATA_TTL_MS } from "./config";
 import { cacheGet, cacheSet } from "./limits";
@@ -75,7 +75,8 @@ const AMOUNT = /Сумма|Дүн|Цена|Үнэ|Количество|Тоо|И
 const NUMERIC = new Set(["Edm.Double", "Edm.Decimal", "Edm.Int16", "Edm.Int32", "Edm.Int64", "Edm.Single"]);
 const MAX_COLUMNS = 14;
 
-const ACCOUNT_FIELDS = ["AccountDr_Key", "AccountCr_Key", "Account_Key"];
+/** Дансны холбоос талбар: Account*_Key (регистр), Счет*_Key (баримтын хүснэгтэн хэсэг: СчетУчета_Key, СчетДт_Key ...) */
+const isAccountField = (name: string) => name.endsWith("_Key") && (name.startsWith("Account") || foldLookalikes(name).startsWith(foldLookalikes("Счет")));
 /** Баримт (толгой) ба баримтын журнал: хүснэгтэн хэсэг (Document_X_Y) биш */
 const TOP_DOCUMENT = /^(Document|DocumentJournal)_[^_]+$/;
 
@@ -84,7 +85,7 @@ const TOP_DOCUMENT = /^(Document|DocumentJournal)_[^_]+$/;
  * банкны зарлага г.м.) жагсаалтаас хасна. Цалингийн дансыг тодорхойлж чадахгүй бол алдаа (fail-closed). Хүснэгтэн хэсгийн мөр энд шүүгдэхгүй.
  */
 async function payrollRestriction(entity: EntityInfo, q: NormalizedQuery): Promise<{ extraFilter: string | null; hideRecorders: Set<string> | null }> {
-  const accountFields = ACCOUNT_FIELDS.filter((f) => entity.properties.some((p) => p.name === f));
+  const accountFields = entity.properties.map((p) => p.name).filter(isAccountField);
   const isDoc = TOP_DOCUMENT.test(entity.name);
   if (accountFields.length === 0 && !isDoc) return { extraFilter: null, hideRecorders: null };
   try {
