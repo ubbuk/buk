@@ -6,7 +6,7 @@ import { withTiming } from "@/lib/api-timing";
 import { isDate } from "@/lib/onec/dates";
 import { allowedKinds, requireDocViewer } from "@/lib/onec/doc-access";
 import { DOC_KIND_KEYS, isDocKind } from "@/lib/onec/doc-kinds";
-import { loadDocuments } from "@/lib/onec/documents";
+import { hidePayrollInCards, loadDocuments } from "@/lib/onec/documents";
 import { OdataError } from "@/lib/onec/odata-read";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,9 @@ export const GET = withTiming("GET /api/dashboard/documents", async (req: Reques
 
   try {
     const { value, meta } = await loadDocuments({ from, to, kinds, partyCode: sp.get("party") }, sp.get("refresh") === "1");
-    return NextResponse.json({ documents: value, kinds, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+    // Цалингийн эрхгүй хүнд цалингийн бичилттэй баримтууд өдөр, төрлөөр нэг «Цалин олголт (нэгтгэсэн)» мөр болно
+    const documents = auth.viewer.canViewPayroll === true ? value : await hidePayrollInCards(value, from, to);
+    return NextResponse.json({ documents, kinds, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
     throw e;

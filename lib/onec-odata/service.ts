@@ -4,6 +4,8 @@ import { odataGet, OdataError } from "./client";
 import { METADATA_TTL_MS } from "./config";
 import { cacheGet, cacheSet } from "./limits";
 import { parseMetadata, type EntityInfo, type Metadata, type ObjectKind } from "./metadata";
+import { loadAccountBook } from "@/lib/onec/accounts";
+import { loadPayrollRecorders, notPayrollFilter, payrollAccountKeys } from "@/lib/onec/payroll-guard";
 import { buildPath, dateFieldOf, expandable, normalizeQuery, QueryError, type NormalizedQuery, type QueryInput } from "./query";
 
 let metadataCache: { value: Metadata; expiresAt: number } | null = null;
@@ -72,6 +74,30 @@ const FIRST = ["Code", "Description", "Date", "Period", "Number", "Posted"];
 const AMOUNT = /Сумма|Дүн|Цена|Үнэ|Количество|Тоо|Итого|Sum|Amount|Price|Qty|Quantity|Total/i;
 const NUMERIC = new Set(["Edm.Double", "Edm.Decimal", "Edm.Int16", "Edm.Int32", "Edm.Int64", "Edm.Single"]);
 const MAX_COLUMNS = 14;
+
+const ACCOUNT_FIELDS = ["AccountDr_Key", "AccountCr_Key", "Account_Key"];
+/** Баримт (толгой) ба баримтын журнал: хүснэгтэн хэсэг (Document_X_Y) биш */
+const TOP_DOCUMENT = /^(Document|DocumentJournal)_[^_]+$/;
+
+/**
+ * Цалингийн эрхгүй хүнд: цалингийн дансны бичилтийг (Дт эсвэл Кт) регистрээс 1С-ийн шүүлтээр хасна; цалингийн бичилттэй баримтыг (ОперацияБух,
+ * банкны зарлага г.м.) жагсаалтаас хасна. Цалингийн дансыг тодорхойлж чадахгүй бол алдаа (fail-closed). Хүснэгтэн хэсгийн мөр энд шүүгдэхгүй.
+ */
+async function payrollRestriction(entity: EntityInfo, q: NormalizedQuery): Promise<{ extraFilter: string | null; hideRecorders: Set<string> | null }> {
+  const accountFields = ACCOUNT_FIELDS.filter((f) => entity.properties.some((p) => p.name === f));
+  const isDoc = TOP_DOCUMENT.test(entity.name);
+  if (accountFields.length === 0 && !isDoc) return { extraFilter: null, hideRecorders: null };
+  try {
+    const book = await loadAccountBook();
+    const keys = payrollAccountKeys(book);
+    const extraFilter = accountFields.length ? notPayrollFilter(keys, accountFields) : null;
+    const hideRecorders = isDoc ? await loadPayrollRecorders(q.dateFrom ?? "2000-01-01", q.dateTo ?? "2100-12-31") : null;
+    return { extraFilter, hideRecorders };
+  } catch (e) {
+    if (e instanceof OdataError) throw e;
+    throw new OdataError(502, "Цалингийн бичилтийг шүүж чадсангүй. Админд хандана уу");
+  }
+}
 
 const hiddenColumn = (name: string) => name.endsWith("_Key") || name.endsWith("_Type") || name === "DataVersion" || name === "Ref_Key";
 
@@ -143,6 +169,7 @@ export async function queryObject(viewer: Viewer, policy: ObjectPolicy, entity: 
   const hit = cacheGet<ObjectPage>(key, now.getTime());
   if (hit) return { ...hit, cached: true };
 
+  const guard = viewer.canViewPayroll === true ? null : await payrollRestriction(entity, q);
   const metadata = await getMetadata();
   const expand = expandable(entity, metadata, (target) => objectAllowed(viewer, target, policy));
 
@@ -150,23 +177,24 @@ export async function queryObject(viewer: Viewer, policy: ObjectPolicy, entity: 
   let expandSkipped = false;
   let used = expand;
   try {
-    text = await odataGet(buildPath(entity, q, expand), "json");
+    text = await odataGet(buildPath(entity, q, expand, guard?.extraFilter ?? null), "json");
   } catch (e) {
     // $expand-ийг 1С зарим объектод дэмжихгүй байж болно: холбоосын нэргүйгээр нэг удаа дахин оролдоно
     if (expand.length === 0 || !(e instanceof OdataError) || e.status !== 502 || !/алдаа буцаалаа/.test(e.message)) throw e;
-    text = await odataGet(buildPath(entity, q, []), "json");
+    text = await odataGet(buildPath(entity, q, [], guard?.extraFilter ?? null), "json");
     expandSkipped = true;
     used = [];
   }
 
   const all = parseRows(text);
   const hasMore = all.length > q.pageSize;
+  const visible = guard?.hideRecorders ? all.filter((r) => !guard.hideRecorders!.has(String(r.Ref_Key ?? "").toLowerCase())) : all;
   const expandedSet = new Set(used);
   const result: ObjectPage = {
     object: entity.name,
     kind: entity.kind,
     columns: pickColumns(entity, used),
-    rows: all.slice(0, q.pageSize).map((r) => slimRow(r, expandedSet)),
+    rows: visible.slice(0, q.pageSize).map((r) => slimRow(r, expandedSet)),
     page: q.page,
     pageSize: q.pageSize,
     hasMore,

@@ -3,8 +3,8 @@
 // (meta.stale). refresh=1 нь cache-ийг тойрно, гэхдээ хамгийн багадаа 60 сек тутамд. Хуучин onec_cash, /hs/dash/cash ашиглагдахгүй.
 import { NextResponse } from "next/server";
 import { withTiming } from "@/lib/api-timing";
-import { requireFinanceAccess } from "@/lib/onec/access";
-import { loadCash } from "@/lib/onec/cash";
+import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
+import { loadCash, redactCash } from "@/lib/onec/cash";
 import { currentMonth, isMonth } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 
@@ -22,7 +22,9 @@ export const GET = withTiming("GET /api/dashboard/cash", async (req: Request) =>
   if (!isMonth(month) || month > currentMonth()) return NextResponse.json({ error: "month нь YYYY-MM хэлбэртэй, ирээдүйн сар биш байх ёстой" }, { status: 400, headers: NO_STORE });
 
   try {
-    const { value, meta } = await loadCash(month, sp.get("refresh") === "1");
+    const { value: full, meta } = await loadCash(month, sp.get("refresh") === "1");
+    // Цалингийн эрхгүй хүнд хүний нэр, утга гарахгүй: цалингийн харьцаатай бичилтүүд нэгтгэгдэнэ (нийт дүн ижил)
+    const value = (await viewerCanSeePayroll()) ? full : redactCash(full);
     return NextResponse.json({ ...value, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });

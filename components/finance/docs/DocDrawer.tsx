@@ -32,7 +32,13 @@ export function DocDrawerProvider({ children }: { children: React.ReactNode }) {
   const [stack, setStack] = useState<DrawerView[]>([]);
   const push = useCallback((v: DrawerView) => setStack((s) => [...s, v]), []);
   const api = useMemo<DrawerApi>(
-    () => ({ openDoc: (type, ref) => push({ kind: "doc", type, ref }), openItem: (item) => push({ kind: "item", ...item }) }),
+    () => ({
+      // «Цалин олголт (нэгтгэсэн)» мөрөнд баримт байхгүй (type, ref хоосон)
+      openDoc: (type, ref) => {
+        if (type && ref) push({ kind: "doc", type, ref });
+      },
+      openItem: (item) => push({ kind: "item", ...item }),
+    }),
     [push]
   );
   const close = useCallback(() => setStack([]), []);

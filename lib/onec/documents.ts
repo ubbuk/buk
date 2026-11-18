@@ -8,6 +8,7 @@ import { odataGet } from "@/lib/onec-odata/client";
 import { configuredYears, multiYear } from "./bases";
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { chunks, enc, fetchPaged, lookupRows, num, odataRows, OdataError, realKey, type Row } from "./odata-read";
+import { isPayrollRecord, loadPayrollRecorders, PAYROLL_LABEL, payrollAccountKeys, redactPayrollCards } from "./payroll-guard";
 import { withOneCYear, yearOf } from "./year-context";
 
 const REGISTER = "AccountingRegister_Хозрасчетный";
@@ -236,7 +237,8 @@ export async function loadAccountDocuments(accountCode: string, month: string, s
 
 // ---------------------------------------------------------------- дэлгэрэнгүй
 
-function postingsOf(records: Row[], book: AccountBook): DocPosting[] {
+function postingsOf(records: Row[], book: AccountBook, hidePayroll = false): DocPosting[] {
+  const payrollKeys = hidePayroll ? payrollAccountKeys(book) : null;
   return records
     .map((r, i) => ({
       n: Number(r.LineNumber) || i + 1,
@@ -244,7 +246,7 @@ function postingsOf(records: Row[], book: AccountBook): DocPosting[] {
       credit: accountRef(book, r.AccountCr_Key),
       amount: round2(num(r["Сумма"])),
       qty: r["КоличествоDr"] != null ? num(r["КоличествоDr"]) : r["КоличествоCr"] != null ? num(r["КоличествоCr"]) : null,
-      memo: text(r["Содержание"]),
+      memo: payrollKeys && isPayrollRecord(r, payrollKeys) ? PAYROLL_LABEL : text(r["Содержание"]),
     }))
     .sort((a, b) => a.n - b.n);
 }
@@ -252,12 +254,24 @@ function postingsOf(records: Row[], book: AccountBook): DocPosting[] {
 export interface DetailOptions {
   /** нярав: нягтлангийн бичилт харахгүй */
   withPostings: boolean;
+  /** canViewPayroll-гүй: цалингийн бичилттэй баримтын хүний нэр, утга (хариуцагч, харилцагч, гүйлгээний утга, коммент, бичилтийн утга) нуугдана */
+  hidePayroll?: boolean;
+}
+
+/** Цалингийн эрхгүй хүнд цалингийн бичилттэй баримтын дэлгэрэнгүйг нэгтгэж харуулна: дүн, огноо хэвээр, нэр/утга нуугдана */
+export function redactPayrollDetail(detail: DocDetail): DocDetail {
+  return { ...detail, fields: [{ label: "Төрөл", value: PAYROLL_LABEL }], comment: "" };
+}
+
+/** Баримтын картуудаас цалингийн бичилттэй баримтыг нэгтгэнэ (canViewPayroll-гүй хэрэглэгчид). from, to нь картуудын хугацаа. */
+export function hidePayrollInCards(cards: DocCard[], from: string, to: string): Promise<DocCard[]> {
+  return withOneCYear(yearOf(from), async () => redactPayrollCards(cards, await loadPayrollRecorders(from, to)));
 }
 
 /** Баримтын дэлгэрэнгүй. `type` нь 1С-ийн баримтын нэр (шалгагдсан), `ref` нь GUID. */
 export async function loadDocumentDetail(type: string, ref: string, opts: DetailOptions): Promise<{ value: DocDetail; meta: CacheMeta }> {
   if (!ENTITY_RE.test(type) || !GUID.test(ref)) throw new OdataError(400, "Баримтын лавлагаа буруу байна");
-  return cachedLoad(`docdetail:${type}:${ref.toLowerCase()}:${opts.withPostings ? 1 : 0}`, () => fetchDetail(type, ref.toLowerCase(), opts));
+  return cachedLoad(`docdetail:${type}:${ref.toLowerCase()}:${opts.withPostings ? 1 : 0}:${opts.hidePayroll ? 1 : 0}`, () => fetchDetail(type, ref.toLowerCase(), opts));
 }
 
 async function fetchDetail(type: string, ref: string, opts: DetailOptions): Promise<DocDetail> {
@@ -302,7 +316,7 @@ async function buildDetail(type: string, ref: string, opts: DetailOptions): Prom
   }
   rawLines.forEach((l, i) => (l.n = i + 1));
 
-  const [book, ledger] = await Promise.all([opts.withPostings || spec?.ledgerCost || !spec ? loadAccountBook() : Promise.resolve(null), day ? ledgerFor(type, day, day).catch(() => [] as Row[]) : Promise.resolve([] as Row[])]);
+  const [book, ledger] = await Promise.all([opts.withPostings || opts.hidePayroll || spec?.ledgerCost || !spec ? loadAccountBook() : Promise.resolve(null), day ? ledgerFor(type, day, day).catch(() => [] as Row[]) : Promise.resolve([] as Row[])]);
   const mine = ledger.filter((r) => lower(r.Recorder) === ref);
 
   // Өртөг: баримт өөрөө хадгалдаггүй бол нягтлангийн бичилтээс (барааны Кт тал): бараа бүрээр, тоогоор хуваарилна
@@ -387,7 +401,7 @@ async function buildDetail(type: string, ref: string, opts: DetailOptions): Prom
   add("Хариуцагч", nameOf(users, realKey(doc["Ответственный_Key"])));
   add("Гүйлгээний утга", text(spec?.purpose ? doc[spec.purpose] : ""));
 
-  return {
+  const detail: DocDetail = {
     type,
     ref,
     kind: kind ?? "other",
@@ -400,9 +414,15 @@ async function buildDetail(type: string, ref: string, opts: DetailOptions): Prom
     comment: text(doc.Комментарий),
     lines,
     totals: { amount: round2(sumAmount), vat: round2(sumVat), total: round2(total), vatIncluded, qty: sumQty },
-    postings: opts.withPostings && book ? postingsOf(mine, book) : [],
+    postings: opts.withPostings && book ? postingsOf(mine, book, opts.hidePayroll) : [],
     costFromLedger,
   };
+  // Цалингийн дансны бичилттэй баримт: нэр, утга нуугдана. Бичилт хоосон (нярав) бол ч тодорхойлж болно: ledger нь үргэлж татагдсан.
+  if (opts.hidePayroll && book) {
+    const keys = payrollAccountKeys(book);
+    if (mine.some((r) => isPayrollRecord(r, keys))) return redactPayrollDetail(detail);
+  }
+  return detail;
 }
 
 // ---------------------------------------------------------------- барааны түүх

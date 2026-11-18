@@ -9,6 +9,7 @@
 //    Эхний үлдэгдэл + орлого - зарлага ± шилжүүлэг = эцсийн үлдэгдэл гэж тулгана (scripts/onec-cash-check.ts нь 1С-ийн Turnovers-тай мөн тулгана).
 // Данс бүр: банкны данс (ExtDimension Catalog_БанковскиеСчета) тус тусдаа, байхгүй бол дансны кодоор.
 import { entityOfRecorderType } from "./doc-kinds";
+import { isPayrollAccount, PAYROLL_LABEL } from "./payroll-guard";
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { asOfDate, balanceBoundary, monthRange } from "./dates";
 import { withOneCYear, yearOf } from "./year-context";
@@ -48,6 +49,8 @@ export interface CashEntry {
   docType: string;
   ref: string;
   amount: number;
+  /** харьцсан данс нь цалингийн данс (3340-3349, 3450, 346x ...): canViewPayroll-гүй хүнд нэгтгэж харуулна (redactCash) */
+  payroll?: boolean;
 }
 export interface CashAccount {
   key: string;
@@ -78,6 +81,8 @@ export interface CashResult {
   totals: { opening: number; inflow: number; outflow: number; internal: number; closing: number; expectedClosing: number; difference: number; entries: number };
   accounts: CashAccount[];
   daily: { date: string; inflow: number; outflow: number }[];
+  /** цалингийн дансны харьцаатай орлого, зарлагын БҮРЭН нийт (recent-ийн 200-аар таслагдахгүй); redactCash ашиглана */
+  payroll: { inflow: number; outflow: number; byDay: { date: string; type: "inflow" | "outflow"; account: string; amount: number }[] };
   byCounterpart: CashCounterpart[];
   transfers: CashEntry[];
   recent: CashEntry[];
@@ -158,6 +163,8 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
   let inflow = 0;
   let outflow = 0;
   let internal = 0;
+  const payrollTotals = { inflow: 0, outflow: 0 };
+  const payrollByDay = new Map<string, { date: string; type: "inflow" | "outflow"; account: string; amount: number }>();
 
   for (const r of records) {
     const dr = cashAcct(r.AccountDr_Key);
@@ -204,7 +211,15 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     const cp = byCp.get(cpKey) ?? { key: cpKey, name: cpName, account: otherAcc ? codeKey(otherAcc.code) : "", inflow: 0, outflow: 0 };
     cp[income ? "inflow" : "outflow"] += amount;
     byCp.set(cpKey, cp);
-    entries.push({ ...base, type: income ? "inflow" : "outflow", account: k.name, counterpart: cpName });
+    const payroll = isPayrollAccount(otherAcc?.code);
+    if (payroll) {
+      payrollTotals[income ? "inflow" : "outflow"] += amount;
+      const dk = `${date}|${income}|${k.name}`;
+      const cur = payrollByDay.get(dk) ?? { date, type: income ? ("inflow" as const) : ("outflow" as const), account: k.name, amount: 0 };
+      cur.amount += amount;
+      payrollByDay.set(dk, cur);
+    }
+    entries.push({ ...base, type: income ? "inflow" : "outflow", account: k.name, counterpart: cpName, ...(payroll ? { payroll: true } : {}) });
   }
 
   const accountRows = [...rows.values()]
@@ -253,12 +268,42 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     },
     accounts: accountRows,
     daily: days,
+    payroll: { inflow: round2(payrollTotals.inflow), outflow: round2(payrollTotals.outflow), byDay: [...payrollByDay.values()].map((d) => ({ ...d, amount: round2(d.amount) })).sort((a, b) => b.date.localeCompare(a.date)) },
     byCounterpart: [...byCp.values()]
       .map((c) => ({ ...c, inflow: round2(c.inflow), outflow: round2(c.outflow) }))
       .sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow))
       .slice(0, COUNTERPART_LIMIT),
     transfers: transfers.sort(byDateDesc),
     recent: entries.sort(byDateDesc).slice(0, RECENT_LIMIT),
+  };
+}
+
+/**
+ * canViewPayroll-гүй хүнд: цалингийн дансны харьцаатай бичилтүүд (хүний нэр, утга агуулж болно) жагсаалтаас гарч, өдөр, данс бүрээр нэг
+ * «Цалин олголт (нэгтгэсэн)» мөр болно; харьцсан талуудын жагсаалтад нэг мөр. Нийт дүн, үлдэгдэл, тулгалт ӨӨРЧЛӨГДӨХГҮЙ.
+ */
+export function redactCash(cash: CashResult): CashResult {
+  const aggregated: CashEntry[] = cash.payroll.byDay.map((d) => ({
+    id: `payroll:${d.date}:${d.type}:${d.account}`,
+    date: d.date,
+    type: d.type,
+    account: d.account,
+    counterpart: PAYROLL_LABEL,
+    article: "",
+    memo: "",
+    document: PAYROLL_LABEL,
+    docType: "",
+    ref: "",
+    amount: d.amount,
+    payroll: true,
+  }));
+  const rest = cash.byCounterpart.filter((c) => !isPayrollAccount(c.account));
+  const byCounterpart = cash.payroll.inflow || cash.payroll.outflow ? [...rest, { key: "payroll", name: PAYROLL_LABEL, account: "", inflow: cash.payroll.inflow, outflow: cash.payroll.outflow }] : rest;
+  const byDateDesc = (a: CashEntry, b: CashEntry) => b.date.localeCompare(a.date) || b.amount - a.amount;
+  return {
+    ...cash,
+    byCounterpart: byCounterpart.sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow)),
+    recent: [...cash.recent.filter((e) => !e.payroll), ...aggregated].sort(byDateDesc),
   };
 }
 

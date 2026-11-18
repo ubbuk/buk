@@ -75,8 +75,10 @@ const dateFilterable = (e: EntityInfo) => dateFieldOf(e) !== null;
 
 const quote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
-export function buildFilter(entity: EntityInfo, q: NormalizedQuery): string | null {
+/** extra: сервер талын нэмэлт шүүлт (жишээ нь цалингийн дансны бичилтийг хасах): хэрэглэгчийн оролт биш */
+export function buildFilter(entity: EntityInfo, q: NormalizedQuery, extra: string | null = null): string | null {
   const parts: string[] = [];
+  if (extra) parts.push(`(${extra})`);
   const dateField = dateFieldOf(entity);
   if (dateField && q.dateFrom) parts.push(`${dateField} ge datetime'${q.dateFrom}T00:00:00'`);
   if (dateField && q.dateTo) parts.push(`${dateField} le datetime'${q.dateTo}T23:59:59'`);
@@ -106,10 +108,10 @@ export function expandable(entity: EntityInfo, metadata: Metadata, allowed: (obj
 }
 
 /** Объектын нэр аль хэдийн $metadata-аар баталгаажсан байх ёстой (дуудагч шалгана) */
-export function buildPath(entity: EntityInfo, q: NormalizedQuery, expand: readonly string[]): string {
+export function buildPath(entity: EntityInfo, q: NormalizedQuery, expand: readonly string[], extraFilter: string | null = null): string {
   const params: string[] = ["$format=json", `$top=${q.pageSize + 1}`]; // +1: дараагийн хуудас байгаа эсэхийг мэдэх
   if (q.page > 1) params.push(`$skip=${(q.page - 1) * q.pageSize}`);
-  const filter = buildFilter(entity, q);
+  const filter = buildFilter(entity, q, extraFilter);
   if (filter) params.push(`$filter=${encodeURIComponent(filter)}`);
   const orderField = dateFieldOf(entity) ?? (entity.properties.some((p) => p.name === "Code") ? "Code" : null);
   if (orderField) params.push(`$orderby=${encodeURIComponent(orderField + (orderField === "Code" ? "" : " desc"))}`);
