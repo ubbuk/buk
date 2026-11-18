@@ -1079,6 +1079,30 @@ model OnecReceivableBalance {
   @@map("onec_receivable_balances")
 }
 
+// Мөнгөн хөрөнгийн өдрийн эцсийн үлдэгдэл (данс бүрээр, raw SQL-ээр ашиглана). Мониторингийн «1С · Санхүүгийн тойм».
+model OnecCashBalance {
+  id           BigInt   @id @default(autoincrement())
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  accountCode  String   @map("account_code")
+  accountName  String   @default("") @map("account_name")
+  balance      Decimal  @db.Decimal(18, 2)
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([snapshotDate, accountCode])
+  @@map("onec_cash_balance")
+}
+
+// Сарын нийт зарцуулалт (Требование-накладная), сар бүрт нэг мөр ("2026-11").
+model OnecUsageMonth {
+  id        BigInt   @id @default(autoincrement())
+  month     String   @unique
+  amount    Decimal  @db.Decimal(18, 2)
+  documents Int      @default(0)
+  syncedAt  DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@map("onec_usage_month")
+}
+
 model OnecSyncLog {
   id         BigInt   @id @default(autoincrement())
   kind       String
