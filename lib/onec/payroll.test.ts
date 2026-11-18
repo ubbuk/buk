@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAccountBook } from "./accounts";
-import { buildDepartments, buildEmployees, buildPayrollMonth, NO_DEPARTMENT, payrollContext, UNATTRIBUTED, yearMonths } from "./payroll";
+import { buildDepartments, buildEmployees, buildPayrollMonth, NO_DEPARTMENT, payrollContext, salaryNetMovement, UNATTRIBUTED, yearMonths } from "./payroll";
 
 const G = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 const ACC = { cash: G(1), bank: G(2), sal: G(3), ndsh: G(4), hhoat: G(5), adv: G(6), sick: G(7), wip: G(8), exp: G(9), ap: G(11) };
@@ -50,6 +50,20 @@ describe("buildPayrollMonth: сарын нийт дүн", () => {
 
   it("хоосон сар: бүгд 0", () => {
     expect(buildPayrollMonth("2026-10", [], ctx, -80)).toMatchObject({ accrued: 0, employerNdsh: 0, employeeNdsh: 0, hhoat: 0, paidBank: 0, paidCash: 0, closingPayable: -80 });
+  });
+});
+
+describe("сарын эцсийн өглөг = эхний өглөг + (Кт − Дт 3342)", () => {
+  it("3342-ийн цэвэр хөдөлгөөн: Кт нэмнэ, Дт хасна, хоёр тал нь 3342 бол тэг, цалингийн бус мөр орохгүй", () => {
+    const lines = [line(ACC.wip, ACC.sal, 1000), line(ACC.sick, ACC.sal, 50), line(ACC.sal, ACC.bank, 800), line(ACC.sal, ACC.ndsh, 110), line(ACC.sal, ACC.sal, 40), line(ACC.ap, ACC.bank, 999)];
+    expect(salaryNetMovement(lines, ctx)).toBe(1000 + 50 - 800 - 110);
+  });
+
+  it("сарын эцсийн өглөг (1С-ийн Balance-тай ижил): эхний 583 + (1184 − 1352) шиг", () => {
+    const opening = 500; // сарын эхний өглөг (Кт)
+    const lines = [line(ACC.wip, ACC.sal, 1000), line(ACC.sal, ACC.bank, 700), line(ACC.sal, ACC.hhoat, 90)];
+    const closing = opening + salaryNetMovement(lines, ctx);
+    expect(buildPayrollMonth("2026-09", lines, ctx, closing).closingPayable).toBe(710);
   });
 });
 

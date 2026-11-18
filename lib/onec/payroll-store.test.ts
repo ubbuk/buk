@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { PayrollMonth } from "./payroll";
-import { candidateMonths, monthsToSync, payrollYears, PAYROLL_LOG_KIND, readPayrollMonths, syncPayroll, writePayrollMonth } from "./payroll-store";
+import { candidateMonths, MAX_CONSECUTIVE_FAILURES, monthsToSync, payrollYears, PAYROLL_LOG_KIND, readPayrollMonths, syncPayroll, writePayrollMonth } from "./payroll-store";
 
 const YEAR = "2098";
 const NOW = "2098-04";
@@ -20,10 +20,11 @@ describe("татах сарууд", () => {
     expect(candidateMonths(NOW, env)).toHaveLength(12 + 4);
   });
 
-  it("байхгүй бүх сар + сүүлийн 2 сар; бусад сар дахин татагдахгүй", () => {
-    expect(monthsToSync(new Set(), NOW, {})).toEqual(["2098-01", "2098-02", "2098-03", "2098-04"]);
-    expect(monthsToSync(new Set(["2098-01", "2098-02", "2098-03", "2098-04"]), NOW, {})).toEqual(["2098-03", "2098-04"]);
-    expect(monthsToSync(new Set(["2098-01", "2098-03", "2098-04"]), NOW, {})).toEqual(["2098-02", "2098-03", "2098-04"]);
+  it("одоогийн, өмнөх сар түрүүлж, дараа нь байхгүй сарууд (шинээс хуучин); бүгд байвал зөвхөн 2 сар, хуучин сар дахин татагдахгүй", () => {
+    expect(monthsToSync(new Set(), NOW, {})).toEqual(["2098-04", "2098-03", "2098-02", "2098-01"]);
+    expect(monthsToSync(new Set(["2098-01", "2098-02", "2098-03", "2098-04"]), NOW, {})).toEqual(["2098-04", "2098-03"]);
+    expect(monthsToSync(new Set(["2098-01", "2098-03", "2098-04"]), NOW, {})).toEqual(["2098-04", "2098-03", "2098-02"]);
+    expect(monthsToSync(new Set(), "2098-01", {})).toEqual(["2098-01"]); // оны эхний сард өмнөх сар (өмнөх он) бааз холбоогүй бол орохгүй
   });
 });
 
@@ -42,12 +43,12 @@ describe("цалингийн сарын агшин зураг (Postgres)", () =>
   it("sync: байхгүй сарууд бичигдэнэ, sync_log-д ok; дахин ажиллуулахад зөвхөн сүүлийн 2 сар татагдана", async () => {
     const fetchMonth = vi.fn(async (m: string) => pm(m));
     const first = await syncPayroll(fetchMonth, NOW);
-    expect(first.map((s) => [s.period, s.ok])).toEqual([["2098-01", true], ["2098-02", true], ["2098-03", true], ["2098-04", true]]);
+    expect(first.map((s) => [s.period, s.ok])).toEqual([["2098-04", true], ["2098-03", true], ["2098-02", true], ["2098-01", true]]);
     expect((await readPayrollMonths(YEAR)).map((r) => r.month)).toEqual(["2098-01", "2098-02", "2098-03", "2098-04"]);
     expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, period: { startsWith: "2098" }, ok: true } })).toBe(4);
     fetchMonth.mockClear();
     await syncPayroll(fetchMonth, NOW);
-    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-03", "2098-04"]);
+    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-04", "2098-03"]);
   });
 
   it("нэг сар унасан ч бусад үргэлжилнэ, хуучин мөр хэвээр, sync_log-д ok=false", async () => {
@@ -56,9 +57,59 @@ describe("цалингийн сарын агшин зураг (Postgres)", () =>
       if (m === "2098-02") throw new Error("1С холбогдсонгүй");
       return pm(m);
     }, "2098-03");
-    expect(steps.map((s) => [s.period, s.ok])).toEqual([["2098-01", true], ["2098-02", false], ["2098-03", true]]);
+    expect(steps.map((s) => [s.period, s.ok])).toEqual([["2098-03", true], ["2098-02", false], ["2098-01", true]]);
     expect((await readPayrollMonths(YEAR)).find((r) => r.month === "2098-02")?.accrued).toBe(777);
     expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, period: "2098-02", ok: false } })).toBe(1);
+  });
+
+  it("бодолтгүй сар (бичилт 0) алдаа биш: ok=true, 0 мөр гэж бүртгэгдэнэ", async () => {
+    const steps = await syncPayroll(async (m) => ({ ...pm(m, 0), employerNdsh: 0, employeeNdsh: 0, hhoat: 0, paidBank: 0, paidCash: 0, lines: 0 }), "2098-01");
+    expect(steps).toEqual([expect.objectContaining({ period: "2098-01", ok: true, rows: 0 })]);
+    expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, period: "2098-01", ok: true, rows: 0 } })).toBe(1);
+    expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, ok: false, period: { startsWith: "2098" } } })).toBe(0);
+    expect((await readPayrollMonths(YEAR))[0]).toMatchObject({ month: "2098-01", accrued: 0, lines: 0 });
+  });
+
+  it("нийт хугацааны дээд хязгаар: хэтэрвэл зогсоод үлдсэн сарыг дараагийн удаад үргэлжлүүлнэ (алдаа биш)", async () => {
+    let now = 0;
+    const fetchMonth = vi.fn(async (m: string) => {
+      now += 100_000; // сар бүр 100 сек
+      return pm(m);
+    });
+    const first = await syncPayroll(fetchMonth, NOW, { budgetMs: 180_000, clock: () => now });
+    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-04", "2098-03"]); // 2 сар = 200 сек > 180: 3 дахь нь эхлэхгүй
+    expect(first.some((s) => s.ok === false)).toBe(false);
+    expect(first[first.length - 1]).toMatchObject({ period: "stopped", ok: true });
+    expect(first[first.length - 1].message).toContain("дараагийн удаа үргэлжилнэ");
+    expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, ok: false, period: { startsWith: "2098" } } })).toBe(0);
+    // дараагийн удаа: байгаа 2 сар дахин татагдана (одоогийн, өмнөх), дараа нь үлдсэн байхгүй сарууд
+    fetchMonth.mockClear();
+    now = 0;
+    await syncPayroll(fetchMonth, NOW, { budgetMs: 1_000_000, clock: () => now });
+    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-04", "2098-03", "2098-02", "2098-01"]);
+    expect((await readPayrollMonths(YEAR)).map((r) => r.month)).toEqual(["2098-01", "2098-02", "2098-03", "2098-04"]);
+  });
+
+  it("хүсэлтийн хугацаа үлдсэн хугацаанаас хэтрэхгүй", async () => {
+    let now = 0;
+    const seen: number[] = [];
+    await syncPayroll(async (m, o) => {
+      seen.push(o.timeoutMs);
+      now += 150_000;
+      return pm(m);
+    }, "2098-02", { budgetMs: 180_000, clock: () => now });
+    expect(seen).toEqual([45_000, 30_000]); // анхдагч 45 сек; 150 сек өнгөрсний дараа үлдсэн 30 сек
+  });
+
+  it(`дараалан ${MAX_CONSECUTIVE_FAILURES} сар унавал 1С-д ачаалал өгөхгүйн тулд зогсоно`, async () => {
+    const fetchMonth = vi.fn(async (): Promise<PayrollMonth> => {
+      throw new Error("1С хугацаандаа хариу өгсөнгүй (45 сек)");
+    });
+    const steps = await syncPayroll(fetchMonth, NOW);
+    expect(fetchMonth).toHaveBeenCalledTimes(MAX_CONSECUTIVE_FAILURES);
+    expect(steps.filter((s) => !s.ok)).toHaveLength(MAX_CONSECUTIVE_FAILURES);
+    expect(steps[steps.length - 1]).toMatchObject({ period: "stopped" });
+    expect(await prisma.onecSyncLog.count({ where: { kind: PAYROLL_LOG_KIND, ok: false, period: { startsWith: "2098" } } })).toBe(MAX_CONSECUTIVE_FAILURES);
   });
 
   it("ХҮН, ХЭЛТСИЙН мэдээлэл хадгалагдахгүй: хүснэгтэд зөвхөн нийт дүнгийн багана", async () => {

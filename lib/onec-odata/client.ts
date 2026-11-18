@@ -59,7 +59,15 @@ export async function odataGet(path: string, accept: "json" | "xml", opts: { tim
   if (res.status === 401 || res.status === 403) throw new OdataError(502, "1С-ийн техникийн хэрэглэгчийн нэвтрэлт буруу эсвэл эрхгүй байна");
   if (!res.ok) throw new OdataError(502, `1С алдаа буцаалаа (${res.status})`);
   if (Number(res.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) throw new OdataError(502, "1С-ийн хариу хэт том байна");
-  const text = await res.text();
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (e) {
+    // Толгой ирсэн ч бие нь бүтнээр ирэхээс өмнө хугацаа дууссан (1С удаан тооцоолж байна): хугацааг логлоно
+    const timeout = e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError");
+    logOnecCall("odata", path, startedAt, timeout ? "body-timeout" : "body-error");
+    throw new OdataError(timeout ? 504 : 502, timeout ? `1С хугацаандаа хариу өгсөнгүй (${Math.round((opts.timeoutMs ?? ODATA_TIMEOUT_MS) / 1000)} сек)` : "1С-ийн хариуг бүтнээр нь авч чадсангүй");
+  }
   logOnecCall("odata", path, startedAt, res.status); // бие нь бүтнээр ирсэн хүртэлх хугацаа
   if (text.length > MAX_BODY_BYTES) throw new OdataError(502, "1С-ийн хариу хэт том байна");
   return text;
