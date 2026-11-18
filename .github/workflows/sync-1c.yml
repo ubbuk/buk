@@ -149,6 +149,8 @@ jobs:
               if odata_ready; then run receivables-odata 900 npm run sync:1c -- receivables-odata; fi
               # Мониторингийн «1С · Санхүүгийн тойм»: мөнгөний үлдэгдэл, энэ сарын зарцуулалт (OData, зөвхөн унших). Хоёр алхам бие даасан.
               if odata_ready; then run snapshots 300 npm run sync:1c -- snapshots; fi
+              # «Цалин» табын сарын нийт дүн (OData, зөвхөн унших; зөвхөн байгууллагын нийт, хүн/хэлтэс хадгалахгүй): байхгүй сар + сүүлийн 2 сар
+              if odata_ready; then run payroll 600 npm run sync:1c -- payroll; fi
               # 1-2-р сард өмнөх оны баазад хаалтын засвар орно: өмнөх оны 12-р сарыг мөн татна (бусад үед алгасна)
               run closing 1500 npm run sync:1c -- closing
               # Баазад сүүлийн 7 хоногт шинэ баримт ороогүй (бааз солигдсон байж магадгүй) бол анхааруулга, ADMIN-д мэдэгдэл

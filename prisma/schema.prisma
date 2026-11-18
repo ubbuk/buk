@@ -1103,6 +1103,22 @@ model OnecUsageMonth {
   @@map("onec_usage_month")
 }
 
+model OnecPayrollMonth {
+  id             BigInt   @id @default(autoincrement())
+  month          String   @unique
+  accrued        Decimal  @db.Decimal(18, 2)
+  employerNdsh   Decimal  @map("employer_ndsh") @db.Decimal(18, 2)
+  employeeNdsh   Decimal  @map("employee_ndsh") @db.Decimal(18, 2)
+  hhoat          Decimal  @db.Decimal(18, 2)
+  paidBank       Decimal  @map("paid_bank") @db.Decimal(18, 2)
+  paidCash       Decimal  @map("paid_cash") @db.Decimal(18, 2)
+  closingPayable Decimal  @map("closing_payable") @db.Decimal(18, 2)
+  lines          Int      @default(0)
+  syncedAt       DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@map("onec_payroll_month")
+}
+
 model OnecSyncLog {
   id         BigInt   @id @default(autoincrement())
   kind       String

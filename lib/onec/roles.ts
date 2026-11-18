@@ -41,5 +41,11 @@ export const rolesForTab = (tab: FinanceTab): string[] => [...FINANCE_ROLES, ...
 export const TREASURY_ROLES: readonly string[] = ["ADMIN", "DIRECTOR"];
 export const canViewTreasury = (role: string | undefined | null): boolean => !!role && TREASURY_ROLES.includes(role);
 
+/**
+ * «Цалин» таб: эдгээр дүр БА User.canViewPayroll === true хоёулаа хэрэгтэй (дүр ганцаараа хүрэлцэхгүй: цалин нь хувь хүний мэдээлэл).
+ * Эрхийг сервер дээр хүсэлт бүрд DB-ээс шалгана (lib/onec/access.ts requirePayrollAccess).
+ */
+export const PAYROLL_ROLES: readonly string[] = ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"];
+
 export const OVERVIEW_ROLES: readonly string[] = ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"];
 export const canViewOverview = (role: string | undefined | null): boolean => !!role && OVERVIEW_ROLES.includes(role);
