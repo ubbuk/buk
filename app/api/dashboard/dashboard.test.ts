@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { resetAccountBook } from "@/lib/onec/accounts";
 import { resetOdataCache } from "@/lib/onec/odata-cache";
 import { resetNameCache } from "@/lib/onec/odata-read";
 import { addMonths, asOfDate, balanceBoundary, currentMonth, monthRange } from "@/lib/onec/dates";
@@ -213,18 +214,39 @@ describe("/api/dashboard/stock-freshness: сүүлийн АМЖИЛТТАЙ stoc
   });
 });
 
-describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → бараа (Warehouse.onecCode-оор холбоно)", () => {
+describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → бараа (14xx Balance, 2-р субконто; Warehouse.onecCode-оор холбоно)", () => {
   const DATE = "2001-02-03";
   const ids = { g1: "t-stk-g1", l1: "t-stk-l1", l2: "t-stk-l2", g2: "t-stk-g2", l3: "t-stk-l3" };
   const codes = { l1: "T-STK-1", l2: "T-STK-2", l3: "T-STK-3" };
+  // 1С-ийн GUID-ууд (дуурайлга)
+  const guid = (n: number) => `e0000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
+  const WH = { l1: guid(1), l2: guid(2), l3: guid(3) };
+  const ITEM = { S1: guid(11), S2: guid(12), S3: guid(13), S9: guid(14), S8: guid(15) };
+  const ACC = { a1411: guid(21), a1412: guid(22), a1418: guid(23), a1421: guid(24), a1101: guid(25) };
+  const CHART = [
+    { Ref_Key: ACC.a1411, Code: "1411.00", Description: "Бичиг хэргийн материал" },
+    { Ref_Key: ACC.a1412, Code: "1412.00", Description: "Агуулахад буй ажлын хувцас" },
+    { Ref_Key: ACC.a1418, Code: "1418.02", Description: "Ашиглалтанд буй багаж хэрэгсэл" },
+    { Ref_Key: ACC.a1421, Code: "1421.00", Description: "Үндсэн Үйлдвэрлэл" },
+    { Ref_Key: ACC.a1101, Code: "1101.00", Description: "Харилцах данс" },
+  ];
   let keeper: { id: string; name: string };
+  let balanceRows: Record<string, unknown>[] = [];
+  const bal = (acc: string, item: string, wh: string | null, amount: number) => ({
+    Account_Key: acc,
+    ExtDimension1: item,
+    ExtDimension1_Type: "StandardODATA.Catalog_Номенклатура",
+    ExtDimension2: wh,
+    ExtDimension2_Type: wh ? "StandardODATA.Catalog_Склады" : "",
+    СуммаBalance: amount,
+    КоличествоBalance: 2,
+  });
   const body = async (qs = "") => (await STOCK(get(`/api/dashboard/stock?date=${DATE}${qs}`))).json();
   const group = (b: { groups: { id?: string; key: string }[] }, key: string) => b.groups.find((g) => g.key === key) as unknown as {
     name: string; kind: string; keeper: { id: string; name: string } | null; items: number; amount: number; accounts: string[];
     warehouses: { key: string; name: string; keeper: { name: string } | null; reservable: boolean; items: number; amount: number; rows: { item: string; amount: number }[] }[];
   };
   const clean = async () => {
-    await prisma.onecStock.deleteMany({ where: { snapshotDate: new Date(DATE) } });
     await prisma.warehouse.deleteMany({ where: { id: { in: [ids.l1, ids.l2, ids.l3] } } });
     await prisma.warehouse.deleteMany({ where: { id: { in: [ids.g1, ids.g2] } } });
   };
@@ -246,32 +268,64 @@ describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → �
         { id: ids.l3, name: "Тест склад 3", slug: "t-stk-l3", parentId: ids.g2, onecCode: codes.l3 },
       ],
     });
-    const row = (warehouseCode: string, itemCode: string, item: string, amount: number, account = "1411") => ({ snapshotDate: new Date(DATE), warehouseCode, warehouse: "", itemCode, item, unit: "ш", account, qty: 2, amount });
-    await prisma.onecStock.createMany({
-      data: [
-        row(codes.l1, "S1", "Цемент", 100),
-        row(codes.l1, "S2", "Хавтан", 900),
-        row(codes.l1, "S2", "Хавтан", 50, "1412"), // ижил бараа өөр дансанд
-        row(codes.l2, "S3", "Бэлэн блок", 10),
-        row(codes.l3, "S1", "Цемент", 5000),
-        row("", "S9", "Дансны үлдэгдэл А", 70, "1418"),
-        row("", "S8", "Дансны үлдэгдэл Б", 30, "1418"),
-      ],
-    });
-    as("DIRECTOR");
   });
   afterAll(clean);
-  beforeEach(() => as("DIRECTOR"));
 
-  it("бүлэг бүрт барааны тоо, нийт дүн; склад дотор дүнгээр буурахаар; нярвын нэр өгөгдлөөс", async () => {
+  beforeEach(() => {
+    as("DIRECTOR");
+    resetAccountBook();
+    balanceRows = [
+      bal(ACC.a1411, ITEM.S1, WH.l1, 100),
+      bal(ACC.a1411, ITEM.S2, WH.l1, 900),
+      bal(ACC.a1412, ITEM.S2, WH.l1, 50), // ижил бараа өөр дансанд: нэг мөр болно
+      bal(ACC.a1411, ITEM.S3, WH.l2, 10),
+      bal(ACC.a1411, ITEM.S1, WH.l3, 5000),
+      bal(ACC.a1418, ITEM.S9, null, 70), // 2-р субконтод агуулах алга (ашиглалтанд буй)
+      bal(ACC.a1418, ITEM.S8, null, 30),
+      bal(ACC.a1421, ITEM.S1, null, 777), // 142x: хүснэгтэд ордоггүй
+    ];
+    const catalog = (rows: Record<string, unknown>[]) => (u: string) => ({ value: rows.filter((r) => u.includes(String(r.Ref_Key))) });
+    const items = catalog([
+      { Ref_Key: ITEM.S1, Description: "Цемент", Code: "S1" },
+      { Ref_Key: ITEM.S2, Description: "Хавтан", Code: "S2" },
+      { Ref_Key: ITEM.S3, Description: "Бэлэн блок", Code: "S3" },
+      { Ref_Key: ITEM.S9, Description: "Дансны үлдэгдэл А", Code: "S9" },
+      { Ref_Key: ITEM.S8, Description: "Дансны үлдэгдэл Б", Code: "S8" },
+    ]);
+    const whs = catalog([
+      { Ref_Key: WH.l1, Description: "1С склад 1", Code: codes.l1 },
+      { Ref_Key: WH.l2, Description: "1С бэлэн бүтээгдэхүүн", Code: codes.l2 },
+      { Ref_Key: WH.l3, Description: "1С склад 3", Code: codes.l3 },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        fetchCalls(url, init);
+        const u = decodeURIComponent(url);
+        const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200 });
+        if (u.includes("ChartOfAccounts_")) return json({ value: CHART });
+        if (u.includes("/Balance(")) return json({ value: balanceRows });
+        if (u.includes("Catalog_Номенклатура")) return json(items(u));
+        if (u.includes("Catalog_Склады")) return json(whs(u));
+        return json({ value: [] });
+      })
+    );
+  });
+
+  it("бүлэг бүрт барааны тоо, нийт дүн; склад дотор дүнгээр буурахаар; нярвын нэр өгөгдлөөс; нэг бараа олон дансанд бол нэг мөр", async () => {
     const b = await body();
-    expect(b.totals).toMatchObject({ items: 5, amount: 6160 });
+    expect(b.totals).toMatchObject({ items: 5, amount: 6160, warehouses: 3 }); // 142x (777) орохгүй
     const g1 = group(b, ids.g1);
     expect(g1).toMatchObject({ kind: "group", items: 3, amount: 1060 });
     expect(g1.keeper).toEqual({ id: keeper.id, name: keeper.name });
     const l1 = g1.warehouses.find((w) => w.key === codes.l1)!;
     expect(l1).toMatchObject({ items: 2, amount: 1050, keeper: { name: keeper.name }, reservable: true });
-    expect(l1.rows.map((r) => r.amount)).toEqual([900, 100, 50]);
+    expect(l1.rows.map((r) => r.amount)).toEqual([950, 100]);
+  });
+
+  it("нийт дүн = 14xx Balance (142x-гүй): 0 зөрүү; 142x тусдаа", async () => {
+    const b = await body();
+    expect(b.reconciliation).toEqual({ balance: 6160, table: 6160, difference: 0, wip: 777 });
   });
 
   it("нярав оноогоогүй бүлэг/склад null; reservable=false склад тусад нь тэмдэглэгдэнэ", async () => {
@@ -282,18 +336,26 @@ describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → �
     expect(group(b, ids.g1).warehouses.find((w) => w.key === codes.l2)!.reservable).toBe(false);
   });
 
-  it("складын код хоосон мөрүүд «Агуулах тодорхойгүй» бүлэг болж хамгийн доор, дансны кодтой", async () => {
+  it("агуулах байхгүй мөрүүд «Агуулах тодорхойгүй» биш, «Агуулахад хадгалагдаагүй» бүлэг болж хамгийн доор, дансны нэртэй", async () => {
     const b = await body();
     const last = b.groups.at(-1);
-    expect(last).toMatchObject({ key: "none", kind: "unknown", items: 2, amount: 100, accounts: ["1418"] });
+    expect(last).toMatchObject({ key: "off-warehouse", kind: "off_warehouse", name: "Агуулахад хадгалагдаагүй үлдэгдэл", items: 2, amount: 100, accounts: ["Ашиглалтанд буй багаж хэрэгсэл"] });
+    expect(last.warehouses.map((w: { name: string }) => w.name)).toEqual(["Ашиглалтанд буй багаж хэрэгсэл"]);
+    expect(JSON.stringify(b)).not.toContain("Агуулах тодорхойгүй");
   });
 
-  it("шүүлтийн сонголт: нярав = нярав оноосон хэрэглэгчид, склад = 1С складууд, «тодорхойгүй» байгаа эсэх", async () => {
+  it("шүүлтийн сонголт: нярав = нярав оноосон хэрэглэгчид, склад = 1С складууд, «агуулахгүй» бүлэг байгаа эсэх", async () => {
     const f = (await body()).filters;
     expect(f.keepers).toContainEqual({ id: keeper.id, name: keeper.name });
     expect(f.hasUnassigned).toBe(true);
-    expect(f.hasUnknown).toBe(true);
+    expect(f.hasOffWarehouse).toBe(true);
     expect(f.warehouses).toContainEqual({ code: codes.l1, name: "Тест склад 1", group: "Тест бүлэг 1" });
+  });
+
+  it("ERP-д холбогдоогүй ч 1С-д үлдэгдэлтэй склад шүүлтэд гарна (1С-ийн нэрээр)", async () => {
+    balanceRows.push(bal(ACC.a1411, ITEM.S1, guid(99), 1));
+    const f = (await body()).filters;
+    expect(f.warehouses.some((w: { code: string }) => w.code === "wh:" + guid(99))).toBe(true);
   });
 
   it("q: нэр эсвэл кодоор хайна; тоо, нийт дүн хамт шүүгдэнэ, бараагүй бүлэг гарахгүй", async () => {
@@ -302,16 +364,18 @@ describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → �
     expect(byName.groups.map((g: { key: string }) => g.key).sort()).toEqual([ids.g1, ids.g2].sort());
     expect(group(byName, ids.g1)).toMatchObject({ items: 1, amount: 100 });
     const byCode = await body("&q=S9");
-    expect(byCode.groups.map((g: { key: string }) => g.key)).toEqual(["none"]);
+    expect(byCode.groups.map((g: { key: string }) => g.key)).toEqual(["off-warehouse"]);
   });
 
-  it("warehouse=<код> ба warehouse=none", async () => {
-    const one = await body(`&warehouse=${codes.l3}`);
-    expect(one.totals).toMatchObject({ amount: 5000, items: 1 });
-    expect(one.groups.map((g: { key: string }) => g.key)).toEqual([ids.g2]);
-    const unknown = await body("&warehouse=none");
-    expect(unknown.groups.map((g: { key: string }) => g.key)).toEqual(["none"]);
-    expect(unknown.totals.amount).toBe(100);
+  it("warehouse=<код>: сонгосон агуулахын нийт дүн, бараа бүрийн тоо, дүн; warehouse=off-warehouse", async () => {
+    const one = await body(`&warehouse=${codes.l1}`);
+    expect(one.totals).toMatchObject({ amount: 1050, items: 2, warehouses: 1 });
+    expect(one.groups.map((g: { key: string }) => g.key)).toEqual([ids.g1]);
+    expect(group(one, ids.g1).warehouses.map((w) => w.key)).toEqual([codes.l1]);
+    expect(group(one, ids.g1).warehouses[0].rows).toMatchObject([{ item: "Хавтан", amount: 950, qty: 4 }, { item: "Цемент", amount: 100, qty: 2 }]);
+    const inUse = await body("&warehouse=off-warehouse");
+    expect(inUse.groups.map((g: { key: string }) => g.key)).toEqual(["off-warehouse"]);
+    expect(inUse.totals.amount).toBe(100);
   });
 
   it("keeper=<id>: тухайн нярвын бүлгийн складууд; keeper=none: нярав оноогоогүй складууд", async () => {
@@ -333,8 +397,24 @@ describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → �
     expect(none.totals.amount).toBe(0);
   });
 
-  it("огноо буруу бол 400", async () => {
+  it("огноо буруу эсвэл ирээдүйн бол 400, 1С руу хандахгүй", async () => {
     expect((await STOCK(get("/api/dashboard/stock?date=bad"))).status).toBe(400);
+    expect((await STOCK(get("/api/dashboard/stock?date=2999-01-01"))).status).toBe(400);
+    expect(fetchCalls).not.toHaveBeenCalled();
+  });
+
+  it("5 минутын cache: хоёр дахь нээлт 1С руу дахин хандахгүй; 1С унавал ойлгомжтой алдаа", async () => {
+    await body();
+    const first = fetchCalls.mock.calls.length;
+    await body("&q=цемент");
+    expect(fetchCalls.mock.calls.length).toBe(first);
+    resetOdataCache();
+    resetNameCache();
+    resetAccountBook();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    const res = await STOCK(get(`/api/dashboard/stock?date=${DATE}`));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toContain("1С-тэй холбогдож чадсангүй");
   });
 });
 

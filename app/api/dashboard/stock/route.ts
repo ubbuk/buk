@@ -1,22 +1,26 @@
-// GET /api/dashboard/stock
-//   ?date=2026-11-11     (өгөхгүй бол хамгийн сүүлийн агшин зураг)
-//   &warehouse=00-000005 (1С складын код; "none" = складын код хоосон мөрүүд)
+// GET /api/dashboard/stock[?refresh=1]
+//   ?date=2026-11-11     (өгөхгүй бол өнөөдөр, Улаанбаатарын цагаар)
+//   &warehouse=00-000008 (1С складын код; "off-warehouse" = 2-р субконтод агуулахгүй үлдэгдэл: 1418.xx г.м.)
 //   &keeper=<userId>     (нярваар: тухайн нярвын бүлгийн складууд; "none" = нярав оноогоогүй складууд)
 //   &q=элс               (барааны нэр/кодоор хайх)
-// Хариу: нярвын бүлэг → 1С склад → бараа мод (lib/onec/stock-tree.ts). Склад нь onec_stock.warehouse_code = Warehouse.onecCode-оор холбогдоно.
-// Шүүлтүүд мөр, нийт дүн, бүлэг бүрийн тоог хамт шүүнэ.
-import { Prisma } from "@prisma/client";
+// Хариу: нярвын бүлэг → 1С склад → бараа мод (lib/onec/stock-tree.ts). Үлдэгдлийг 1С-ийн 14xx дансны Balance-аас, 2-р субконто (Агуулах)-оор
+// ШУУД авна (ЗӨВХӨН УНШИХ, 5 минутын cache; lib/onec/stock-live.ts). Склад нь 1С-ийн Code = Warehouse.onecCode-оор ERP-ийн бүлэгтэй холбогдоно.
+// Шүүлтүүд мөр, нийт дүн, бүлэг бүрийн тоог хамт шүүнэ. `reconciliation`: хүснэгтийн нийт = 14xx Balance (142x-гүй) эсэх.
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess } from "@/lib/onec/access";
-import { isDate } from "@/lib/onec/dates";
-import { UNKNOWN_WAREHOUSE_KEY, buildStockTree, leafWarehouses, type StockRow, type WarehouseRow } from "@/lib/onec/stock-tree";
+import { isDate, today } from "@/lib/onec/dates";
+import { OdataError } from "@/lib/onec/odata-read";
+import { loadStockLive } from "@/lib/onec/stock-live";
+import { OFF_WAREHOUSE_KEY, buildStockTree, isOffWarehouse, leafWarehouses, type StockRow, type WarehouseRow } from "@/lib/onec/stock-tree";
 
 export const dynamic = "force-dynamic";
+// 1С OData дуудлага бүр хамгийн ихдээ 60 сек (lib/onec/stock-live.ts)
+export const maxDuration = 60;
+const NO_STORE = { "Cache-Control": "no-store" };
 
-// Мөрийн дээд хязгаар (бодит агшин зураг ~2000 мөр): давбал `truncated`
-const ROW_LIMIT = 20000;
+const sum = (rows: StockRow[]) => rows.reduce((s, r) => s + r.amount, 0);
 
 export const GET = withTiming("GET /api/dashboard/stock", async (req: Request) => {
   const denied = await requireFinanceAccess("stock");
@@ -25,17 +29,21 @@ export const GET = withTiming("GET /api/dashboard/stock", async (req: Request) =
   const sp = new URL(req.url).searchParams;
   const warehouse = sp.get("warehouse") || null;
   const keeper = sp.get("keeper") || null;
-  const q = sp.get("q")?.trim().slice(0, 100) || null;
+  const q = sp.get("q")?.trim().slice(0, 100).toLowerCase() || null;
 
-  let date = sp.get("date");
-  if (date && !isDate(date)) {
-    return NextResponse.json({ error: "date нь YYYY-MM-DD хэлбэртэй байх ёстой" }, { status: 400 });
+  const date = sp.get("date") ?? today();
+  if (!isDate(date) || date > today()) {
+    return NextResponse.json({ error: "date нь YYYY-MM-DD хэлбэртэй, ирээдүйн өдөр биш байх ёстой" }, { status: 400, headers: NO_STORE });
   }
-  if (!date) {
-    const latest = await prisma.$queryRaw<{ d: string | null }[]>`SELECT max(snapshot_date)::text AS d FROM onec_stock`;
-    date = latest[0]?.d ?? null;
-    if (!date) return NextResponse.json({ date: null, totals: null, groups: [], filters: { keepers: [], warehouses: [], hasUnknown: false }, truncated: false, lastSyncedAt: null });
+
+  let live;
+  try {
+    live = await loadStockLive(date, sp.get("refresh") === "1");
+  } catch (e) {
+    if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
+    throw e;
   }
+  const { value, meta } = live;
 
   const warehouseRows = await prisma.warehouse.findMany({
     select: { id: true, name: true, onecCode: true, parentId: true, reservable: true, keeperId: true, keeper: { select: { name: true } } },
@@ -45,55 +53,44 @@ export const GET = withTiming("GET /api/dashboard/stock", async (req: Request) =
   const leaves = leafWarehouses(warehouses);
 
   // нярваар шүүх = тухайн нярвын складуудын кодууд
-  const keeperCodes = keeper ? leaves.filter((l) => (keeper === "none" ? !l.keeper : l.keeper?.id === keeper)).map((l) => l.code) : null;
+  const keeperCodes = keeper ? new Set(leaves.filter((l) => (keeper === "none" ? !l.keeper : l.keeper?.id === keeper)).map((l) => l.code)) : null;
 
-  const conditions: Prisma.Sql[] = [Prisma.sql`snapshot_date = ${date}::date`];
-  if (warehouse) conditions.push(warehouse === UNKNOWN_WAREHOUSE_KEY ? Prisma.sql`warehouse_code = ''` : Prisma.sql`warehouse_code = ${warehouse}`);
-  if (keeperCodes) conditions.push(Prisma.sql`warehouse_code = ANY(${keeperCodes}::text[])`);
-  if (q) conditions.push(Prisma.sql`(item ILIKE ${"%" + q + "%"} OR item_code ILIKE ${"%" + q + "%"})`);
-  const where = Prisma.join(conditions, " AND ");
+  const rows = value.rows.filter(
+    (r) =>
+      (!warehouse || (warehouse === OFF_WAREHOUSE_KEY ? isOffWarehouse(r.warehouse_code) : r.warehouse_code === warehouse)) &&
+      (!keeperCodes || keeperCodes.has(r.warehouse_code)) &&
+      (!q || r.item.toLowerCase().includes(q) || r.item_code.toLowerCase().includes(q))
+  );
 
-  const [totals, rows, unknownRow, lastSync] = await Promise.all([
-    prisma.$queryRaw<{ items: number; warehouses: number; amount: number; negative_rows: number }[]>`
-      SELECT count(DISTINCT item_code)::int AS items,
-             count(DISTINCT warehouse_code) FILTER (WHERE warehouse_code <> '')::int AS warehouses,
-             coalesce(sum(amount),0)::float8 AS amount,
-             count(*) FILTER (WHERE qty < 0)::int AS negative_rows
-        FROM onec_stock WHERE ${where}`,
-    prisma.$queryRaw<StockRow[]>`
-      SELECT id::text AS id, warehouse_code, warehouse, item_code, item, unit, account,
-             qty::float8 AS qty, amount::float8 AS amount,
-             CASE WHEN qty <> 0 THEN (amount / qty)::float8 END AS unit_cost
-        FROM onec_stock
-       WHERE ${where}
-       ORDER BY amount DESC, item
-       LIMIT ${ROW_LIMIT + 1}`,
-    prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM onec_stock WHERE snapshot_date = ${date}::date AND warehouse_code = '' LIMIT 1`,
-    prisma.onecSyncLog.findFirst({
-      where: { ok: true, kind: "stock" },
-      orderBy: { finishedAt: "desc" },
-      select: { finishedAt: true },
-    }),
-  ]);
+  const totals = {
+    items: new Set(rows.map((r) => r.item_code)).size,
+    warehouses: new Set(rows.filter((r) => !isOffWarehouse(r.warehouse_code)).map((r) => r.warehouse_code)).size,
+    amount: sum(rows),
+    negative_rows: rows.filter((r) => r.qty < 0).length,
+  };
+  const groups = buildStockTree(warehouses, rows, { includeEmpty: !warehouse && !keeper && !q });
 
-  const truncated = rows.length > ROW_LIMIT;
-  const groups = buildStockTree(warehouses, truncated ? rows.slice(0, ROW_LIMIT) : rows, { includeEmpty: !warehouse && !keeper && !q });
-
-  // шүүлтийн сонголтууд нь идэвхтэй шүүлтээс хамаарахгүй; нярвын жагсаалт = нярав оноогдсон хэрэглэгчид
+  // шүүлтийн сонголтууд нь идэвхтэй шүүлтээс хамаарахгүй; ERP-д холбогдоогүй (гэхдээ 1С-д үлдэгдэлтэй) складыг ч сонгох боломжтой
   const keepers = [...new Map(leaves.flatMap((l) => (l.keeper ? [[l.keeper.id, l.keeper] as const] : []))).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const known = new Set(leaves.map((l) => l.code));
+  const stray = [...new Map(value.rows.filter((r) => !isOffWarehouse(r.warehouse_code) && !known.has(r.warehouse_code)).map((r) => [r.warehouse_code, { code: r.warehouse_code, name: r.warehouse || r.warehouse_code, group: "" }])).values()];
   const filters = {
     keepers,
     hasUnassigned: leaves.some((l) => !l.keeper),
-    warehouses: leaves.map((l) => ({ code: l.code, name: l.name, group: l.group?.name ?? "" })),
-    hasUnknown: unknownRow.length > 0,
+    warehouses: [...leaves.map((l) => ({ code: l.code, name: l.name, group: l.group?.name ?? "" })), ...stray],
+    hasOffWarehouse: value.rows.some((r) => isOffWarehouse(r.warehouse_code)),
   };
 
-  return NextResponse.json({
-    date,
-    totals: totals[0],
-    groups,
-    filters,
-    truncated,
-    lastSyncedAt: lastSync?.finishedAt ?? null,
-  });
+  return NextResponse.json(
+    {
+      date,
+      totals,
+      groups,
+      filters,
+      reconciliation: value.reconciliation,
+      lastSyncedAt: new Date(meta.fetchedAt).toISOString(),
+      meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null },
+    },
+    { headers: NO_STORE }
+  );
 });

@@ -6,7 +6,8 @@
 import { fetchPl, fetchSales, fetchStock } from "../lib/onec/client";
 import { fetchPlTaxRows, PL_TAX_EXCLUDED } from "../lib/onec/pl-tax";
 import { asOfDate, balanceBoundary, currentMonth, isMonth, monthRange } from "../lib/onec/dates";
-import { enc, fetchPaged, num, odataRows, type Row } from "../lib/onec/odata-read";
+import { enc, fetchPaged, lookupRows, num, odataRows, realKey, type Row } from "../lib/onec/odata-read";
+import { fetchStockLive } from "../lib/onec/stock-live";
 import { fetchUsage } from "../lib/onec/usage";
 
 const R = enc("AccountingRegister_Хозрасчетный");
@@ -92,6 +93,53 @@ async function stock(chart: Account[], month: string) {
   const wip = [...bal].filter(([c]) => c.startsWith("142")).reduce((s, [, v]) => s + v, 0);
   console.log(`Үүнээс 142x (Дуусаагүй үйлдвэрлэл, агуулахын бараа биш; Агуулах табд тусдаа KPI) Balance ${f(wip)}; 142x-гүй үлдсэн зөрүү ${f(th - (tb - wip))}${flag(th - (tb - wip))}`);
   mark(th - (tb - wip));
+  await stockByWarehouse(acc14, date);
+}
+
+/**
+ * Агуулах табын шинэ хүснэгт (lib/onec/stock-live.ts) ба 14xx Balance-ийг ТУСДАА хүсэлтээр, регистрийн мөрүүдийг шууд нийлбэрлэж тулгана:
+ * нийт, агуулах тус бүр (2-р субконто), агуулахгүй мөрүүд (1418.xx), 142x (тусдаа KPI). Бүгд 0 зөрүүтэй байх ёстой.
+ */
+async function stockByWarehouse(acc14: Account[], date: string) {
+  section(`1б. АГУУЛАХ (агуулах тус бүр): lib/onec/stock-live.ts ба 14xx Balance-ийн 2-р субконто (${balanceBoundary(date)})`);
+  const live = await fetchStockLive(date);
+  const raw = await odataRows(`${R}/Balance(Period=datetime'${balanceBoundary(date)}')?$format=json&$select=${enc("Account_Key,ExtDimension2,ExtDimension2_Type,СуммаBalance")}&$filter=${enc(orChain(acc14.map((a) => a.key)))}&$top=50000`, { timeoutMs: 120_000 });
+  const codeOf = new Map(acc14.map((a) => [a.key, a.code]));
+  const perWh = new Map<string, number>(); // складын GUID -> дүн
+  let stockTotal = 0, inUse = 0, wip = 0;
+  for (const r of raw) {
+    const code = codeOf.get(String(r.Account_Key).toLowerCase()) ?? "";
+    const amount = num(r["СуммаBalance"]);
+    if (code.startsWith("142")) { wip += amount; continue; }
+    stockTotal += amount;
+    const wh = String(r.ExtDimension2_Type ?? "").endsWith("Catalog_Склады") ? realKey(r.ExtDimension2) : null;
+    if (wh) perWh.set(wh, (perWh.get(wh) ?? 0) + amount);
+    else inUse += amount;
+  }
+  const names = await lookupRows("Catalog_Склады", [...perWh.keys()], "Description,Code");
+  const liveByCode = new Map<string, number>();
+  for (const r of live.rows) liveByCode.set(r.warehouse_code, (liveByCode.get(r.warehouse_code) ?? 0) + r.amount);
+
+  console.log("Код         Агуулах                                   Хүснэгт (шинэ)      Balance (регистр)   Зөрүү");
+  const seen = new Set<string>();
+  for (const [guid, b] of [...perWh].sort((a, c) => c[1] - a[1])) {
+    const code = String(names.get(guid)?.Code ?? `wh:${guid}`);
+    seen.add(code);
+    const l = liveByCode.get(code) ?? 0, d = l - b;
+    mark(d);
+    console.log(`${code.padEnd(11)} ${String(names.get(guid)?.Description ?? "").slice(0, 40).padEnd(41)} ${pad(f(l), 20)} ${pad(f(b), 20)} ${pad(f(d), 12)}${flag(d)}`);
+  }
+  const stray = [...liveByCode].filter(([c]) => c !== "" && !c.startsWith("acct:") && !seen.has(c));
+  for (const [c, l] of stray) { mark(l); console.log(`${c.padEnd(11)} (регистрт байхгүй склад)                    ${pad(f(l), 20)} ${pad(f(0), 20)} ${pad(f(l), 12)}  <<`); }
+  const liveInUse = [...liveByCode].filter(([c]) => c === "" || c.startsWith("acct:")).reduce((s, [, v]) => s + v, 0);
+  mark(liveInUse - inUse);
+  console.log(`${"агуулахгүй".padEnd(11)} ${"2-р субконтод агуулах алга (1418.xx, 1431)".slice(0, 40).padEnd(41)} ${pad(f(liveInUse), 20)} ${pad(f(inUse), 20)} ${pad(f(liveInUse - inUse), 12)}${flag(liveInUse - inUse)}`);
+  const tableTotal = live.rows.reduce((s, r) => s + r.amount, 0);
+  console.log(`НИЙТ (14xx, 142x-гүй) хүснэгт ${f(tableTotal)}; Balance ${f(stockTotal)}; зөрүү ${f(tableTotal - stockTotal)}${flag(tableTotal - stockTotal)}`);
+  mark(tableTotal - stockTotal);
+  console.log(`API-ийн reconciliation: balance ${f(live.reconciliation.balance)}, table ${f(live.reconciliation.table)}, difference ${f(live.reconciliation.difference)}; 142x (тусдаа KPI) ${f(live.reconciliation.wip)} (Balance ${f(wip)}, зөрүү ${f(live.reconciliation.wip - wip)})`);
+  mark(live.reconciliation.wip - wip);
+  mark(live.reconciliation.difference);
 }
 
 // ---------------------------------------------------------------- 2. Борлуулалт

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { cn, formatNumber } from "@/lib/utils";
 import { useDocDrawer } from "./docs/DocDrawer";
 import { money } from "./FinanceShell";
-import { unknownTitle, type KeeperRef, type StockGroupNode, type StockRow, type StockWarehouseNode } from "@/lib/onec/stock-tree";
+import { isOffWarehouse, type KeeperRef, type StockGroupNode, type StockRow, type StockWarehouseNode } from "@/lib/onec/stock-tree";
 
 // Нэг удаад харуулах барааны мөр: олон мөртэй складыг нээхэд хуудас удаашрахгүй, «Дахиад харуулах»-аар нэмнэ
 export const PAGE_SIZE = 50;
@@ -115,7 +115,7 @@ function WarehouseSection({ id, w, open, onToggle }: { id: string; w: StockWareh
       <Toggle open={open} onClick={onToggle} controls={panel} level={2}>
         <Summary
           title={w.name}
-          sub={<KeeperLabel keeper={w.keeper} />}
+          sub={isOffWarehouse(w.key) ? undefined : <KeeperLabel keeper={w.keeper} />}
           amount={w.amount}
           items={w.items}
           badge={!w.reservable && <span className="rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">Нөөцлөхгүй</span>}
@@ -153,24 +153,17 @@ export function StockTree({ groups, expandAll }: { groups: StockGroupNode[]; exp
         const gKey = `g:${g.key}`;
         const open = isOpen(gKey);
         const panel = `stock-g-${g.key}`;
-        const title = g.kind === "unknown" ? unknownTitle(g) : g.name;
+        const title = g.name;
         return (
           <li key={g.key} data-testid="stock-group" data-kind={g.kind}>
             <Toggle open={open} onClick={() => toggle(gKey)} controls={panel} level={1}>
-              <Summary title={title} sub={g.kind === "group" ? <KeeperLabel keeper={g.keeper} /> : undefined} amount={g.amount} items={g.items} />
+              <Summary title={title} sub={g.kind === "group" ? <KeeperLabel keeper={g.keeper} /> : g.kind === "off_warehouse" ? <span className="text-text-muted">Агуулахад бүртгэгдээгүй: ажилтан, цехэд олгосон (ашиглалтанд буй) хэрэгсэл г.м.</span> : undefined} amount={g.amount} items={g.items} />
             </Toggle>
             {open && (
               <ul id={panel}>
                 {g.warehouses.map((w) => {
                   const wKey = `w:${g.key}/${w.key}`;
-                  return g.kind === "unknown" ? (
-                    // складын код хоосон: нэг л «склад» тул нэмэлт түвшин үүсгэхгүй, барааг шууд харуулна
-                    <li key={w.key}>
-                      <ItemList rows={w.rows} />
-                    </li>
-                  ) : (
-                    <WarehouseSection key={w.key} id={`stock-w-${g.key}-${w.key}`} w={w} open={isOpen(wKey)} onToggle={() => toggle(wKey)} />
-                  );
+                  return <WarehouseSection key={w.key} id={`stock-w-${g.key}-${w.key}`} w={w} open={isOpen(wKey)} onToggle={() => toggle(wKey)} />;
                 })}
               </ul>
             )}
