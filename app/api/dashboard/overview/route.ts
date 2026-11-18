@@ -15,5 +15,5 @@ export const GET = withTiming("GET /api/dashboard/overview", async () => {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401, headers: NO_STORE });
   if (!canViewOverview(session.user.role)) return NextResponse.json({ error: "Энэ мэдээллийг үзэх эрхгүй" }, { status: 403, headers: NO_STORE });
-  return NextResponse.json(await loadFinanceOverview(), { headers: NO_STORE });
+  return NextResponse.json(await loadFinanceOverview(new Date(), session.user.role), { headers: NO_STORE });
 });

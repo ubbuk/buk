@@ -31,6 +31,7 @@ describe("GET /api/dashboard/overview: эрх", () => {
       const res = await GET();
       expect(res.status, role).toBe(200);
       expect(await res.json()).toEqual(OVERVIEW);
+      expect(loader).toHaveBeenLastCalledWith(expect.any(Date), role); // дүрийг дамжуулна: мөнгө, зарцуулалтын карт зөвхөн ADMIN, DIRECTOR-д
     }
   });
 
