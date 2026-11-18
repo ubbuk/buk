@@ -5,7 +5,8 @@ import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess } from "@/lib/onec/access";
 import { isMonth } from "@/lib/onec/dates";
 import { canOpenDocument, requireDocViewer } from "@/lib/onec/doc-access";
-import { loadAccountDocuments } from "@/lib/onec/documents";
+import { hidePayrollInCards, loadAccountDocuments } from "@/lib/onec/documents";
+import { monthRange } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,9 @@ export const GET = withTiming("GET /api/dashboard/documents/account", async (req
   const side = sp.get("side") === "credit" ? "credit" : "debit";
   try {
     const { value, meta } = await loadAccountDocuments(account, month, side, sp.get("refresh") === "1");
-    const documents = value.filter((d) => canOpenDocument(auth.viewer, d.type, auth.policy));
+    const openable = value.filter((d) => canOpenDocument(auth.viewer, d.type, auth.policy));
+    const { from, to } = monthRange(month);
+    const documents = auth.viewer.canViewPayroll === true ? openable : await hidePayrollInCards(openable, from, to);
     return NextResponse.json({ documents, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });

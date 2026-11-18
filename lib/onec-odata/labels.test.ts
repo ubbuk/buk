@@ -9,10 +9,10 @@ import { FIELDS, OBJECT_GROUPS, OBJECTS, TABULAR_PARTS, VIRTUAL_TABLES, fieldLab
 const V = (role: string, canViewPayroll = false): Viewer => ({ role, canViewPayroll });
 
 describe("object labels", () => {
-  it("covers 80-110 objects, with no empty label and no key defined twice", () => {
+  it("covers 80-160 objects, with no empty label and no key defined twice", () => {
     const total = OBJECT_GROUPS.reduce((n, g) => n + Object.keys(g.items).length, 0);
     expect(total).toBeGreaterThanOrEqual(80);
-    expect(total).toBeLessThanOrEqual(110);
+    expect(total).toBeLessThanOrEqual(160); // цалингийн объектууд нэмэгдсэн
     expect(Object.keys(OBJECTS)).toHaveLength(total); // a key in two groups would silently override
     for (const [group, labels] of [["objects", OBJECTS], ["tabular", TABULAR_PARTS], ["virtual", VIRTUAL_TABLES], ["fields", FIELDS]] as const) {
       for (const [k, v] of Object.entries(labels)) {
@@ -119,6 +119,15 @@ describe("search and grouping (display only)", () => {
     expect(matchesSearch("Catalog_Контрагенты", "  ")).toBe(true);
     expect(groupObjects(objects, "харилцагч").flatMap((g) => g.items.map((o) => o.name))).toEqual(["Catalog_Контрагенты"]);
     expect(groupObjects(objects, "контрагенты").flatMap((g) => g.items.map((o) => o.name))).toEqual(["Catalog_Контрагенты"]);
+  });
+
+  it("цалингийн объектыг монголоор хайхад олдоно («цал», «ххоат», «ажилтан», «хэлтэс»)", () => {
+    for (const [name, needle] of [["Document_НачислениеЗарплаты", "цал"], ["Document_ВедомостьНаВыплатуЗарплатыВБанк", "цал"], ["Catalog_СпособыВыплатыЗарплаты", "цал"], ["AccumulationRegister_ЗарплатаКВыплате", "цал"], ["Catalog_ВидыДоходовНДФЛ", "ххоат"], ["Document_ВозвратНДФЛ", "ххоат"], ["Catalog_Сотрудники", "ажилтан"], ["Catalog_ПодразделенияОрганизаций", "хэлтэс"], ["ChartOfCalculationTypes_Начисления", "бодолт"]] as const) {
+      expect(matchesSearch(name, needle), `${name} ~ ${needle}`).toBe(true);
+    }
+    expect(objectLabel("AccumulationRegister_Табель")).toBe("Ажлын цагийн бүртгэл");
+    expect(objectLabel("Document_Табель")).toBe("Ажлын цагийн хуудас"); // нэр давхцсан ч төрлөөр ялгагдана
+    expect(objectLabel("Document_НачислениеЗарплаты_Начисления")).toBe("Цалин бодолт — Бодолт");
   });
 
   it("lists translated objects first, in Mongolian alphabetical order, then untranslated ones by their real name", () => {

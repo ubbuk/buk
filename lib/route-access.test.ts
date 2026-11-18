@@ -111,7 +111,7 @@ describe("source guard: no route file can skip the session check unnoticed", () 
   it("each route file asks for the session (directly or through the monitoring authorize helper) or is on the public list", () => {
     const unguarded = Object.entries(sources)
       .filter(([path]) => !PUBLIC.includes(path))
-      .filter(([, text]) => !/getServerSession|authorize\(|ftContext\(|requireFinanceAccess\(|requireDocViewer\(|requireHubKey\(/.test(text))
+      .filter(([, text]) => !/getServerSession|authorize\(|ftContext\(|requireFinanceAccess\(|requireDocViewer\(|requirePayrollAccess\(|requireHubKey\(/.test(text))
       .map(([path]) => path);
     expect(unguarded).toEqual([]);
   });

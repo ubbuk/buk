@@ -23,7 +23,7 @@ export const GET = withTiming("GET /api/dashboard/documents/detail", async (req:
   if (!canOpenDocument(auth.viewer, type, auth.policy)) return NextResponse.json({ error: "Энэ баримтыг үзэх эрхгүй" }, { status: 403, headers: NO_STORE });
 
   try {
-    const { value, meta } = await loadDocumentDetail(type, ref, { withPostings: canSeePostings(auth.viewer) });
+    const { value, meta } = await loadDocumentDetail(type, ref, { withPostings: canSeePostings(auth.viewer), hidePayroll: auth.viewer.canViewPayroll !== true });
     return NextResponse.json({ ...value, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
