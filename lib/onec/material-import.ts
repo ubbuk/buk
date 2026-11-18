@@ -6,7 +6,7 @@ import { addDays, isDate, ubDate } from "./dates";
 //
 // Дүрэм (WAREHOUSE_CHECK алхам үлдэгдлийг InventoryBalance-аас уншдаг тул хоосон бол бүх мөр «дутуу» болно):
 //   - Material-ийг 1С-ийн барааны кодоор (item_code = Material.code) холбоно. Байгаа Material-ийг ХЭЗЭЭ Ч өөрчлөхгүй, зөвхөн дутууг нэмнэ.
-//   - Зөвхөн Warehouse.onecCode-той (идэвхтэй) агуулах дээрх үлдэгдлийг оруулна. Бусад 1С склад (кодгүй, давхар код) алгасагдаж, тайланд жагсаагдана.
+//   - Зөвхөн Warehouse.onecCode-той, идэвхтэй, reservable агуулах (бэлэн бүтээгдэхүүний склад биш) дээрх үлдэгдлийг оруулна. Бусад 1С склад (кодгүй, давхар код) алгасагдаж, тайланд жагсаагдана.
 //   - Нэг барааны нэг складын нийт үлдэгдэл = данс бүрийн qty-ийн нийлбэр. Зөвхөн qty > 0 мөр орно (тэг, сөрөг үлдэгдэл оруулахгүй).
 //   - НЭГ УДАА ачаалах горим: ERP-д аль хэдийн байгаа InventoryBalance-ийг ДАРАХГҮЙ (олгосон, нөөцөлсөн хасалтыг алдахгүйн тулд). Зөвхөн
 //     `refreshBalances` өгөхөд quantityOnHand-ийг snapshot-оор шинэчилнэ, тэгэхдээ нөөцлөгдсөн хэмжээнээс бага болох мөрийг алгасна.
@@ -28,7 +28,7 @@ export interface ImportReport {
   mappedWarehouses: number;
   ambiguousCodes: string[];
   unmapped: { code: string; name: string; items: number }[];
-  skipped: { noItemCode: number; unmappedWarehouse: number; ambiguousWarehouse: number; nonPositive: number; tooLarge: number };
+  skipped: { noItemCode: number; unmappedWarehouse: number; nonReservableWarehouse: number; ambiguousWarehouse: number; nonPositive: number; tooLarge: number };
   materials: { existing: number; toCreate: number; emptyUnit: number };
   balances: { toCreate: number; existingKept: number; toRefresh: number; refreshBlocked: number };
   created: { materials: number; balances: number; refreshed: number };
@@ -57,7 +57,7 @@ export async function importMaterials(opts: ImportOptions = {}): Promise<ImportR
     mappedWarehouses: 0,
     ambiguousCodes: [],
     unmapped: [],
-    skipped: { noItemCode: 0, unmappedWarehouse: 0, ambiguousWarehouse: 0, nonPositive: 0, tooLarge: 0 },
+    skipped: { noItemCode: 0, unmappedWarehouse: 0, nonReservableWarehouse: 0, ambiguousWarehouse: 0, nonPositive: 0, tooLarge: 0 },
     materials: { existing: 0, toCreate: 0, emptyUnit: 0 },
     balances: { toCreate: 0, existingKept: 0, toRefresh: 0, refreshBlocked: 0 },
     created: { materials: 0, balances: 0, refreshed: 0 },
@@ -77,12 +77,16 @@ export async function importMaterials(opts: ImportOptions = {}): Promise<ImportR
       FROM onec_stock WHERE snapshot_date = ${snapshot}::date GROUP BY warehouse_code, item_code`;
   report.stockRows = rows.length;
 
-  const warehouses = await prisma.warehouse.findMany({ where: { onecCode: { not: null }, isActive: true }, select: { id: true, onecCode: true } });
+  const warehouses = await prisma.warehouse.findMany({ where: { onecCode: { not: null }, isActive: true }, select: { id: true, onecCode: true, reservable: true } });
   const byCode = new Map<string, string[]>();
+  const nonReservable = new Set<string>(); // бэлэн бүтээгдэхүүний склад: хүсэлтэд санал болгодоггүй тул Material, үлдэгдэл оруулахгүй
   for (const w of warehouses) {
     const code = (w.onecCode ?? "").trim();
-    if (code) byCode.set(code, [...(byCode.get(code) ?? []), w.id]);
+    if (!code) continue;
+    if (w.reservable) byCode.set(code, [...(byCode.get(code) ?? []), w.id]);
+    else nonReservable.add(code);
   }
+  for (const c of byCode.keys()) nonReservable.delete(c); // нэг кодыг reservable агуулах хуваалцвал алгасахгүй
   report.mappedWarehouses = byCode.size;
   report.ambiguousCodes = [...byCode].filter(([, ids]) => ids.length > 1).map(([c]) => c).sort();
 
@@ -96,6 +100,10 @@ export async function importMaterials(opts: ImportOptions = {}): Promise<ImportR
       continue;
     }
     const ids = byCode.get(r.warehouse_code.trim());
+    if (!ids && nonReservable.has(r.warehouse_code.trim())) {
+      report.skipped.nonReservableWarehouse++;
+      continue;
+    }
     if (!ids) {
       report.skipped.unmappedWarehouse++;
       const u = unmapped.get(r.warehouse_code) ?? { name: r.warehouse, items: new Set<string>() };
@@ -202,7 +210,7 @@ export function describeImport(r: ImportReport): string {
   if (!r.snapshot) return "[import-materials] onec_stock хоосон: эхлээд sync ажиллуулна уу. Оруулах зүйл алга.";
   const lines = [
     `[import-materials] ${r.apply ? "APPLY" : "DRY-RUN: юу ч бичээгүй"} · snapshot ${r.snapshot} · ${r.stockRows} барааны×складын мөр · ${r.mappedWarehouses} склад onecCode-той${r.ambiguousCodes.length ? ` (давхар код: ${r.ambiguousCodes.join(", ")})` : ""}`,
-    `[import-materials] алгассан: кодгүй бараа ${r.skipped.noItemCode}, onecCode-гүй склад ${r.skipped.unmappedWarehouse}, давхар кодтой склад ${r.skipped.ambiguousWarehouse}, үлдэгдэл ≤ 0 ${r.skipped.nonPositive}, хэт том ${r.skipped.tooLarge}`,
+    `[import-materials] алгассан: кодгүй бараа ${r.skipped.noItemCode}, onecCode-гүй склад ${r.skipped.unmappedWarehouse}, reservable=false склад ${r.skipped.nonReservableWarehouse}, давхар кодтой склад ${r.skipped.ambiguousWarehouse}, үлдэгдэл ≤ 0 ${r.skipped.nonPositive}, хэт том ${r.skipped.tooLarge}`,
     `[import-materials] Material: байгаа ${r.materials.existing} (хөндөхгүй), шинээр ${r.materials.toCreate}${r.materials.emptyUnit ? ` (нэгжгүй ${r.materials.emptyUnit} → "ш")` : ""}`,
     `[import-materials] InventoryBalance: шинээр ${r.balances.toCreate}, байгаа ${r.balances.existingKept} (дарахгүй)${r.refreshBalances ? `, шинэчлэх ${r.balances.toRefresh}, нөөцөөс бага тул алгассан ${r.balances.refreshBlocked}` : ""}`,
   ];

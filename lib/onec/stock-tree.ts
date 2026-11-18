@@ -1,9 +1,17 @@
-// Агуулахын үлдэгдлийн 3 түвшний мод: нярвын бүлэг → 1С склад → бараа. onec_stock-ийн складын код нь Warehouse.onecCode-той таарна.
+// Агуулахын үлдэгдлийн 3 түвшний мод: нярвын бүлэг → 1С склад → бараа. Складын код (1С-ийн Catalog_Склады.Code) нь Warehouse.onecCode-той таарна.
 // Цэвэр функц (DB, React-гүй): app/api/dashboard/stock/route.ts мод барьж, хуудас зөвхөн харуулна.
 // Нярвын нэр Warehouse.keeperId → User-ээс ирнэ (кодонд нэр бичихгүй). Нярав дээд түвшний бүлэгт оноогдоно (lib/warehouse-keeper-admin.ts),
 // тиймээс склад нь өөрийн keeperId-гүй бол бүлгийнхийг авна (lib/warehouse-keeper.ts-ийн topLevelOf-тэй ижил).
 
-export const UNKNOWN_WAREHOUSE_KEY = "none";
+/**
+ * 14xx дансны 2-р субконтод агуулах БАЙХГҮЙ мөрүүд: 1418.xx (ашиглалтанд буй багаж, ажлын хувцас, БҮТЭЗ: ажилтан, цехэд олгосон) ба
+ * агуулахын талбарыг 1С-д бөглөөгүй мөр. Хуурамч «агуулах» болгохгүй: дансныхаа НЭРээр, нэг тусдаа бүлэгт. Нийт дүнд орно.
+ * Эдгээр мөрийн складын код нь `acct:<дансны код>` (stock-live.ts); хуучин хоосон код ч мөн энд.
+ */
+export const OFF_WAREHOUSE_KEY = "off-warehouse";
+export const OFF_WAREHOUSE_NAME = "Агуулахад хадгалагдаагүй үлдэгдэл";
+export const OFF_WAREHOUSE_PREFIX = "acct:";
+export const isOffWarehouse = (code: string): boolean => code === "" || code.startsWith(OFF_WAREHOUSE_PREFIX);
 
 export interface WarehouseRow {
   id: string;
@@ -48,12 +56,12 @@ export interface StockWarehouseNode {
 export interface StockGroupNode {
   key: string;
   name: string;
-  /** group: ERP-ийн нярвын бүлэг · unmapped: код нь Warehouse.onecCode-д байхгүй склад · unknown: складын код хоосон */
-  kind: "group" | "unmapped" | "unknown";
+  /** group: ERP-ийн нярвын бүлэг · unmapped: код нь Warehouse.onecCode-д байхгүй склад · off_warehouse: 2-р субконтод агуулахгүй (1418.xx ашиглалтанд буй хэрэгсэл г.м.) */
+  kind: "group" | "unmapped" | "off_warehouse";
   keeper: KeeperRef | null;
   items: number;
   amount: number;
-  /** unknown: эдгээр мөрийн дансууд (гарчигт «1418 данс») */
+  /** off_warehouse: эдгээр мөрийн дансны НЭРүүд */
   accounts: string[];
   warehouses: StockWarehouseNode[];
 }
@@ -82,12 +90,12 @@ function warehouseNode(key: string, name: string, keeper: KeeperRef | null, rese
 }
 
 function groupNode(key: string, name: string, kind: StockGroupNode["kind"], keeper: KeeperRef | null, warehouses: StockWarehouseNode[], rows: StockRow[]): StockGroupNode {
-  const accounts = kind === "unknown" ? [...new Set(rows.map((r) => r.account).filter(Boolean))].sort() : [];
+  const accounts = kind === "off_warehouse" ? [...new Set(rows.map((r) => r.account).filter(Boolean))].sort() : [];
   return { key, name, kind, keeper, items: distinctItems(rows), amount: sum(rows), accounts, warehouses: warehouses.sort(byAmountDesc) };
 }
 
 /**
- * `rows` нь (шүүлт хийсний дараах) onec_stock-ийн мөрүүд. Бүлгүүд дүнгээр буурахаар; ERP-д холбогдоогүй складууд, хамгийн доор «Агуулах тодорхойгүй».
+ * `rows` нь (шүүлт хийсний дараах) агуулахын үлдэгдлийн мөрүүд. Бүлгүүд дүнгээр буурахаар; ERP-д холбогдоогүй складууд, хамгийн доор «Агуулахад хадгалагдаагүй үлдэгдэл».
  * `includeEmpty`: шүүлтгүй үед бараагүй складыг ч (0 бараа) харуулна; шүүлттэй үед зөвхөн таарсныг.
  */
 export function buildStockTree(warehouses: WarehouseRow[], rows: StockRow[], opts: { includeEmpty: boolean }): StockGroupNode[] {
@@ -112,7 +120,7 @@ export function buildStockTree(warehouses: WarehouseRow[], rows: StockRow[], opt
 
   // onecCode нь Warehouse-д байхгүй (эсвэл бүлэггүй) складууд: нууж болохгүй, тусад нь
   const covered = new Set(groups.flatMap((g) => g.warehouses.map((w) => w.key)));
-  const strayCodes = [...rowsByCode.keys()].filter((c) => c !== "" && !covered.has(c));
+  const strayCodes = [...rowsByCode.keys()].filter((c) => !isOffWarehouse(c) && !covered.has(c));
   if (strayCodes.length) {
     const nodes = strayCodes.map((c) => {
       const rs = rowsByCode.get(c)!;
@@ -124,18 +132,16 @@ export function buildStockTree(warehouses: WarehouseRow[], rows: StockRow[], opt
 
   groups.sort((a, b) => byAmountDesc(a, b));
 
-  // Складын код хоосон мөрүүд: хамгийн доор
-  const blank = rowsByCode.get("") ?? [];
-  if (blank.length) groups.push(groupNode(UNKNOWN_WAREHOUSE_KEY, "Агуулах тодорхойгүй", "unknown", null, [warehouseNode(UNKNOWN_WAREHOUSE_KEY, "Агуулах тодорхойгүй", null, true, blank)], blank));
+  // Агуулахгүй мөрүүд: хамгийн доор, нэг бүлэг, дансны нэр бүрээр тусдаа хэсэг
+  const blank = rows.filter((r) => isOffWarehouse(r.warehouse_code));
+  if (blank.length) {
+    const byAccount = new Map<string, StockRow[]>();
+    for (const r of blank) byAccount.set(r.warehouse_code, [...(byAccount.get(r.warehouse_code) ?? []), r]);
+    const nodes = [...byAccount].map(([code, rs]) => warehouseNode(code || OFF_WAREHOUSE_KEY, rs[0].warehouse || OFF_WAREHOUSE_NAME, null, true, rs));
+    groups.push(groupNode(OFF_WAREHOUSE_KEY, OFF_WAREHOUSE_NAME, "off_warehouse", null, nodes, blank));
+  }
 
-  // «unmapped» нь бусад бүлгийн дараа, «unknown» нь бүгдийн дараа (дүнгээр эрэмбэлэхэд хүчинтэй хэвээр)
+  // «unmapped» нь бусад бүлгийн дараа, «off_warehouse» нь бүгдийн дараа (дүнгээр эрэмбэлэхэд хүчинтэй хэвээр)
   const order = (g: StockGroupNode) => (g.kind === "group" ? 0 : g.kind === "unmapped" ? 1 : 2);
   return groups.sort((a, b) => order(a) - order(b));
-}
-
-/** «Агуулах тодорхойгүй (1418 данс)»: тухайн мөрүүдийн дансууд, 3-аас олон бол «…» */
-export function unknownTitle(g: Pick<StockGroupNode, "name" | "accounts">): string {
-  if (g.accounts.length === 0) return g.name;
-  const shown = g.accounts.slice(0, 3).join(", ") + (g.accounts.length > 3 ? ", …" : "");
-  return `${g.name} (${shown} данс)`;
 }

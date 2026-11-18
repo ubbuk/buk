@@ -6,11 +6,19 @@ import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess } from "@/lib/onec/access";
 import { addMonths, currentMonth, isMonth } from "@/lib/onec/dates";
 import { changePct, expenseGroupLabel } from "@/lib/onec/expense-groups";
+import { loadAccountBook, shortCode, type AccountBook } from "@/lib/onec/accounts";
 import { lastSuccess } from "@/lib/onec/refresh";
+import { withOneCYear, yearOf } from "@/lib/onec/year-context";
 
 export const dynamic = "force-dynamic";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/** Дансны төлөвлөгөө (1 цагийн cache). 1С удаан эсвэл унтарсан бол хуудсыг хүлээлгэхгүй: null, дансны нэр нь Postgres-ийн нэрээр үлдэнэ. */
+async function accountBook(month: string): Promise<AccountBook | null> {
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+  return Promise.race([withOneCYear(yearOf(month), () => loadAccountBook()).catch(() => null), timeout]);
+}
 
 export const GET = withTiming("GET /api/dashboard/expenses", async (req: Request) => {
   const denied = await requireFinanceAccess("expenses");
@@ -21,7 +29,7 @@ export const GET = withTiming("GET /api/dashboard/expenses", async (req: Request
   const prevMonth = addMonths(month, -1);
   const months = Array.from({ length: 6 }, (_, i) => addMonths(month, i - 5)); // сонгосон сар + өмнөх 5
 
-  const [byMonthGroup, accounts, lastSync] = await Promise.all([
+  const [byMonthGroup, accounts, lastSync, book] = await Promise.all([
     prisma.$queryRaw<{ month: string; g: string; amount: number }[]>`
       SELECT month, account_group AS g, sum(amount)::float8 AS amount
         FROM onec_pl WHERE side = 'expense' AND month IN (${months[0]}, ${months[1]}, ${months[2]}, ${months[3]}, ${months[4]}, ${months[5]})
@@ -31,6 +39,7 @@ export const GET = withTiming("GET /api/dashboard/expenses", async (req: Request
         FROM onec_pl WHERE side = 'expense' AND month = ${month}
        GROUP BY account, account_group ORDER BY sum(amount) DESC LIMIT 300`,
     lastSuccess(["sales", "pl"]),
+    accountBook(month),
   ]);
 
   // Нэг бүлэг (дэлгэцийн нэрээр) руу нэгтгэнэ: техникийн код хэзээ ч гарахгүй
@@ -66,7 +75,8 @@ export const GET = withTiming("GET /api/dashboard/expenses", async (req: Request
       groups,
       seriesGroups,
       months: months.map((m) => ({ month: m, total: round2(total(m)), groups: Object.fromEntries(seriesGroups.map((gr) => [gr, round2(perMonth.get(m)?.get(gr) ?? 0)])) })),
-      accounts: accounts.map((a) => ({ account: a.account, name: a.item, group: expenseGroupLabel(a.g), amount: round2(a.amount), share: cur ? Math.round((a.amount / cur) * 1000) / 10 : 0 })),
+      // name: 1С-ийн дансны НЭР (код нь зөвхөн tooltip-д); дансны төлөвлөгөөнөөс олдохгүй бол Postgres-д хадгалсан нэр
+      accounts: accounts.map((a) => ({ account: a.account, name: book?.byCode.get(shortCode(a.account))?.name || a.item, group: expenseGroupLabel(a.g), amount: round2(a.amount), share: cur ? Math.round((a.amount / cur) * 1000) / 10 : 0 })),
       lastSyncedAt: lastSync?.toISOString() ?? null,
     },
     { headers: { "Cache-Control": "no-store" } }

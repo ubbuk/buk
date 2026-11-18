@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStockTree, effectiveKeeper, leafWarehouses, unknownTitle, type StockRow, type WarehouseRow } from "./stock-tree";
+import { buildStockTree, effectiveKeeper, leafWarehouses, OFF_WAREHOUSE_NAME, type StockRow, type WarehouseRow } from "./stock-tree";
 
 const wh = (id: string, name: string, extra: Partial<WarehouseRow> = {}): WarehouseRow => ({ id, name, onecCode: null, parentId: null, reservable: true, keeperId: null, keeperName: null, ...extra });
 const row = (id: string, code: string, item: string, amount: number, extra: Partial<StockRow> = {}): StockRow => ({
@@ -53,9 +53,9 @@ describe("buildStockTree", () => {
   ];
   const tree = buildStockTree(WAREHOUSES, rows, { includeEmpty: true });
 
-  it("3 түвшин: бүлэг → склад → бараа; бүлгүүд дүнгээр буурна, «ERP-д холбогдоогүй» дараа, «Агуулах тодорхойгүй» хамгийн доор", () => {
-    expect(tree.map((g) => g.name)).toEqual(["Бүлэг Б", "Бүлэг А", "Бэлэн бүтээгдэхүүн", "ERP-д холбогдоогүй склад", "Агуулах тодорхойгүй"]);
-    expect(tree.map((g) => g.kind)).toEqual(["group", "group", "group", "unmapped", "unknown"]);
+  it("3 түвшин: бүлэг → склад → бараа; бүлгүүд дүнгээр буурна, «ERP-д холбогдоогүй» дараа, «Агуулахад хадгалагдаагүй» хамгийн доор", () => {
+    expect(tree.map((g) => g.name)).toEqual(["Бүлэг Б", "Бүлэг А", "Бэлэн бүтээгдэхүүн", "ERP-д холбогдоогүй склад", OFF_WAREHOUSE_NAME]);
+    expect(tree.map((g) => g.kind)).toEqual(["group", "group", "group", "unmapped", "off_warehouse"]);
   });
   it("бүлэг, склад бүрт барааны тоо (давхардалгүй) ба нийт дүн", () => {
     const a = tree.find((g) => g.name === "Бүлэг А")!;
@@ -80,10 +80,10 @@ describe("buildStockTree", () => {
     expect(fin.reservable).toBe(false);
     expect(tree.find((g) => g.name === "Бүлэг А")!.warehouses.every((w) => w.reservable)).toBe(true);
   });
-  it("складын код хоосон мөрүүд тусдаа бүлэг, дансууд нь гарчигт", () => {
-    const unknown = tree.at(-1)!;
-    expect(unknown).toMatchObject({ items: 2, amount: 100, accounts: ["1418"] });
-    expect(unknownTitle(unknown)).toBe("Агуулах тодорхойгүй (1418 данс)");
+  it("агуулахгүй мөрүүд тусдаа бүлэг (хуурамч агуулах биш), дансны нэрс нь бүлэгт", () => {
+    const inUse = tree.at(-1)!;
+    expect(inUse).toMatchObject({ kind: "off_warehouse", name: OFF_WAREHOUSE_NAME, items: 2, amount: 100, accounts: ["1418"] });
+    expect(JSON.stringify(tree)).not.toContain("Агуулах тодорхойгүй");
   });
   it("Warehouse.onecCode-д байхгүй код нууц алдагдахгүй: «ERP-д холбогдоогүй склад»", () => {
     const stray = tree.find((g) => g.kind === "unmapped")!;
@@ -106,9 +106,3 @@ describe("buildStockTree", () => {
   });
 });
 
-describe("unknownTitle", () => {
-  it("дансгүй бол нэр, 3-аас олон бол «…»", () => {
-    expect(unknownTitle({ name: "Агуулах тодорхойгүй", accounts: [] })).toBe("Агуулах тодорхойгүй");
-    expect(unknownTitle({ name: "Агуулах тодорхойгүй", accounts: ["1", "2", "3", "4"] })).toBe("Агуулах тодорхойгүй (1, 2, 3, … данс)");
-  });
-});

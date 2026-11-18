@@ -71,7 +71,10 @@ export function FinanceKpi({
   spark,
   delta,
   deltaCostLike,
+  onClick,
 }: {
+  /** дарвал задлах (жагсаалт руу шилжинэ) */
+  onClick?: () => void;
   label: string;
   value: string | number;
   icon: LucideIcon;
@@ -83,7 +86,22 @@ export function FinanceKpi({
   deltaCostLike?: boolean;
 }) {
   return (
-    <div className={cn("ng-kpi relative min-w-0 overflow-hidden rounded-[17px] border p-4 transition-colors", featured ? "ng-glow-gold border-[rgba(255,213,107,0.55)] bg-[linear-gradient(150deg,#2a2208_0%,#0d1a36_55%,#061229_100%)]" : "border-[rgba(80,140,240,0.4)] bg-[linear-gradient(160deg,#0b1d3f_0%,#061229_100%)] hover:border-[rgba(255,213,107,0.4)]")}>
+    <div
+      {...(onClick
+        ? {
+            role: "button",
+            tabIndex: 0,
+            title: "Дарж задлах",
+            onClick,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            },
+          }
+        : {})}
+      className={cn("ng-kpi relative min-w-0 overflow-hidden rounded-[17px] border p-4 transition-colors", onClick && "focus-ring cursor-pointer", featured ? "ng-glow-gold border-[rgba(255,213,107,0.55)] bg-[linear-gradient(150deg,#2a2208_0%,#0d1a36_55%,#061229_100%)]" : "border-[rgba(80,140,240,0.4)] bg-[linear-gradient(160deg,#0b1d3f_0%,#061229_100%)] hover:border-[rgba(255,213,107,0.4)]")}>
       {featured && spark && <Sparkline values={spark} className="absolute inset-x-0 bottom-0 h-[48%] w-full opacity-80" />}
       {!featured && <Icon aria-hidden strokeWidth={1} className="pointer-events-none absolute -bottom-3 -right-2 size-20 text-[rgba(100,160,255,0.16)]" />}
       <div className="relative flex items-start gap-3 max-sm:flex-col max-sm:gap-2">

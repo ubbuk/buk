@@ -8,6 +8,7 @@ import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
 import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
+import { DocumentList } from "@/components/finance/docs/DocumentList";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { MonthRefreshNote, RefreshButton, useMonthRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth, YearSection } from "@/components/finance/YearSection";
@@ -69,8 +70,8 @@ const groupColumns: DataTableColumn<GroupRow>[] = [
 ];
 
 const accountColumns: DataTableColumn<AccountRow>[] = [
-  { key: "account", header: "Данс", sortable: true, accessor: (r) => r.account, render: (r) => <span className="ng-num text-text">{r.account}</span> },
-  { key: "name", header: "Нэр", sortable: true, accessor: (r) => r.name, render: (r) => r.name || <span className="text-text-muted">—</span> },
+  // дансны КОД биш НЭР (1С-ийн дансны төлөвлөгөөнөөс); код нь зөвхөн tooltip-д
+  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.account}`, render: (r) => <span className="text-text" title={`Данс ${r.account}`}>{r.name || "Нэргүй данс"}</span> },
   { key: "group", header: "Бүлэг", sortable: true, accessor: (r) => r.group, render: (r) => r.group },
   { key: "amount", header: "Дүн", sortable: true, accessor: (r) => r.amount, className: NUM, render: (r) => money(r.amount) },
   { key: "share", header: "Эзлэх хувь", sortable: true, accessor: (r) => r.share, className: NUM, render: (r) => `${formatNumber(r.share, 1)}%` },
@@ -82,6 +83,9 @@ export default function ExpensesPage() {
   const { ym: month, isCurrent, view, year } = useYm();
   const isAdmin = useIsAdmin();
   const [group, setGroup] = useState(ALL);
+  // Дарж задлах: бүлэг -> дансууд -> тухайн данс дээр бичилт хийсэн баримтууд -> баримтын drawer
+  const [account, setAccount] = useState<AccountRow | null>(null);
+  const jump = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const [mode, setMode] = useState<ViewMode>("chart");
   const { data, error, loading, reload } = useFinanceData<ExpensesResponse>(view === "month" ? `/api/dashboard/expenses?month=${month}` : null);
   // Postgres-ээс шууд; 5 минутаас илүү хуучирсан бол ар талд 1С-ээс татаж, дуусмагц дахин ачаална (Борлуулалттай нэг татаалт)
@@ -167,6 +171,11 @@ export default function ExpensesPage() {
                     data={data.groups}
                     columns={groupCols}
                     getRowId={(r) => r.group}
+                    onRowClick={(r) => {
+                      setGroup(r.group);
+                      setAccount(null);
+                      jump("expense-accounts");
+                    }}
                     searchPlaceholder="Бүлэг хайх..."
                   />
                 ) : (
@@ -174,24 +183,43 @@ export default function ExpensesPage() {
                 )}
               </Card>
 
-              <Card>
+              <Card id="expense-accounts">
                 {data ? (
                   <DataTable
                     heading={
                       <>
                         <Receipt className="size-4 text-[#ffd56b]" />
-                        Дансаар
+                        Дансаар · дарвал баримтууд гарна
                       </>
                     }
                     data={accounts}
                     columns={accountCols}
                     getRowId={(r) => `${r.account}|${r.group}`}
+                    onRowClick={(r) => {
+                      setAccount(r);
+                      jump("expense-documents");
+                    }}
                     searchPlaceholder="Данс, нэрээр хайх..."
                   />
                 ) : (
                   <SkeletonTable rows={6} cols={5} />
                 )}
               </Card>
+
+              {account && (
+                <div id="expense-documents" className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-text-muted">Данс:</span>
+                    <span className="font-medium text-text" title={`Данс ${account.account}`}>
+                      {account.name || "Нэргүй данс"}
+                    </span>
+                    <button type="button" onClick={() => setAccount(null)} className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text">
+                      Хаах
+                    </button>
+                  </div>
+                  <DocumentList key={`${account.account}:${month}`} url={`/api/dashboard/documents/account?account=${encodeURIComponent(account.account)}&month=${month}&side=debit`} title="Энэ данс дээр бичилт хийсэн баримтууд" hideWarehouseFilter emptyDescription="Энэ сард энэ дансны дебит талд баримт олдсонгүй." />
+                </div>
+              )}
             </>
           )}
         </>

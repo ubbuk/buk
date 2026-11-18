@@ -12,6 +12,7 @@ import { SegmentedTabs, ViewToggle, type ViewMode } from "@/components/finance/N
 import { RankedRows, type RankedRow } from "@/components/finance/RankedRows";
 import { KeeperLabel } from "@/components/finance/StockTree";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
+import { useDocDrawer } from "@/components/finance/docs/DocDrawer";
 import { RefreshButton, todayUb } from "@/components/finance/useOnecRefresh";
 import { useUrlFilters } from "@/components/finance/useUrlFilters";
 import { YmPicker, useYm } from "@/components/finance/useYm";
@@ -32,6 +33,13 @@ interface UsageResponse {
   comparison: UsageComparison | null;
   documents: UsageDocument[];
   meta: OdataMeta;
+}
+
+/** Дарж задлах бүлэг (хэлтэс эсвэл агуулах): шаардах хуудасны жагсаалтыг шүүнэ */
+interface Focus {
+  kind: "dept" | "warehouse";
+  key: string;
+  label: string;
 }
 
 const documentColumns: DataTableColumn<UsageDocument>[] = [
@@ -71,6 +79,19 @@ export default function UsagePage() {
   const [mode, setMode] = useState<ViewMode>("chart");
   const empty = data && data.documents.length === 0;
   const cmp = data?.comparison ?? null;
+  const { openDoc, openItem } = useDocDrawer();
+  const [focus, setFocus] = useState<Focus | null>(null);
+  // Мөр дарахад: материал -> барааны түүх; хэлтэс, агуулах -> тэр бүлгийн шаардах хуудасны жагсаалт (доор)
+  const select = (row: RankedRow) => {
+    if (tab === "material") return openItem({ key: row.key, name: row.name });
+    setFocus({ kind: tab, key: row.key, label: row.name });
+    requestAnimationFrame(() => document.getElementById("usage-documents")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const documents = useMemo(() => {
+    if (!data) return [];
+    if (!focus) return data.documents;
+    return data.documents.filter((d) => (focus.kind === "dept" ? d.department === focus.key : focus.key.startsWith("name:") ? d.warehouse === focus.label : d.warehouseCode === focus.key));
+  }, [data, focus]);
 
   const spark = useMemo(() => {
     let acc = 0;
@@ -209,7 +230,8 @@ export default function UsagePage() {
             </section>
           </div>
 
-          <SegmentedTabs label="Зарцуулалтын харагдац" value={tab} onChange={(v) => f.set("tab", v === "material" ? "" : v)} tabs={tabs} />
+          <SegmentedTabs label="Зарцуулалтын харагдац" value={tab} onChange={(v) => { setFocus(null); f.set("tab", v === "material" ? "" : v); }} tabs={tabs} />
+          <p className="px-1 text-xs text-text-muted">Мөр дээр дарж задлана: материал → түүх, хэлтэс/агуулах → шаардах хуудас → баримт.</p>
 
           <section className="uc-card uc-ranked">
             <div className="uc-ranked-bar">
@@ -224,10 +246,20 @@ export default function UsagePage() {
                 </button>
               )}
             </div>
-            {data ? <RankedRows key={tab} rows={rows} query={f.q} /> : <SkeletonTable rows={6} cols={4} />}
+            {data ? <RankedRows key={tab} rows={rows} query={f.q} onSelect={select} /> : <SkeletonTable rows={6} cols={4} />}
           </section>
 
-          <section className="uc-card">
+          <section className="uc-card" id="usage-documents">
+            {focus && (
+              <div className="flex flex-wrap items-center gap-2 px-4 pt-3 text-sm">
+                <span className="text-text-muted">{focus.kind === "dept" ? "Хэлтэс, цех" : "Агуулах"}:</span>
+                <span className="font-medium text-text">{focus.label}</span>
+                <button type="button" onClick={() => setFocus(null)} className="uc-clear focus-ring">
+                  <X className="size-4" aria-hidden />
+                  Шүүлт арилгах
+                </button>
+              </div>
+            )}
             {data ? (
               <PagedTable
                 heading={
@@ -236,9 +268,10 @@ export default function UsagePage() {
                     Шаардах хуудасны жагсаалт
                   </>
                 }
-                data={data.documents}
+                data={documents}
                 columns={documentColumns}
                 getRowId={(r) => r.id}
+                onRowClick={(r) => openDoc("ТребованиеНакладная", r.id)}
                 searchPlaceholder="Дугаар, хэлтэс, зориулалтаар хайх..."
               />
             ) : (

@@ -25,7 +25,7 @@ const sum = (rows: { amount: number }[]) => rows.reduce((s, r) => s + r.amount, 
 const BIG = rowsOf("00-BIG", 120);
 const SMALL = rowsOf("00-SMALL", 3);
 const FIN = rowsOf("00-FIN", 2);
-const BLANK = rowsOf("", 4).map((r) => ({ ...r, account: "1418", warehouse_code: "" }));
+const BLANK = rowsOf("", 4).map((r) => ({ ...r, account: "Ашиглалтанд буй багаж хэрэгсэл", warehouse_code: "" }));
 
 const w = (key: string, name: string, keeper: { id: string; name: string } | null, rows: typeof BIG, reservable = true) => ({ key, name, keeper, reservable, items: rows.length, amount: sum(rows), rows });
 const KEEPER = { id: "k1", name: "Тест Нярав" };
@@ -36,7 +36,7 @@ const RESPONSE = {
   groups: [
     { key: "g1", name: "Бүлэг нэг", kind: "group", keeper: KEEPER, items: 123, amount: sum(BIG) + sum(SMALL), accounts: [], warehouses: [w("00-BIG", "Олон мөртэй склад", KEEPER, BIG), w("00-SMALL", "Жижиг склад", KEEPER, SMALL)] },
     { key: "g2", name: "Бэлэн бүтээгдэхүүн (нөөцлөхгүй)", kind: "group", keeper: null, items: 2, amount: sum(FIN), accounts: [], warehouses: [w("00-FIN", "Бэлэн бүтээгдэхүүний склад", null, FIN, false)] },
-    { key: "none", name: "Агуулах тодорхойгүй", kind: "unknown", keeper: null, items: 4, amount: sum(BLANK), accounts: ["1418"], warehouses: [w("none", "Агуулах тодорхойгүй", null, BLANK)] },
+    { key: "off-warehouse", name: "Агуулахад хадгалагдаагүй үлдэгдэл", kind: "off_warehouse", keeper: null, items: 4, amount: sum(BLANK), accounts: ["Ашиглалтанд буй багаж хэрэгсэл"], warehouses: [w("acct:1418.02", "Ашиглалтанд буй багаж хэрэгсэл", null, BLANK)] },
   ],
   filters: {
     keepers: [KEEPER],
@@ -46,10 +46,11 @@ const RESPONSE = {
       { code: "00-SMALL", name: "Жижиг склад", group: "Бүлэг нэг" },
       { code: "00-FIN", name: "Бэлэн бүтээгдэхүүний склад", group: "Бэлэн бүтээгдэхүүн (нөөцлөхгүй)" },
     ],
-    hasUnknown: true,
+    hasOffWarehouse: true,
   },
-  truncated: false,
+  reconciliation: { balance: 0, table: 0, difference: 0, wip: 0 },
   lastSyncedAt: "2026-11-16T05:00:00.000Z",
+  meta: { fetchedAt: "2026-11-16T05:00:00.000Z", cached: false, stale: false, retryAfterSeconds: null },
 };
 
 /** API-г хуурамчаар хариулж, хүсэлтийн URL-уудыг цуглуулна; 1С-ийн шинэчлэлтийг (POST refresh) «саяхан» гэж хаана */
@@ -77,8 +78,9 @@ test("анхдагчаар бүгд хураастай; бүлэг → скла�
   const groups = page.getByTestId("stock-group");
   await expect(groups).toHaveCount(3);
   await expect(page.getByTestId("stock-warehouse")).toHaveCount(0); // хураастай
-  await expect(groups.last()).toContainText("Агуулах тодорхойгүй (1418 данс)");
-  await expect(groups.last()).toHaveAttribute("data-kind", "unknown");
+  await expect(groups.last()).toContainText("Агуулахад хадгалагдаагүй үлдэгдэл");
+  await expect(groups.last()).not.toContainText("Агуулах тодорхойгүй");
+  await expect(groups.last()).toHaveAttribute("data-kind", "off_warehouse");
 
   // бүлэг бүрт барааны тоо, дүн, нярав (нэр өгөгдлөөс); оноогоогүй бол «Нярав оноогоогүй»
   await expect(groups.first()).toContainText("Бүлэг нэг");

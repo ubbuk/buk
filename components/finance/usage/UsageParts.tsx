@@ -112,7 +112,7 @@ function pageList(page: number, count: number): (number | null)[] {
  * Хайлт, эрэмбэлэлттэй хүснэгт + клиент талын хуудаслалт (10 / 15 / 20). `DataTable`-тэй ижил хайлт, эрэмбийн дүрэм; хуудаслалт нь
  * хайлт, эрэмбийн ДАРАА бүх мөр дээр ажиллана: мөр хаяхгүй. Нарийн дэлгэц дээр хүснэгт хэвтээ гүйнэ.
  */
-export function PagedTable<T>({ data, columns, getRowId, heading, searchPlaceholder = "Хайх...", emptyTitle = "Өгөгдөл олдсонгүй", unit = "баримт" }: { data: T[]; columns: DataTableColumn<T>[]; getRowId: (row: T) => string; heading?: React.ReactNode; searchPlaceholder?: string; emptyTitle?: string; unit?: string }) {
+export function PagedTable<T>({ data, columns, getRowId, heading, searchPlaceholder = "Хайх...", emptyTitle = "Өгөгдөл олдсонгүй", unit = "баримт", onRowClick }: { data: T[]; columns: DataTableColumn<T>[]; getRowId: (row: T) => string; heading?: React.ReactNode; searchPlaceholder?: string; emptyTitle?: string; unit?: string; /** мөр дарахад (баримтын drawer) */ onRowClick?: (row: T) => void }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -218,7 +218,20 @@ export function PagedTable<T>({ data, columns, getRowId, heading, searchPlacehol
             </thead>
             <tbody>
               {visible.map((row) => (
-                <tr key={getRowId(row)}>
+                <tr
+                  key={getRowId(row)}
+                  {...(onRowClick
+                    ? {
+                        tabIndex: 0,
+                        title: "Баримтыг нээх",
+                        style: { cursor: "pointer" },
+                        onClick: () => onRowClick(row),
+                        onKeyDown: (e: React.KeyboardEvent) => {
+                          if (e.key === "Enter") onRowClick(row);
+                        },
+                      }
+                    : {})}
+                >
                   {columns.map((col) => (
                     <td key={col.key} className={col.className}>
                       {col.render(row)}

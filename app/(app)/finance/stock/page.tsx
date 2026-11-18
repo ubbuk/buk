@@ -1,35 +1,38 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Boxes, Factory, Package, Search, UserRound, Warehouse, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
+import { DocumentList } from "@/components/finance/docs/DocumentList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
-import { ErrorNote, FinanceShell, connectionFrom, money } from "@/components/finance/FinanceShell";
+import { ErrorNote, FinanceShell, money } from "@/components/finance/FinanceShell";
 import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, type ViewMode } from "@/components/finance/NgParts";
 import { StockTree } from "@/components/finance/StockTree";
-import { useFinanceData } from "@/components/finance/useFinanceData";
 import { useUrlFilters } from "@/components/finance/useUrlFilters";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
-import { RefreshButton, StockRefreshNote, useStockRefresh } from "@/components/finance/useOnecRefresh";
-import { MissingMonth } from "@/components/finance/YearSection";
-import { useIsAdmin, useYm } from "@/components/finance/useYm";
+import { RefreshButton } from "@/components/finance/useOnecRefresh";
+import { useYm } from "@/components/finance/useYm";
 import { asOfDate, monthRange } from "@/lib/onec/dates";
+import { MOVEMENT_KINDS } from "@/lib/onec/doc-kinds";
 import { canViewTab } from "@/lib/onec/roles";
-import { UNKNOWN_WAREHOUSE_KEY, type KeeperRef, type StockGroupNode } from "@/lib/onec/stock-tree";
+import { OFF_WAREHOUSE_KEY, OFF_WAREHOUSE_NAME, type KeeperRef, type StockGroupNode } from "@/lib/onec/stock-tree";
+import type { StockReconciliation } from "@/lib/onec/stock-live";
 import type { WipResult } from "@/lib/onec/wip";
 import { formatNumber } from "@/lib/utils";
 
 interface StockResponse {
-  date: string | null;
-  totals: { items: number; warehouses: number; amount: number; negative_rows: number } | null;
+  date: string;
+  totals: { items: number; warehouses: number; amount: number; negative_rows: number };
   groups: StockGroupNode[];
   /** шүүлтийн сонголтууд: идэвхтэй шүүлтээс хамаарахгүй */
-  filters: { keepers: KeeperRef[]; hasUnassigned: boolean; warehouses: { code: string; name: string; group: string }[]; hasUnknown: boolean };
-  truncated: boolean;
+  filters: { keepers: KeeperRef[]; hasUnassigned: boolean; warehouses: { code: string; name: string; group: string }[]; hasOffWarehouse: boolean };
+  /** хүснэгтийн нийт = 1С-ийн 14xx дансны Balance (142x-гүй) эсэх */
+  reconciliation: StockReconciliation;
   lastSyncedAt: string | null;
+  meta: OdataMeta;
 }
 
 /**
@@ -51,7 +54,6 @@ function WipCard({ month }: { month: string }) {
   );
 }
 
-const UNKNOWN_WAREHOUSE = "Агуулах тодорхойгүй";
 // «нярав оноогоогүй» шүүлтийн утга (API-тай ижил)
 const NO_KEEPER = "none";
 
@@ -64,7 +66,6 @@ function useStockFilters() {
 export default function StockPage() {
   // Сонгосон сарын эцсийн өдрийн үлдэгдэл; одоогийн сар бол хамгийн сүүлийн (өнөөдрийн) агшин зураг
   const { ym, isCurrent } = useYm();
-  const isAdmin = useIsAdmin();
   const showWip = canViewTab(useSession().data?.user?.role, "sales"); // нярав харахгүй (нягтлан бодох бүртгэлийн дүн)
   const f = useStockFilters();
   const [mode, setMode] = useState<ViewMode>("chart");
@@ -73,12 +74,12 @@ export default function StockPage() {
   if (f.q) params.set("q", f.q);
   if (f.keeper) params.set("keeper", f.keeper);
   if (f.wh) params.set("warehouse", f.wh);
-  const { data, error, loading, reload } = useFinanceData<StockResponse>(`/api/dashboard/stock?${params}`);
-  // Хуудас нээгдэх бүрд 1С-ээс шууд татна (сервер 1 минутад ганц удаа). Хуудас эхлээд Postgres-ийн өгөгдлөөр нээгдэнэ.
-  const refresh = useStockRefresh(reload, ym);
-  const canRefresh = isCurrent || isAdmin; // өнгөрсөн сарын эцсийн үлдэгдлийг зөвхөн админ татна
-  const noData = data && !f.active && (data.date === null || (data.totals?.items ?? 0) === 0);
+  // 1С-ийн 14xx дансны Balance-аас шууд (5 минутын cache); «Шинэчлэх» нь cache-ийг тойрно, гэхдээ 60 сек тутамд
+  const { data, error, loading, retryAt, refresh } = useOdataData<StockResponse>(`/api/dashboard/stock?${params}`);
+  const noData = data && !f.active && data.totals.items === 0;
   const filters = data?.filters;
+  const selectedWarehouse = f.wh === OFF_WAREHOUSE_KEY ? OFF_WAREHOUSE_NAME : (filters?.warehouses.find((w) => w.code === f.wh)?.name ?? "");
+  const diff = data ? Math.abs(data.reconciliation.difference) : 0;
   // склад бүрийн дүн (мод дахь дүнгээр), хамгийн их 14
   const warehouseBars = (data?.groups ?? [])
     .flatMap((g) => g.warehouses)
@@ -92,10 +93,9 @@ export default function StockPage() {
       title="Агуулах"
       subtitle={`1С-ээс татсан агуулахын үлдэгдэл · ${asOfDate(ym)}-ны байдлаар`}
       icon={Package}
-      connection={connectionFrom(data?.lastSyncedAt, refresh.phase === "offline")}
-      lastSyncedAt={data?.lastSyncedAt}
-      notice={<StockRefreshNote phase={refresh.phase} lastSyncedAt={refresh.lastSyncedAt ?? data?.lastSyncedAt ?? null} />}
-      refresh={canRefresh ? <RefreshButton busy={refresh.phase === "refreshing"} retryAt={refresh.retryAt} onClick={refresh.refresh} /> : undefined}
+      connection={error || data?.meta.stale ? "offline" : data ? "ok" : null}
+      lastSyncedAt={data?.meta.fetchedAt}
+      refresh={<RefreshButton busy={loading} retryAt={retryAt} onClick={refresh} />}
       controls={
         <>
           <label className="ng-panel relative flex h-10 min-w-0 flex-1 basis-56 items-center gap-2 rounded-xl px-3 text-sm text-text max-sm:basis-full">
@@ -124,7 +124,7 @@ export default function StockPage() {
             options={[
               { value: "", label: "Бүх склад" },
               ...(filters?.warehouses ?? []).map((w) => ({ value: w.code, label: w.group ? `${w.group} · ${w.name}` : w.name })),
-              ...(filters?.hasUnknown ? [{ value: UNKNOWN_WAREHOUSE_KEY, label: UNKNOWN_WAREHOUSE }] : []),
+              ...(filters?.hasOffWarehouse ? [{ value: OFF_WAREHOUSE_KEY, label: OFF_WAREHOUSE_NAME }] : []),
             ]}
           />
           {f.active && (
@@ -137,10 +137,13 @@ export default function StockPage() {
       }
       trailing={<ViewToggle value={mode} onChange={setMode} />}
     >
-      {error && <ErrorNote message={error} />}
+      {error && <ErrorNote message={data ? `${error}. Сүүлд татсан өгөгдлийг харуулж байна.` : error} />}
+      {data?.meta.stale && <ErrorNote message="1С холбогдохгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
 
       {noData ? (
-        <MissingMonth busy={refresh.phase === "refreshing"} onLoad={refresh.refresh} />
+        <Card>
+          <EmptyState title="Энэ өдрийн агуулахын үлдэгдэл алга" description="Дээрээс өөр сар сонгоно уу." />
+        </Card>
       ) : (
         <>
           <div className={`grid grid-cols-2 gap-3 ${showWip ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
@@ -148,9 +151,16 @@ export default function StockPage() {
               Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
             ) : data?.totals ? (
               <>
-                <KpiCard featured label={f.active ? "Шүүсэн үлдэгдлийн дүн" : "Нийт үлдэгдлийн дүн"} value={money(data.totals.amount)} icon={Boxes} tone="accent" hint={data.date ? `${data.date}-ны байдлаар` : undefined} />
+                <KpiCard
+                  featured
+                  label={f.active ? (selectedWarehouse ? `${selectedWarehouse}: үлдэгдлийн дүн` : "Шүүсэн үлдэгдлийн дүн") : "Нийт үлдэгдлийн дүн"}
+                  value={money(data.totals.amount)}
+                  icon={Boxes}
+                  tone="accent"
+                  hint={f.active ? `${data.date}-ны байдлаар` : diff < 0.5 ? `${data.date}-ны байдлаар · 1С-ийн дансны үлдэгдэлтэй таарсан` : `Дансны үлдэгдэлтэй ${money(data.reconciliation.difference)} зөрүүтэй`}
+                />
                 <KpiCard label="Барааны тоо" value={formatNumber(data.totals.items, 0)} icon={Package} />
-                <KpiCard label="Агуулахын тоо" value={data.totals.warehouses ? formatNumber(data.totals.warehouses, 0) : UNKNOWN_WAREHOUSE} icon={Warehouse} />
+                <KpiCard label="Агуулахын тоо" value={formatNumber(data.totals.warehouses, 0)} icon={Warehouse} />
                 <KpiCard label="Хасах үлдэгдэлтэй мөр" value={formatNumber(data.totals.negative_rows, 0)} icon={AlertTriangle} tone={data.totals.negative_rows ? "danger" : "success"} />
               </>
             ) : null}
@@ -179,7 +189,11 @@ export default function StockPage() {
                 <Boxes className="size-4 text-[#ffd56b]" />
                 Бараа материалын үлдэгдэл
               </CardTitle>
-              {data?.truncated && <span className="text-xs text-warning">Мөр хэт олон тул зөвхөн хамгийн их дүнтэйг харуулав: шүүлт хэрэглэнэ үү</span>}
+              {data && selectedWarehouse && (
+                <span className="ng-num text-xs text-text-muted">
+                  {selectedWarehouse} · {formatNumber(data.totals.items, 0)} бараа · {money(data.totals.amount)}
+                </span>
+              )}
             </CardHeader>
             {!data ? (
               <SkeletonTable rows={8} cols={5} />
@@ -189,6 +203,16 @@ export default function StockPage() {
               <StockTree groups={data.groups} expandAll={Boolean(f.q)} />
             )}
           </Card>
+
+          {/* Хөдөлгөөн: орлого, зарлага (шаардах хуудас, хасалт, борлуулалт), шилжүүлэг. Дээрх «Склад» шүүлтийг дагана; баримт дарвал drawer */}
+          <DocumentList
+            key={ym}
+            url={`/api/dashboard/documents?from=${monthRange(ym).from}&to=${monthRange(ym).to}&kinds=${MOVEMENT_KINDS.join(",")}`}
+            title="Хөдөлгөөн: орлого, зарлага, шилжүүлэг"
+            icon={<ArrowLeftRight className="size-4 text-[#ffd56b]" />}
+            warehouseCode={f.wh && f.wh !== OFF_WAREHOUSE_KEY ? f.wh : undefined}
+            emptyDescription="Энэ сард (сонгосон агуулахад) агуулахын баримт олдсонгүй."
+          />
         </>
       )}
     </FinanceShell>

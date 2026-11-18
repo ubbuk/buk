@@ -19,9 +19,23 @@ export interface RankedRow {
 /** Анхны (дүнгээр буурах) эрэмбийн дугаар: хайлт, хураалтад хамаарахгүй */
 const TOP = 10;
 
-function Row({ row, rank, share }: { row: RankedRow; rank: number; share: number }) {
+function Row({ row, rank, share, onSelect }: { row: RankedRow; rank: number; share: number; onSelect?: (row: RankedRow) => void }) {
+  const click = onSelect
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        title: "Дарж задлах",
+        onClick: () => onSelect(row),
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect(row);
+          }
+        },
+      }
+    : {};
   return (
-    <li data-testid="ranked-row" className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 border-t border-border/60 px-4 py-3 first:border-t-0">
+    <li data-testid="ranked-row" {...click} className={cn("grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 border-t border-border/60 px-4 py-3 first:border-t-0", onSelect && "focus-ring cursor-pointer transition-colors hover:bg-white/[0.04]")}>
       <RankBadge n={rank} />
       <div className="min-w-0">
         <p className="font-medium text-text [overflow-wrap:anywhere]">{row.name}</p>
@@ -44,7 +58,7 @@ function Row({ row, rank, share }: { row: RankedRow; rank: number; share: number
  * Мөр бүрт нийтийн хувь, жижиг баганан график. `query` өгвөл БҮХ мөрөөс хайж, таарсныг (эрэмбийн дугаараа хадгалан) бүгдийг нь харуулна.
  * Хувь = мөрийн дүн / бүх мөрийн дүнгийн нийлбэр (хайлтад хамаарахгүй).
  */
-export function RankedRows({ rows, query = "", emptyText = "Хайлтад тохирох мөр олдсонгүй" }: { rows: RankedRow[]; query?: string; emptyText?: string }) {
+export function RankedRows({ rows, query = "", emptyText = "Хайлтад тохирох мөр олдсонгүй", onSelect }: { rows: RankedRow[]; query?: string; emptyText?: string; /** мөр дарахад (дарж задлах) */ onSelect?: (row: RankedRow) => void }) {
   const [restOpen, setRestOpen] = useState(false);
   const [shown, setShown] = useState(PAGE_SIZE);
   const ranked = [...rows].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "mn")).map((r, i) => ({ r, rank: i + 1 }));
@@ -62,7 +76,7 @@ export function RankedRows({ rows, query = "", emptyText = "Хайлтад то�
         </p>
         <ul>
           {matches.slice(0, shown).map(({ r, rank }) => (
-            <Row key={r.key} row={r} rank={rank} share={share(r.amount)} />
+            <Row key={r.key} row={r} rank={rank} share={share(r.amount)} onSelect={onSelect} />
           ))}
         </ul>
         {matches.length > shown && <ShowMore remaining={matches.length - shown} onClick={() => setShown((n) => n + PAGE_SIZE)} />}
@@ -77,7 +91,7 @@ export function RankedRows({ rows, query = "", emptyText = "Хайлтад то�
     <div data-testid="ranked-rows">
       <ul>
         {top.map(({ r, rank }) => (
-          <Row key={r.key} row={r} rank={rank} share={share(r.amount)} />
+          <Row key={r.key} row={r} rank={rank} share={share(r.amount)} onSelect={onSelect} />
         ))}
       </ul>
       {rest.length > 0 && (
@@ -94,7 +108,7 @@ export function RankedRows({ rows, query = "", emptyText = "Хайлтад то�
             <div id="ranked-rest-rows">
               <ul>
                 {rest.slice(0, shown).map(({ r, rank }) => (
-                  <Row key={r.key} row={r} rank={rank} share={share(r.amount)} />
+                  <Row key={r.key} row={r} rank={rank} share={share(r.amount)} onSelect={onSelect} />
                 ))}
               </ul>
               {rest.length > shown && <ShowMore remaining={rest.length - shown} onClick={() => setShown((n) => n + PAGE_SIZE)} />}

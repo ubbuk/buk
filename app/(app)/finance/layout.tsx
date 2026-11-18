@@ -1,12 +1,11 @@
 import { Suspense } from "react";
-import { JetBrains_Mono } from "next/font/google";
+import { DocDrawerProvider } from "@/components/finance/docs/DocDrawer";
 import { FactoryBanner } from "@/components/finance/FactoryBanner";
+import { mono } from "@/components/finance/fonts";
 import { OneCHealthBanner } from "@/components/finance/OneCHealthBanner";
 import { StaleDataBanner } from "@/components/finance/StaleDataBanner";
 
-// Тоонд JetBrains Mono (Cyrillic); бусад үсэг нь Inter (app/layout.tsx). «Navy Gold» загвар: .ng (app/globals.css).
-const mono = JetBrains_Mono({ subsets: ["latin", "cyrillic"], variable: "--font-mono-num", display: "swap" });
-
+// Тоонд JetBrains Mono (components/finance/fonts.ts); бусад үсэг нь Inter (app/layout.tsx). «Navy Gold» загвар: .ng (app/globals.css).
 // useSearchParams (?ym=) ашигладаг табуудыг Suspense-ээр боож, хуудас бүтнээрээ статик болохоос сэргийлнэ
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +13,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
       <Suspense fallback={null}>
         <OneCHealthBanner />
         <StaleDataBanner />
-        {children}
+        <DocDrawerProvider>{children}</DocDrawerProvider>
       </Suspense>
       <FactoryBanner />
     </div>

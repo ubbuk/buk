@@ -8,6 +8,7 @@
 //  * Balance(Period) - эхний (сарын 1-ний 00:00:00) ба эцсийн (дараа өдрийн 00:00:00, lib/onec/dates.ts balanceBoundary) үлдэгдэл.
 //    Эхний үлдэгдэл + орлого - зарлага ± шилжүүлэг = эцсийн үлдэгдэл гэж тулгана (scripts/onec-cash-check.ts нь 1С-ийн Turnovers-тай мөн тулгана).
 // Данс бүр: банкны данс (ExtDimension Catalog_БанковскиеСчета) тус тусдаа, байхгүй бол дансны кодоор.
+import { entityOfRecorderType } from "./doc-kinds";
 import { cachedLoad, type CacheMeta } from "./odata-cache";
 import { asOfDate, balanceBoundary, monthRange } from "./dates";
 import { withOneCYear, yearOf } from "./year-context";
@@ -41,7 +42,11 @@ export interface CashEntry {
   /** мөнгөн гүйлгээний зүйл */
   article: string;
   memo: string;
+  /** баримтын төрлийн нэр (Банкны орлого г.м.) */
   document: string;
+  /** баримтыг нээхийн тулд: 1С-ийн баримтын нэр (Document_ угтваргүй) ба GUID */
+  docType: string;
+  ref: string;
   amount: number;
 }
 export interface CashAccount {
@@ -162,7 +167,7 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     const date = String(r.Period ?? "").slice(0, 10);
     const id = `${String(r.Recorder ?? "")}:${String(r.LineNumber ?? "")}`;
     const article = (names.flows.get(dim(r, dr ? "ExtDimensionDr" : "ExtDimensionCr", FLOW) ?? "") ?? "") || "";
-    const base = { id, date, article, memo: String(r["Содержание"] ?? "").trim(), document: documentLabel(r.Recorder_Type), amount: round2(amount) };
+    const base = { id, date, article, memo: String(r["Содержание"] ?? "").trim(), document: documentLabel(r.Recorder_Type), docType: entityOfRecorderType(r.Recorder_Type), ref: lower(r.Recorder), amount: round2(amount) };
 
     if (dr && cr) {
       const to = keyOf(dr, dim(r, "ExtDimensionDr", BANK));
