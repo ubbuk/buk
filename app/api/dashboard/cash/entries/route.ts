@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
-import { CATEGORY_LABEL, isCategoryId } from "@/lib/onec/cash-categories";
+import { categoryLabel, isCategoryId } from "@/lib/onec/cash-categories";
 import { filterEntries, paginate, withCategories, type ReportEntry } from "@/lib/onec/cash-report";
 import { loadCashRules } from "@/lib/onec/cash-rules-store";
 import { currentMonth, isMonth } from "@/lib/onec/dates";
@@ -69,7 +69,7 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
           article: e.article,
           amount: e.amount,
           category: e.category,
-          categoryLabel: CATEGORY_LABEL[e.category],
+          categoryLabel: categoryLabel(e.category, e.type),
           payroll: e.payroll === true,
           // хамгийн доод drill-down: нягтлангийн лавлагаа (цалингийн нэгтгэсэн мөрөнд байхгүй)
           accounting: e.payroll && !canSeePayroll ? null : { document: e.document, documentNumber: numbers.get(e.ref) ?? null, account: e.counterAccount ?? "", accountName: e.counterAccountName ?? "" },

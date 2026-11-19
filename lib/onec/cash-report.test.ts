@@ -53,6 +53,7 @@ describe("buildCashReport: ангилал, харилцагчаар задрал
       ["other", 200],
     ]);
     expect(report.inflow.categories[0].share).toBeCloseTo(0.8);
+    expect(report.inflow.categories[0].label).toBe("Борлуулалтын орлого");
     expect(report.otherShare.inflow).toBeCloseTo(0.2);
   });
 
@@ -69,6 +70,14 @@ describe("buildCashReport: ангилал, харилцагчаар задрал
   it("дотоод шилжүүлэг тусад нь, орлого зарлагад орохгүй", () => {
     expect(report.internal).toMatchObject({ total: 1_000_000, count: 1 });
     expect(report.inflow.total + report.outflow.total).toBe(1950);
+  });
+
+  it("орж ирсэн «Нийлүүлэгчид» нь «Нийлүүлэгчээс буцаан авсан», гарсан талд хэвээр", () => {
+    const e2 = [entry({ type: "inflow", counterpart: "Эпсилон", counterAccount: "1501", amount: 400 }), entry({ counterpart: "Бета ХХК", amount: 100 })];
+    const r = buildCashReport(cash(e2), withCategories(e2, [], true));
+    expect(r.inflow.categories[0]).toMatchObject({ id: "suppliers", label: "Нийлүүлэгчээс буцаан авсан" });
+    expect(r.outflow.categories[0]).toMatchObject({ id: "suppliers", label: "Нийлүүлэгчид" });
+    expect(filterEntries(withCategories(e2, [], true), { q: "буцаан авсан" })).toHaveLength(1); // нэрээр хайж олдоно
   });
 
   it("8-аас олон харилцагчийг «бусад N харилцагч» болгоно", () => {

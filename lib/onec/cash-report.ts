@@ -3,7 +3,7 @@
 // Цалингийн нууцлал: canViewPayroll-гүй хүнд цалингийн дансны бичилтийн харилцагч, утга нэг «Цалин олголт (нэгтгэсэн)» болно (нийт
 // дүн, ангилал өөрчлөгдөхгүй), нэгтгэсэн мөрөнд баримт, данс байхгүй.
 import type { CashEntry, CashResult } from "./cash";
-import { categorize, CATEGORY_LABEL, type CashRule, type CategoryId } from "./cash-categories";
+import { categorize, categoryLabel, type CashRule, type CategoryId } from "./cash-categories";
 import { PAYROLL_LABEL } from "./payroll-guard";
 
 export interface ReportEntry extends CashEntry {
@@ -101,7 +101,7 @@ function flowReport(entries: readonly ReportEntry[], type: "inflow" | "outflow")
       const rest = sorted.slice(PARTIES_SHOWN);
       return {
         id,
-        label: CATEGORY_LABEL[id],
+        label: categoryLabel(id, type),
         total: round2(c.total),
         share: total > 0 ? c.total / total : 0,
         count: c.count,
@@ -183,7 +183,7 @@ export interface EntryFilter {
   account?: string;
 }
 
-const hay = (e: ReportEntry) => `${e.counterpart} ${e.memo} ${e.article} ${e.document} ${e.account} ${CATEGORY_LABEL[e.category]}`.normalize("NFKC").toLowerCase();
+const hay = (e: ReportEntry) => `${e.counterpart} ${e.memo} ${e.article} ${e.document} ${e.account} ${categoryLabel(e.category, e.type)}`.normalize("NFKC").toLowerCase();
 
 export function filterEntries(entries: readonly ReportEntry[], f: EntryFilter): ReportEntry[] {
   const q = f.q?.trim() ? parseQuery(f.q) : null;

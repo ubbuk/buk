@@ -21,6 +21,10 @@ export const CATEGORY_LABEL: Record<CategoryId, string> = {
   other: "Бусад",
 };
 
+/** Ангиллын нэр чиглэлээр: орж ирсэн «Нийлүүлэгчид» нь буцаалт (урьдчилж төлсөн мөнгө буцаж ирсэн) тул өөр нэртэй. */
+export const categoryLabel = (id: CategoryId, flow: "inflow" | "outflow" | "internal"): string =>
+  id === "suppliers" && flow === "inflow" ? "Нийлүүлэгчээс буцаан авсан" : CATEGORY_LABEL[id];
+
 export const isCategoryId = (v: unknown): v is CategoryId => typeof v === "string" && (CATEGORY_IDS as readonly string[]).includes(v);
 
 export const RULE_FIELDS = ["ACCOUNT", "ACCOUNT_NAME", "PARTY", "MEMO", "ARTICLE"] as const;
