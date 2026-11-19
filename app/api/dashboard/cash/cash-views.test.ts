@@ -176,6 +176,54 @@ describe("/api/dashboard/cash/entries", () => {
   });
 });
 
+describe("шимтгэлийг үндсэн гүйлгээтэй холбох (report, entries)", () => {
+  const list = async (qs: string) => (await ENTRIES(get(`/api/dashboard/cash/entries?month=${month}&${qs}`))).json();
+  const feeCash = () => {
+    const cash = makeCash();
+    cash.entries = [
+      entry({ id: "main", time: "15:32:49", counterpart: "ZHONGZHI TRADE", memo: "154973.3 CNY НИЙТ ҮНЭ", amount: 84_073_015.25 }),
+      entry({ id: "f1", time: "15:33:23", counterpart: "Удирдлагын зардал", counterAccount: "7000", article: "Банкны шимтгэл", memo: "Гадаад гүйлгээний шимтгэл", amount: 20_000 }),
+      entry({ id: "f2", time: "15:33:35", counterpart: "Удирдлагын зардал", counterAccount: "7000", article: "Банкны шимтгэл", memo: "Гадаад гүйлгээний шимтгэл", amount: 27_016.5 }),
+      entry({ id: "f3", time: "09:00:00", counterpart: "Удирдлагын зардал", counterAccount: "7000", article: "Банкны шимтгэл", memo: "данс хөтөлсний хураамж", amount: 800 }),
+    ];
+    return cash;
+  };
+
+  it("report: гадаад гүйлгээний шимтгэл, холбогдсон/холбогдоогүй, аль төлбөрт хамаарах; ангиллын нийлбэр өөрчлөгдөөгүй", async () => {
+    fixture.current = feeCash();
+    as("director");
+    const r = await (await REPORT(get(`/api/dashboard/cash/report?month=${month}`))).json();
+    expect(r.fees.foreign).toEqual({ count: 2, total: 47_016.5 });
+    expect(r.fees.linked).toEqual({ count: 2, total: 47_016.5 });
+    expect(r.fees.unlinked).toEqual({ count: 1, total: 800 });
+    expect(r.fees.byMain).toEqual([expect.objectContaining({ counterpart: "ZHONGZHI TRADE", fee: 47_016.5, count: 2 })]);
+    expect(r.outflow.categories.find((c: { id: string }) => c.id === "bankfee").total).toBe(47_816.5); // шимтгэл нэг л удаа
+    expect(r.outflow.total).toBeCloseTo(84_073_015.25 + 47_816.5, 2);
+  });
+
+  it("entries: үндсэн гүйлгээнд шимтгэл, нийт зарлага; шимтгэлд холбоо; шүүлтүүд", async () => {
+    fixture.current = feeCash();
+    as("director");
+    const all = await list("size=50");
+    const main = all.items.find((i: { id: string }) => i.id === "main");
+    expect(main.fees).toMatchObject({ count: 2, total: 47_016.5, grandTotal: 84_120_031.75 });
+    expect(all.items.find((i: { id: string }) => i.id === "f1")).toMatchObject({ linkedTo: { counterpart: "ZHONGZHI TRADE" }, foreignFee: true });
+    expect(all.items.find((i: { id: string }) => i.id === "f3")).toMatchObject({ linkedTo: null, foreignFee: false });
+    expect((await list("fee=unlinked")).items.map((i: { id: string }) => i.id)).toEqual(["f3"]);
+    expect((await list("fee=foreign")).total).toBe(2);
+    expect((await list("main=main")).items.map((i: { id: string }) => i.id).sort()).toEqual(["f1", "f2", "main"]);
+    expect((await list("category=bankfee&q=хураамж&flow=outflow")).total).toBe(1);
+    expect(all.netTotal).toBeCloseTo(-(84_073_015.25 + 47_816.5), 2); // давхар тоологдоогүй
+  });
+
+  it("шүүсэн жагсаалтад үндсэн гүйлгээ байхгүй ч шимтгэл холбоотой хэвээр", async () => {
+    fixture.current = feeCash();
+    as("director");
+    const only = await list("category=bankfee");
+    expect(only.items.find((i: { id: string }) => i.id === "f1").linkedTo).toMatchObject({ id: "main" });
+  });
+});
+
 describe("/api/admin/cash-rules", () => {
   const valid = { direction: "OUT", field: "PARTY", pattern: "Альфа", category: "utilities", priority: 5 };
 

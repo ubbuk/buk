@@ -9,6 +9,7 @@ import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
 import { Amount } from "@/components/finance/cash/Amount";
+import type { FeeReport } from "@/lib/onec/cash-fees";
 import { CategoryPanel } from "@/components/finance/cash/CategoryPanel";
 import { CashEntries, NO_FILTER, type CashEntryFilter } from "@/components/finance/cash/CashEntries";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
@@ -72,6 +73,59 @@ export default function CashPage() {
     setFilter({ ...NO_FILTER, flow, category: c.id, categoryLabel: c.label, party });
     jump();
   };
+  // «Банкны шимтгэл»: аль гүйлгээнд хамаарах, холбогдоогүй нь тусдаа. Ангиллын нийлбэр өөрчлөгдөхгүй (шимтгэл нэг л удаа тоологдоно).
+  const pickFee = (fee: "linked" | "unlinked" | "foreign", label: string) => {
+    setFilter({ ...NO_FILTER, flow: "outflow", category: "bankfee", categoryLabel: "Банкны шимтгэл", fee, feeLabel: label });
+    jump();
+  };
+  const pickMain = (b: FeeReport["byMain"][number]) => {
+    setFilter({ ...NO_FILTER, flow: "outflow", main: b.id, mainLabel: `${b.counterpart} · төлбөр, шимтгэл` });
+    jump();
+  };
+  const feeDetail = (fees: FeeReport | null, c: CategoryRow) => {
+    if (c.id !== "bankfee" || !fees) return null;
+    const row = (label: string, s: { count: number; total: number }, onClick: () => void) =>
+      s.count > 0 && (
+        <button type="button" onClick={onClick} className="focus-ring flex min-h-9 w-full items-center justify-between gap-3 rounded-md px-2 text-left text-xs text-text-muted hover:bg-white/5 hover:text-text">
+          <span className="truncate">
+            {label} <span className="text-[11px]">({s.count})</span>
+          </span>
+          <Amount value={s.total} className="shrink-0 text-xs" />
+        </button>
+      );
+    return (
+      <>
+        {row("Гадаад гүйлгээний шимтгэл", fees.foreign, () => pickFee("foreign", "Гадаад гүйлгээний шимтгэл"))}
+        {row("Төлбөртэйгээ холбогдсон шимтгэл", fees.linked, () => pickFee("linked", "Төлбөртэй холбогдсон"))}
+        {row("Аль гүйлгээнд хамаарах нь тодорхойгүй", fees.unlinked, () => pickFee("unlinked", "Холбогдоогүй шимтгэл"))}
+        {fees.byMain.length > 0 && <p className="px-2 pt-2 text-[11px] font-medium text-text-muted">Аль төлбөрт хамаарах</p>}
+        {fees.byMain.map((b) => (
+          <button key={b.id} type="button" onClick={() => pickMain(b)} className="focus-ring flex min-h-9 w-full items-center justify-between gap-3 rounded-md px-2 text-left text-xs text-text-muted hover:bg-white/5 hover:text-text" title="Төлбөр ба шимтгэлийг харах">
+            <span className="min-w-0 truncate">
+              {b.counterpart} <span className="text-[11px]">· {b.date.slice(5)} · {formatMoneyShort(b.amount)}</span>
+            </span>
+            <span className="shrink-0">
+              <Amount value={b.fee} className="text-xs" /> <span className="text-[11px]">×{b.count}</span>
+            </span>
+          </button>
+        ))}
+      </>
+    );
+  };
+  const foreignFeeRow = (fees: FeeReport | null) =>
+    fees && fees.foreign.count > 0 ? (
+      <button
+        type="button"
+        onClick={() => pickFee("foreign", "Гадаад гүйлгээний шимтгэл")}
+        className="focus-ring mt-2 flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-border px-3 text-left hover:bg-white/5"
+        title="Сарын гадаад гүйлгээний шимтгэлүүдийг харах"
+      >
+        <span className="text-sm text-text">
+          Гадаад гүйлгээний шимтгэл <span className="text-xs text-text-muted">· сарын нийт, {fees.foreign.count} гүйлгээ</span>
+        </span>
+        <Amount value={fees.foreign.total} className="shrink-0 text-sm font-semibold text-text" />
+      </button>
+    ) : null;
   const otherHint = (share: number) =>
     share >= OTHER_WARN && isAdmin ? (
       <p className="px-2 py-1 text-[11px] text-warning">
@@ -206,7 +260,7 @@ export default function CashPage() {
           {data ? (
             <>
               <CategoryPanel title="Хаанаас орж ирсэн" tone="in" flow={data.inflow} onPickCategory={pickCategory("inflow")} onPickParty={pickParty("inflow")} otherHint={otherHint(data.otherShare.inflow)} />
-              <CategoryPanel title="Хаашаа гарсан" tone="out" flow={data.outflow} onPickCategory={pickCategory("outflow")} onPickParty={pickParty("outflow")} otherHint={otherHint(data.otherShare.outflow)} />
+              <CategoryPanel title="Хаашаа гарсан" tone="out" flow={data.outflow} onPickCategory={pickCategory("outflow")} onPickParty={pickParty("outflow")} otherHint={otherHint(data.otherShare.outflow)} renderDetail={(c) => feeDetail(data.fees, c)} foot={foreignFeeRow(data.fees)} />
             </>
           ) : (
             <>

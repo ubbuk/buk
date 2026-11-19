@@ -5,6 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
+import { formatMoneyShort } from "@/lib/money-short";
 import { Amount } from "./Amount";
 
 export interface CashEntryFilter {
@@ -13,8 +14,14 @@ export interface CashEntryFilter {
   category: string;
   categoryLabel: string;
   party: string;
+  /** банкны шимтгэл: холбогдсон / холбогдоогүй / гадаад гүйлгээний */
+  fee: "" | "linked" | "unlinked" | "foreign";
+  feeLabel: string;
+  /** нэг үндсэн гүйлгээ ба түүний шимтгэлүүд */
+  main: string;
+  mainLabel: string;
 }
-export const NO_FILTER: CashEntryFilter = { q: "", flow: "", category: "", categoryLabel: "", party: "" };
+export const NO_FILTER: CashEntryFilter = { q: "", flow: "", category: "", categoryLabel: "", party: "", fee: "", feeLabel: "", main: "", mainLabel: "" };
 
 interface EntryItem {
   id: string;
@@ -27,6 +34,11 @@ interface EntryItem {
   amount: number;
   categoryLabel: string;
   payroll: boolean;
+  /** үндсэн гүйлгээний шимтгэлүүд ба нийт зарлага (төлбөр + шимтгэл) */
+  fees?: { count: number; total: number; grandTotal: number; items: { id: string; amount: number; time: string; memo: string }[] };
+  /** шимтгэл: аль гүйлгээнд хамаарах (null = холбогдоогүй) */
+  linkedTo?: { id: string; counterpart: string; amount: number; date: string } | null;
+  foreignFee?: boolean;
   accounting: { document: string; documentNumber: string | null; account: string; accountName: string } | null;
 }
 interface EntriesPage {
@@ -56,10 +68,11 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
+  const [feesOpen, setFeesOpen] = useState<string | null>(null);
   const q = useDebounced(filter.q, 300);
 
   // шүүлт, сар өөрчлөгдөхөд эхний хуудас руу
-  useEffect(() => setPage(1), [month, q, filter.flow, filter.category, filter.party]);
+  useEffect(() => setPage(1), [month, q, filter.flow, filter.category, filter.party, filter.fee, filter.main]);
 
   useEffect(() => {
     const c = new AbortController();
@@ -68,6 +81,8 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
     if (filter.flow) sp.set("flow", filter.flow);
     if (filter.category) sp.set("category", filter.category);
     if (filter.party) sp.set("party", filter.party);
+    if (filter.fee) sp.set("fee", filter.fee);
+    if (filter.main) sp.set("main", filter.main);
     setLoading(true);
     fetch(`/api/dashboard/cash/entries?${sp}`, { signal: c.signal })
       .then(async (res) => {
@@ -84,9 +99,9 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
         setLoading(false);
       });
     return () => c.abort();
-  }, [month, page, q, filter.flow, filter.category, filter.party, version]);
+  }, [month, page, q, filter.flow, filter.category, filter.party, filter.fee, filter.main, version]);
 
-  const chips = [filter.flow && (filter.flow === "inflow" ? "Орж ирсэн" : "Гарсан"), filter.categoryLabel, filter.party].filter(Boolean) as string[];
+  const chips = [filter.flow && (filter.flow === "inflow" ? "Орж ирсэн" : "Гарсан"), filter.categoryLabel, filter.feeLabel, filter.mainLabel, filter.party].filter(Boolean) as string[];
 
   return (
     <Card id="cash-entries">
@@ -157,10 +172,55 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
                       <span className="mr-1.5 rounded bg-white/5 px-1.5 py-px text-[10px] text-text-muted">{e.categoryLabel}</span>
                       {e.memo}
                     </span>
+                    {e.fees && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={feesOpen === e.id}
+                        title="Шимтгэл тус бүрийг харах"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          setFeesOpen(feesOpen === e.id ? null : e.id);
+                        }}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            setFeesOpen(feesOpen === e.id ? null : e.id);
+                          }
+                        }}
+                        className="mt-1 inline-flex min-h-6 cursor-pointer items-center rounded-full border border-[rgba(255,213,107,0.4)] px-2 text-[11px] text-[#ffd56b] hover:bg-white/5"
+                      >
+                        + шимтгэл {formatMoneyShort(e.fees.total)} ({e.fees.count})
+                      </span>
+                    )}
+                    {e.linkedTo !== undefined && (
+                      <span className="mt-0.5 block truncate text-[11px] text-text-muted">
+                        {e.linkedTo ? `↳ ${e.linkedTo.counterpart} төлбөрийн шимтгэл` : "Аль гүйлгээнд хамаарах нь тодорхойгүй (холбоогүй)"}
+                      </span>
+                    )}
                   </span>
                   <Amount value={e.type === "outflow" ? -e.amount : e.amount} signed className={cn("shrink-0 text-sm font-medium", e.type === "outflow" ? "text-danger" : "text-success")} />
                   <ChevronDown className={cn("size-4 shrink-0 text-text-muted transition-transform", isOpen && "rotate-180")} />
                 </button>
+                {e.fees && (
+                  <div className="space-y-1 px-4 pb-2.5 pl-[6.1rem] text-xs text-text-muted">
+                    <p>
+                      Нийт зарлага: <Amount value={e.fees.grandTotal} className="font-medium text-danger" /> <span>(төлбөр + шимтгэл)</span>
+                    </p>
+                    {feesOpen === e.id && (
+                      <ul className="space-y-0.5 border-l border-border pl-3">
+                        {e.fees.items.map((f) => (
+                          <li key={f.id} className="flex items-center gap-2">
+                            <span className="ng-num w-10 shrink-0">{f.time}</span>
+                            <span className="min-w-0 flex-1 truncate">{f.memo || "Шимтгэл"}</span>
+                            <Amount value={f.amount} className="shrink-0 text-xs" />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {isOpen && (
                   <div className="space-y-1 bg-white/[0.02] px-4 pb-3 pl-[6.1rem] text-xs text-text-muted">
                     <p>

@@ -18,6 +18,8 @@ export function CategoryPanel({
   onPickCategory,
   onPickParty,
   otherHint,
+  renderDetail,
+  foot,
 }: {
   title: string;
   tone: "in" | "out";
@@ -26,6 +28,10 @@ export function CategoryPanel({
   onPickParty: (c: CategoryRow, party: string) => void;
   /** «Бусад»-ын хувь өндөр үед админд зориулсан санамж */
   otherHint?: React.ReactNode;
+  /** ангилалын задрал: null биш бол харилцагчийн жагсаалтын оронд (жишээ нь «Банкны шимтгэл» → аль гүйлгээнд хамаарах) */
+  renderDetail?: (c: CategoryRow) => React.ReactNode | null;
+  /** ангиллын жагсаалтын доорх нэмэлт мөр */
+  foot?: React.ReactNode;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const bar = tone === "in" ? "bg-[rgb(var(--color-accent))]" : "bg-danger";
@@ -64,7 +70,8 @@ export function CategoryPanel({
               </div>
               {isOpen && (
                 <div className="mb-2 ml-8 mr-2 space-y-0.5 border-l border-border pl-3">
-                  {c.parties.map((p) => (
+                  {renderDetail?.(c) ?? null}
+                  {(renderDetail?.(c) ? [] : c.parties).map((p) => (
                     <button
                       key={p.name}
                       type="button"
@@ -78,7 +85,7 @@ export function CategoryPanel({
                       </span>
                     </button>
                   ))}
-                  {c.moreParties.count > 0 && (
+                  {!renderDetail?.(c) && c.moreParties.count > 0 && (
                     <p className="px-2 py-1 text-[11px] text-text-muted">
                       … бусад {c.moreParties.count} харилцагч · <Amount value={c.moreParties.total} className="text-[11px]" />
                     </p>
@@ -92,6 +99,7 @@ export function CategoryPanel({
             </div>
           );
         })}
+        {foot}
       </CardBody>
     </Card>
   );
