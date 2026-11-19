@@ -1,0 +1,47 @@
+# package-lock.json-ийн Linux дээрх шалгалт: PR бүр дээр `npm ci --ignore-scripts` (Sync 1C ажил яг үүнийг ажиллуулдаг).
+# Яагаад: Windows дээрх шинэ npm (11) lock-ийг дахин бичихдээ @emnapi/core, @emnapi/runtime (sharp-wasm32-ийн заавал биш хамаарал)
+# мөрүүдийг хасдаг, харин Linux runner-ийн npm 10 "Missing: @emnapi/runtime@… from lock file" гэж 7 секундэд унадаг.
+# Ингэснээр эвдэрсэн lockfile-тай PR merge-ээс ӨМНӨ улаан болно. Шалгалтыг гараар: `npm run check:lockfile`.
+name: Lockfile
+
+on:
+  pull_request:
+  push:
+    branches: [feature/monitoring-perf-realtime, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockfile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # --ignore-scripts: dependency-ийн install script ажиллахгүй (Sync 1C-тэй ижил). Lock package.json-той таарахгүй бол энд унана.
+      - name: npm ci (lockfile sync)
+        run: npm ci --ignore-scripts
+
+      # Dependency өөрчлөөгүй PR-д package-lock.json орвол анхааруулна (унагахгүй: зориуд засвар байж болно). Windows дээр `npm install`
+      # lock-ийг зөвхөн санамсаргүй дахин бичсэн байж магадгүй: dependency өөрчлөөгүй бол lock-ийг commit-д бүү оруул.
+      - name: package-lock.json changed without package.json
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          if echo "$changed" | grep -qx 'package-lock.json' && ! echo "$changed" | grep -qx 'package.json'; then
+            echo "::warning title=package-lock.json::package.json өөрчлөгдөөгүй мөртэй package-lock.json өөрчлөгдсөн байна. Санамсаргүй дахин бичигдсэн бол commit-оос хасна уу (@emnapi мөрүүд үлдсэнийг шалгана: npm run check:lockfile)."
+          fi
