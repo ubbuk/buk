@@ -16,12 +16,16 @@ export function DepartmentCombobox({
   departments,
   onSelect,
   onCreated,
+  onDraftChange,
   fixedType,
 }: {
   value: string | null;
   departments: DepartmentComboboxOption[];
   onSelect: (departmentId: string | null) => void;
   onCreated?: (department: DepartmentComboboxOption) => void;
+  /** The text typed that is NOT (yet) a chosen department, or null. The form must refuse to save while it is set:
+   *  typed-but-unchosen text used to be dropped silently and the user was told "saved". */
+  onDraftChange?: (draft: string | null) => void;
   /** When set, a newly-typed department is created with this type directly — no Үйлдвэр/Оффис sub-step. */
   fixedType?: "OFFICE" | "FACTORY";
 }) {
@@ -31,10 +35,15 @@ export function DepartmentCombobox({
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const changedByTyping = useRef(false);
 
   const selected = departments.find((d) => d.id === value) ?? null;
 
   useEffect(() => {
+    if (changedByTyping.current) {
+      changedByTyping.current = false; // the value moved because of what is being typed: keep the text
+      return;
+    }
     setQuery(selected?.name ?? "");
     // Only reset the typed text when the *selected department* changes from
     // outside (e.g. modal reopened for a different user) — not on every
@@ -42,17 +51,23 @@ export function DepartmentCombobox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  const draft = query.trim() && !selected ? query.trim() : null;
+  useEffect(() => {
+    onDraftChange?.(draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+  useEffect(() => () => onDraftChange?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
         setShowTypePicker(false);
-        setQuery(selected?.name ?? "");
       }
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [selected]);
+  }, []);
 
   const filtered = departments.filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()));
   const exactMatch = departments.some((d) => d.name.toLowerCase() === query.trim().toLowerCase());
@@ -87,9 +102,23 @@ export function DepartmentCombobox({
         <input
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value);
+            const text = e.target.value;
+            setQuery(text);
             setShowTypePicker(false);
             setOpen(true);
+            // typing the exact name of a department chooses it; anything else un-chooses the previous one,
+            // so the text on screen and the saved value can never disagree
+            const typed = text.trim().toLowerCase();
+            const match = typed ? departments.find((d) => d.name.toLowerCase() === typed) : undefined;
+            if (match) {
+              if (match.id !== value) {
+                changedByTyping.current = true;
+                onSelect(match.id);
+              }
+            } else if (value !== null) {
+              changedByTyping.current = true;
+              onSelect(null);
+            }
           }}
           onFocus={() => setOpen(true)}
           placeholder="Цех, тасаг хайх эсвэл шинээр бичих..."
@@ -97,6 +126,11 @@ export function DepartmentCombobox({
         />
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
       </div>
+      {draft && !open && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          «{draft}» сонгогдоогүй байна. Жагсаалтаас сонгох эсвэл «шинээр нэмэх»-ийг дарна уу
+        </p>
+      )}
 
       {open && (
         <div className="absolute z-20 mt-1 max-h-72 w-full min-w-[260px] overflow-y-auto rounded-lg border border-border bg-bg-elevated shadow-elevated">

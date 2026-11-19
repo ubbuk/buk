@@ -93,6 +93,9 @@ export default function AdminPage() {
   const [newDeptType, setNewDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
 
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  // text typed into a department box that was never chosen (see DepartmentCombobox): saving with it would drop it silently
+  const [newDeptDraft, setNewDeptDraft] = useState<string | null>(null);
+  const [editDeptDraft, setEditDeptDraft] = useState<string | null>(null);
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
   const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
@@ -121,7 +124,14 @@ export default function AdminPage() {
     load(true); // keep the list on screen while it refreshes
   });
 
+  function refuseUnchosenDepartment(draft: string | null) {
+    if (!draft) return false;
+    push({ kind: "error", title: "Цех, тасаг сонгогдоогүй байна", description: `«${draft}»-г жагсаалтаас сонгох эсвэл «шинээр нэмэх»-ийг дарна уу. Хадгалаагүй` });
+    return true;
+  }
+
   async function createUser() {
+    if (refuseUnchosenDepartment(newDeptDraft)) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/admin/users", {
@@ -174,6 +184,7 @@ export default function AdminPage() {
 
   async function saveUserEdit() {
     if (!editUser) return;
+    if (refuseUnchosenDepartment(editDeptDraft)) return;
     setSubmitting(true);
     try {
       const target = editUser;
@@ -755,6 +766,7 @@ export default function AdminPage() {
             value={newDepartmentId || null}
             departments={newDeptType === "ALL" ? departments : departments.filter((d) => d.type === newDeptType)}
             onSelect={(id) => setNewDepartmentId(id ?? "")}
+            onDraftChange={setNewDeptDraft}
             onCreated={(d) => setDepartments((prev) => [...prev, { ...d, headId: null, headName: null }].sort((a, b) => a.name.localeCompare(b.name)))}
             fixedType={newDeptType === "ALL" ? undefined : newDeptType}
           />
@@ -817,6 +829,7 @@ export default function AdminPage() {
               value={editUser.departmentId}
               departments={editDeptType === "ALL" ? departments : departments.filter((d) => d.type === editDeptType)}
               onSelect={(id) => setEditUser({ ...editUser, departmentId: id })}
+              onDraftChange={setEditDeptDraft}
               onCreated={(d) => setDepartments((prev) => [...prev, { ...d, headId: null, headName: null }].sort((a, b) => a.name.localeCompare(b.name)))}
               fixedType={editDeptType === "ALL" ? undefined : editDeptType}
             />
