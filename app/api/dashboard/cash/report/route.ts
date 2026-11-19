@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
+import { feeReport, linkFees } from "@/lib/onec/cash-fees";
 import { buildCashReport, withCategories } from "@/lib/onec/cash-report";
 import { loadCashRules } from "@/lib/onec/cash-rules-store";
 import { currentMonth, isMonth } from "@/lib/onec/dates";
@@ -23,7 +24,9 @@ export const GET = withTiming("GET /api/dashboard/cash/report", async (req: Requ
 
   try {
     const [{ value: cash, meta }, rules, canSeePayroll] = await Promise.all([loadCash(month, sp.get("refresh") === "1"), loadCashRules(), viewerCanSeePayroll()]);
-    const report = buildCashReport(cash, withCategories(cash.entries, rules, canSeePayroll));
+    const rows = withCategories(cash.entries, rules, canSeePayroll);
+    const fees = feeReport(rows, linkFees(rows));
+    const report = buildCashReport(cash, rows, { ...fees, byMain: fees.byMain.slice(0, 12) });
     return NextResponse.json(
       { ...report, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } },
       { headers: NO_STORE }
