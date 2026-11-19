@@ -23,11 +23,9 @@ import { useRequestStore } from "@/lib/store";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { validateItem, type FieldErrors } from "@/lib/validation";
-import {
-  ALLOWED_ATTACHMENT_MIME_TYPES,
-  MAX_ATTACHMENTS_PER_REQUEST,
-  MAX_ATTACHMENT_SIZE_BYTES,
-} from "@/lib/attachment-rules";
+import { finalizeUploads } from "@/lib/attachment-client";
+import { UploadQueueList } from "@/components/attachments/UploadQueueList";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
 import type { MaterialCatalogEntry, MaterialRequestView } from "@/lib/types";
 import { MaterialCombobox } from "./MaterialCombobox";
 import { AttachmentDropzone } from "./hud/AttachmentDropzone";
@@ -82,7 +80,6 @@ export function MaterialRequestForm() {
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [urgent, setUrgent] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
   const [dirty, setDirty] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -103,6 +100,14 @@ export function MaterialRequestForm() {
   const isEditMode = !!editRequestId;
   const [editRequest, setEditRequest] = useState<MaterialRequestView | null>(null);
   const editHydratedRef = useRef(false);
+  const queue = useUploadQueue({
+    onReject: (message) => push({ kind: "error", title: "Файл хавсаргах боломжгүй", description: message }),
+    existingCount: isEditMode ? editRequest?.attachments.length ?? 0 : 0,
+  });
+  const hasQueuedFiles = queue.items.length > 0;
+  useEffect(() => {
+    if (hasQueuedFiles) setDirty(true);
+  }, [hasQueuedFiles]);
 
   useEffect(() => {
     if (!editRequestId) return;
@@ -260,52 +265,30 @@ export function MaterialRequestForm() {
     push({ kind: "success", title: "Ноорог хадгалагдлаа", description: "Та дараа нэвтрэхдээ үргэлжлүүлэх боломжтой" });
   }
 
-  function onFilesSelected(selected: File[]) {
-    const existingCount = (isEditMode ? editRequest?.attachments.length ?? 0 : 0) + attachments.length;
-    const accepted: File[] = [];
-    for (const file of selected) {
-      if (existingCount + accepted.length >= MAX_ATTACHMENTS_PER_REQUEST) {
-        push({
-          kind: "error",
-          title: "Хэт олон файл",
-          description: `Нэг захиалгад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргах боломжтой`,
-        });
-        break;
+  // Uploaded only after the request itself is successfully created/resubmitted -- a failed upload never loses the
+  // already-saved request data. The files go straight to storage (see lib/attachment-upload.ts); whatever fails stays
+  // in the queue, which the success screen keeps showing with a retry button per file.
+  async function uploadAttachments(requestId: string): Promise<string | null> {
+    if (queue.items.length === 0) return null;
+    // The sticky action bar would cover the progress rows: bring them into view first.
+    document.getElementById("hud-attach-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const { refs, failed } = await queue.upload({ presignUrl: `/api/requests/${requestId}/attachments/presign` });
+    if (refs.length > 0) {
+      try {
+        await finalizeUploads(`/api/requests/${requestId}/attachments/finalize`, refs);
+        queue.consume(refs);
+      } catch (err) {
+        return err instanceof Error ? err.message : "Файл хавсаргахад алдаа гарлаа";
       }
-      if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(file.type as (typeof ALLOWED_ATTACHMENT_MIME_TYPES)[number])) {
-        push({ kind: "error", title: "Дэмжигдэхгүй файлын төрөл", description: `${file.name} — JPG, PNG, WEBP, PDF, XLSX, DOCX файл дэмжинэ` });
-        continue;
-      }
-      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
-        push({ kind: "error", title: "Файл хэт том байна", description: `${file.name} — 10 MB-с ихгүй байх ёстой` });
-        continue;
-      }
-      accepted.push(file);
     }
-    if (accepted.length > 0) {
-      setAttachments((prev) => [...prev, ...accepted]);
-      markDirty();
-    }
+    return failed > 0 ? `${failed} файл илгээгдсэнгүй` : null;
   }
 
-  // Uploaded only after the request itself is successfully created/resubmitted
-  // -- a failed upload never loses the already-saved request data, it just
-  // returns a warning the success screen surfaces so the user knows to
-  // retry from the request's detail page.
-  async function uploadAttachments(requestId: string): Promise<string | null> {
-    if (attachments.length === 0) return null;
-    const formData = new FormData();
-    for (const file of attachments) formData.append("files", file);
-    try {
-      const res = await fetch(`/api/requests/${requestId}/attachments`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        return body.error || "Файл хавсаргахад алдаа гарлаа";
-      }
-      return null;
-    } catch {
-      return "Файл хавсаргахад алдаа гарлаа. Сүлжээгээ шалгаад Дэлгэрэнгүй хуудаснаас дахин оролдоно уу";
-    }
+  async function retryUploads() {
+    if (!submitted) return;
+    const warning = await uploadAttachments(submitted.id);
+    setSubmitted((prev) => (prev ? { ...prev, attachmentWarning: warning ?? undefined } : prev));
+    if (!warning) push({ kind: "success", title: "Файл хавсаргагдлаа" });
   }
 
   function validateAll(): boolean {
@@ -341,6 +324,11 @@ export function MaterialRequestForm() {
     }
     if (!session?.user?.name) {
       push({ kind: "error", title: "Нэвтрэх шаардлагатай" });
+      return;
+    }
+
+    if (queue.items.some((i) => i.status === "preparing")) {
+      push({ kind: "info", title: "Зургийг бэлдэж байна", description: "Хэдэн секунд хүлээгээд дахин дарна уу" });
       return;
     }
 
@@ -411,7 +399,7 @@ export function MaterialRequestForm() {
     setDepartmentId(session?.user?.departmentId || departments[0]?.id || "");
     setNote("");
     setUrgent(false);
-    setAttachments([]);
+    queue.reset();
     setErrors({});
     setSubmitted(null);
     setDirty(false);
@@ -438,7 +426,12 @@ export function MaterialRequestForm() {
           </div>
           {submitted.attachmentWarning && (
             <div className="w-full rounded-lg border border-warning/30 bg-warning/10 p-3 text-left text-xs text-warning">
-              Захиалга хадгалагдсан боловч файл хавсаргахад алдаа гарлаа: {submitted.attachmentWarning}. Дэлгэрэнгүй хуудаснаас дахин оролдоно уу.
+              Захиалга хадгалагдсан боловч файл хавсаргахад алдаа гарлаа: {submitted.attachmentWarning}. Доорх товчоор дахин оролдоно уу.
+            </div>
+          )}
+          {queue.items.length > 0 && (
+            <div className="w-full text-left">
+              <UploadQueueList items={queue.items} onRemove={queue.remove} onRetry={() => void retryUploads()} />
             </div>
           )}
           <div className="flex gap-2">
@@ -472,7 +465,7 @@ export function MaterialRequestForm() {
   );
   const progress = Math.round((filledFields / (rows.length * 3)) * 100);
   const existingAttachmentCount = isEditMode ? editRequest?.attachments.length ?? 0 : 0;
-  const hasAttachments = attachments.length + existingAttachmentCount > 0;
+  const hasAttachments = queue.items.length + existingAttachmentCount > 0;
   const stepStates: [StepState, StepState, StepState, StepState] = [
     touched ? "done" : "active",
     !touched ? "todo" : rowsComplete ? "done" : "active",
@@ -830,7 +823,7 @@ export function MaterialRequestForm() {
           Хавсралт <span className="text-sm font-normal text-text-muted">(заавал биш)</span>
         </h2>
         <AttachmentDropzone
-          files={attachments}
+          queue={queue}
           existing={
             isEditMode && editRequest
               ? editRequest.attachments.map((a) => ({
@@ -841,8 +834,7 @@ export function MaterialRequestForm() {
                 }))
               : []
           }
-          onSelect={onFilesSelected}
-          onRemove={(i) => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+          onRetry={() => undefined}
         />
       </section>
 

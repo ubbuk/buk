@@ -1,14 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
 import { ftOrderSchema } from "@/lib/foreign-trade-validation";
-import { FilePicker } from "./AttachmentList";
-import { checkFilesClient, ftApi, inputClass, textareaClass } from "./api";
+import { FileQueueField } from "./AttachmentList";
+import { uploadAndFinalize } from "@/components/attachments/uploadHelpers";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
+import { ftApi, inputClass, textareaClass } from "./api";
 
 interface Row {
   key: number;
@@ -37,7 +39,9 @@ export function ForeignTradeForm({ initial }: { initial?: ForeignTradeFormInitia
   const [rows, setRows] = useState<Row[]>(
     initial?.items.length ? initial.items.map((i) => ({ key: nextKey++, name: i.name, techSpec: i.techSpec ?? "", quantity: String(i.quantity), unit: i.unit })) : [blankRow()]
   );
-  const [files, setFiles] = useState<File[]>([]);
+  const queue = useUploadQueue({ onReject: (message) => setError(message) });
+  // The order exists as a draft once the first save went through: a retry after a failed file upload must update it, not create a second one.
+  const savedRef = useRef<{ id: string; version: number } | null>(null);
   const [busy, setBusy] = useState<"draft" | "submit" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,21 +54,22 @@ export function ForeignTradeForm({ initial }: { initial?: ForeignTradeFormInitia
       items: rows.map((r) => ({ name: r.name, techSpec: r.techSpec, quantity: Number(r.quantity.replace(",", ".")), unit: r.unit })),
     });
     if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл");
-    const fileError = checkFilesClient(files);
-    if (fileError) return setError(fileError);
+    if (queue.items.some((i) => i.status === "preparing")) return setError("Зургийг бэлдэж байна. Хэдэн секунд хүлээгээд дахин дарна уу");
 
     setBusy(submit ? "submit" : "draft");
     // Always saved as a draft first: files can only be attached while the order is still the BOSS's, and a failure on the
     // way must not leave a half-sent order with the MANAGER.
-    let id = initial?.id;
-    let version = initial?.version ?? 1;
-    if (initial) {
-      const r = await ftApi<{ version: number }>(`/api/foreign-trade/${initial.id}`, { method: "PATCH", json: { ...parsed.data, expectedVersion: initial.version } });
+    const base = initial ? { id: initial.id, version: initial.version } : savedRef.current;
+    let id = base?.id;
+    let version = base?.version ?? 1;
+    if (base) {
+      const r = await ftApi<{ version: number }>(`/api/foreign-trade/${base.id}`, { method: "PATCH", json: { ...parsed.data, expectedVersion: base.version } });
       if (!r.ok) {
         setBusy(null);
         return setError(r.error);
       }
       version = r.data.version;
+      if (!initial) savedRef.current = { id: base.id, version };
     } else {
       const r = await ftApi<{ id: string }>("/api/foreign-trade", { json: { ...parsed.data, submit: false } });
       if (!r.ok) {
@@ -72,15 +77,15 @@ export function ForeignTradeForm({ initial }: { initial?: ForeignTradeFormInitia
         return setError(r.error);
       }
       id = r.data.id;
+      savedRef.current = { id: r.data.id, version };
     }
-    if (files.length) {
-      const form = new FormData();
-      files.forEach((f) => form.append("files", f));
-      const up = await ftApi(`/api/foreign-trade/${id}/attachments`, { form });
+    if (queue.items.length) {
+      const up = await uploadAndFinalize(queue, { presignUrl: `/api/foreign-trade/${id}/attachments/presign`, finalizeUrl: `/api/foreign-trade/${id}/attachments/finalize` });
       if (!up.ok) {
+        // Stay here: the failed files are listed with a retry button, and the order is already saved as a draft.
         setBusy(null);
-        toast.push({ kind: "warning", title: "Захиалга хадгалагдсан боловч файл хавсаргаж чадсангүй", description: up.error });
-        return router.replace(`/foreign-trade/${id}`);
+        toast.push({ kind: "warning", title: "Захиалга ноорог болж хадгалагдсан боловч файл хавсаргаж чадсангүй", description: up.error });
+        return setError(up.error);
       }
     }
     if (submit) {
@@ -152,7 +157,7 @@ export function ForeignTradeForm({ initial }: { initial?: ForeignTradeFormInitia
           <CardTitle>Хавсралт (зураг, PDF, Excel)</CardTitle>
         </CardHeader>
         <CardBody>
-          <FilePicker files={files} onChange={setFiles} disabled={busy !== null} />
+          <FileQueueField queue={queue} disabled={busy !== null} onRetry={() => void save(false)} />
         </CardBody>
       </Card>
 

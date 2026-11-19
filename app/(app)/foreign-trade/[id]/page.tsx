@@ -13,7 +13,9 @@ import { ApprovalTimeline, OrderHistory } from "@/components/foreign-trade/Appro
 import { DecisionPanel } from "@/components/foreign-trade/DecisionPanel";
 import { DiscussionPanel } from "@/components/foreign-trade/DiscussionPanel";
 import { QuotesPanel } from "@/components/foreign-trade/QuotesPanel";
-import { checkFilesClient, ftApi } from "@/components/foreign-trade/api";
+import { ftApi } from "@/components/foreign-trade/api";
+import { uploadAndFinalize } from "@/components/attachments/uploadHelpers";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
 import { OrderInfoPanel } from "@/components/foreign-trade/holo/OrderInfoPanel";
 import { OrderSummary, QuickActions } from "@/components/foreign-trade/holo/OrderSummary";
 import { SectionTabs } from "@/components/foreign-trade/holo/SectionTabs";
@@ -30,7 +32,7 @@ export default function ForeignTradeDetailPage() {
   const [order, setOrder] = useState<FtOrderView | null>(null);
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
+  const queue = useUploadQueue({ onReject: (message) => toast.push({ kind: "error", title: "Файл хавсаргах боломжгүй", description: message }) });
 
   const load = useCallback(async () => {
     const r = await ftApi<FtOrderView>(`/api/foreign-trade/${id}`);
@@ -74,15 +76,11 @@ export default function ForeignTradeDetailPage() {
   }
 
   async function uploadOrderFiles() {
-    const fileError = checkFilesClient(files);
-    if (fileError) return toast.push({ kind: "error", title: fileError });
+    if (queue.items.some((i) => i.status === "preparing")) return toast.push({ kind: "info", title: "Зургийг бэлдэж байна", description: "Хэдэн секунд хүлээгээд дахин дарна уу" });
     setBusy(true);
-    const form = new FormData();
-    files.forEach((f) => form.append("files", f));
-    const r = await ftApi(`/api/foreign-trade/${id}/attachments`, { form });
+    const r = await uploadAndFinalize(queue, { presignUrl: `/api/foreign-trade/${id}/attachments/presign`, finalizeUrl: `/api/foreign-trade/${id}/attachments/finalize` });
     setBusy(false);
-    if (!r.ok) return toast.push({ kind: "error", title: "Файл хавсаргаж чадсангүй", description: r.error });
-    setFiles([]);
+    if (!r.ok) toast.push({ kind: "error", title: "Файл хавсаргаж чадсангүй", description: r.error });
     void load();
   }
 
@@ -150,7 +148,7 @@ export default function ForeignTradeDetailPage() {
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(17rem,16.4vw,19rem)]">
           <div className="min-w-0 space-y-4">
             <ApprovalTimeline order={order} />
-            <OrderInfoPanel order={order} files={files} onFiles={setFiles} busy={busy} onUpload={uploadOrderFiles} />
+            <OrderInfoPanel order={order} queue={queue} busy={busy} onUpload={uploadOrderFiles} />
             <QuotesPanel order={order} onChange={load} />
             <DiscussionPanel order={order} currentUserId={session?.user?.id ?? ""} onChange={load} />
             <OrderHistory order={order} />

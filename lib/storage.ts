@@ -10,7 +10,7 @@
 // driver (S3, Azure Blob, GCS...) would be a second file implementing the
 // same three methods and selected below via STORAGE_DRIVER — no other file
 // in the app would need to change.
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { S3Storage } from "./storage-s3";
 
@@ -18,6 +18,19 @@ export interface StoredObjectInfo {
   key: string;
   size: number;
   lastModified: Date | null;
+}
+
+export interface PresignedPut {
+  url: string;
+  /** Headers the browser must send with the PUT (they are part of the signature). */
+  headers: Record<string, string>;
+}
+
+export interface PresignGetOptions {
+  contentType: string;
+  /** Full Content-Disposition value the object store should answer with. */
+  disposition: string;
+  expiresIn: number;
 }
 
 export interface ObjectStorage {
@@ -31,6 +44,21 @@ export interface ObjectStorage {
   delete(key: string): Promise<void>;
   /** Every object whose key starts with `prefix`, sorted by key. */
   list(prefix: string): Promise<StoredObjectInfo[]>;
+}
+
+/** What the attachment flows need on top of the basic object store (direct browser transfers, verification). */
+export interface AttachmentStorage extends ObjectStorage {
+  /** Size and stored Content-Type of an object, or null when it does not exist. */
+  head(key: string): Promise<{ size: number; contentType: string | null } | null>;
+  /** The first `length` bytes of an object (for magic-byte checks), or null when it does not exist. */
+  readHead(key: string, length: number): Promise<Buffer | null>;
+  /**
+   * A short-lived URL the browser can PUT the file to directly, bypassing the app server (and Vercel's 4.5 MB request
+   * limit). null when the driver cannot do that (local disk): the app then serves its own signed upload route.
+   */
+  presignPut(key: string, opts: { contentType: string; expiresIn: number }): Promise<PresignedPut | null>;
+  /** A short-lived URL the browser can GET the object from, or null when the app must stream it itself. */
+  presignGet(key: string, opts: PresignGetOptions): Promise<string | null>;
 }
 
 // Project-root-relative, gitignored, outside app/public. Overridable so
@@ -49,7 +77,42 @@ function resolveKeyPath(key: string): string {
   return resolved;
 }
 
-class LocalFsStorage implements ObjectStorage {
+class LocalFsStorage implements AttachmentStorage {
+  async head(key: string) {
+    try {
+      const st = await stat(resolveKeyPath(key));
+      return { size: st.size, contentType: null };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+  }
+
+  async readHead(key: string, length: number): Promise<Buffer | null> {
+    let fh;
+    try {
+      fh = await open(resolveKeyPath(key), "r");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+    try {
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, 0);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  }
+
+  async presignPut() {
+    return null;
+  }
+
+  async presignGet() {
+    return null;
+  }
+
   async put(key: string, data: Buffer): Promise<void> {
     const filePath = resolveKeyPath(key);
     await mkdir(path.dirname(filePath), { recursive: true });
@@ -112,32 +175,81 @@ class LocalFsStorage implements ObjectStorage {
   }
 }
 
-function createStorage(): ObjectStorage {
-  const driver = process.env.STORAGE_DRIVER ?? "local";
-  switch (driver) {
+export class StorageConfigError extends Error {}
+
+const NOT_CONFIGURED =
+  "Файл хадгалах сан тохируулагдаагүй байна (STORAGE_DRIVER). Системийн админд мэдэгдэнэ үү";
+
+/**
+ * Which driver the environment asks for. Production never falls back to the local disk by itself: on Vercel the disk
+ * is wiped between invocations, so a forgotten STORAGE_DRIVER would silently lose every uploaded file. The local
+ * driver therefore has to be asked for explicitly in production (a self-hosted server with a volume) and is refused on Vercel.
+ */
+export function resolveStorageDriver(env: NodeJS.ProcessEnv = process.env): "local" | "s3" {
+  const driver = env.STORAGE_DRIVER;
+  if (driver === "s3") return "s3";
+  if (!driver) {
+    if (env.NODE_ENV === "production" || env.VERCEL) throw new StorageConfigError(NOT_CONFIGURED);
+    return "local";
+  }
+  if (driver === "local") {
+    if (env.VERCEL) throw new StorageConfigError("STORAGE_DRIVER=local Vercel дээр ажиллахгүй (диск түр зуурын). STORAGE_DRIVER=s3 тохируулна уу");
+    return "local";
+  }
+  throw new StorageConfigError(`Unknown STORAGE_DRIVER "${driver}" — expected "local" or "s3"`);
+}
+
+function createStorage(): AttachmentStorage {
+  switch (resolveStorageDriver()) {
     case "local":
       return new LocalFsStorage();
     case "s3": {
       // Any S3-compatible service (AWS S3, Cloudflare R2, MinIO). Required on hosts with an
       // ephemeral/read-only disk such as Vercel. Credentials come from the S3_* env vars.
       const bucket = process.env.S3_BUCKET;
-      if (!bucket) throw new Error("STORAGE_DRIVER=s3 needs S3_BUCKET");
+      if (!bucket) throw new StorageConfigError("STORAGE_DRIVER=s3 needs S3_BUCKET");
       return new S3Storage({ bucket, prefix: process.env.S3_PREFIX ?? "attachments/" });
     }
-    default:
-      throw new Error(`Unknown STORAGE_DRIVER "${driver}" — expected "local" or "s3"`);
   }
 }
 
-const g = globalThis as unknown as { __objectStorage?: ObjectStorage };
-export const storage = g.__objectStorage ?? (g.__objectStorage = createStorage());
+/** null when uploads can work, otherwise the (Mongolian) reason they cannot. Cheap: callers check it before touching files. */
+export function storageConfigProblem(): string | null {
+  try {
+    g.__objectStorage ??= createStorage();
+    return null;
+  } catch (err) {
+    if (!(err instanceof StorageConfigError)) throw err;
+    console.error(`[storage] ${err.message}`);
+    return err.message === NOT_CONFIGURED ? err.message : `Файл хадгалах сан буруу тохируулагдсан байна. Системийн админд мэдэгдэнэ үү`;
+  }
+}
+
+const g = globalThis as unknown as { __objectStorage?: AttachmentStorage };
+
+// Resolved on first use, not at import: `next build` imports every route with NODE_ENV=production and no storage env.
+function impl(): AttachmentStorage {
+  return (g.__objectStorage ??= createStorage());
+}
+
+export const storage: AttachmentStorage = {
+  put: async (key, data) => impl().put(key, data),
+  putNew: async (key, data) => impl().putNew(key, data),
+  get: async (key) => impl().get(key),
+  delete: async (key) => impl().delete(key),
+  list: async (prefix) => impl().list(prefix),
+  head: async (key) => impl().head(key),
+  readHead: async (key, length) => impl().readHead(key, length),
+  presignPut: async (key, opts) => impl().presignPut(key, opts),
+  presignGet: async (key, opts) => impl().presignGet(key, opts),
+};
 
 /**
  * Where objects live, for display only (never credentials, never the endpoint
  * URL). Used by the Backup Vault to show an honest storage location/durability.
  */
 export function describeStorage(): { driver: "local" | "s3"; location: string; durable: boolean } {
-  const driver = process.env.STORAGE_DRIVER ?? "local";
+  const driver = process.env.STORAGE_DRIVER || "local";
   if (driver === "s3") {
     return { driver: "s3", location: `S3-compatible bucket "${process.env.S3_BUCKET ?? "?"}" (prefix "${process.env.S3_PREFIX ?? "attachments/"}")`, durable: true };
   }

@@ -1,18 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Paperclip, X } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
 import { formatFileSize } from "@/lib/utils";
-import {
-  ALLOWED_ATTACHMENT_EXTENSIONS,
-  ALLOWED_ATTACHMENT_MIME_TYPES,
-  MAX_ATTACHMENTS_PER_REQUEST,
-  MAX_ATTACHMENT_SIZE_BYTES,
-} from "@/lib/attachment-rules";
+import { finalizeUploads } from "@/lib/attachment-client";
+import { AttachmentPicker } from "@/components/attachments/AttachmentPicker";
+import { UploadQueueList } from "@/components/attachments/UploadQueueList";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
 import type { AttachmentView } from "@/lib/types";
 
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -34,47 +31,32 @@ export function AttachmentsPanel({
 }) {
   const { push } = useToast();
   const loadRequests = useRequestStore((s) => s.loadRequests);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentView | null>(null);
+  const queue = useUploadQueue({
+    onReject: (message) => push({ kind: "error", title: "Файл хавсаргах боломжгүй", description: message }),
+    existingCount: attachments.length,
+  });
+
+  // Upload the queued files straight to storage, then register what arrived. Failed files stay listed with a retry button.
+  async function run() {
+    const { refs, failed } = await queue.upload({ presignUrl: `/api/requests/${requestId}/attachments/presign` });
+    if (refs.length > 0) {
+      try {
+        await finalizeUploads(`/api/requests/${requestId}/attachments/finalize`, refs);
+        queue.consume(refs);
+        await loadRequests();
+        push({ kind: "success", title: "Файл хавсаргагдлаа" });
+      } catch (err) {
+        push({ kind: "error", title: "Файл хавсаргахад алдаа гарлаа", description: err instanceof Error ? err.message : undefined });
+      }
+    }
+    if (failed > 0) push({ kind: "error", title: `${failed} файл илгээгдсэнгүй`, description: "Жагсаалтаас «Дахин оролдох» товчийг дарна уу" });
+  }
 
   async function handleFiles(files: File[]) {
     if (files.length === 0) return;
-    if (attachments.length + files.length > MAX_ATTACHMENTS_PER_REQUEST) {
-      push({
-        kind: "error",
-        title: "Хэт олон файл",
-        description: `Нэг захиалгад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргах боломжтой`,
-      });
-      return;
-    }
-    for (const f of files) {
-      if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(f.type as (typeof ALLOWED_ATTACHMENT_MIME_TYPES)[number])) {
-        push({ kind: "error", title: "Дэмжигдэхгүй файлын төрөл", description: `${f.name} — JPG, PNG, WEBP, PDF, XLSX, DOCX файл дэмжинэ` });
-        return;
-      }
-      if (f.size > MAX_ATTACHMENT_SIZE_BYTES) {
-        push({ kind: "error", title: "Файл хэт том байна", description: `${f.name} — 10 MB-с ихгүй байх ёстой` });
-        return;
-      }
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      for (const f of files) formData.append("files", f);
-      const res = await fetch(`/api/requests/${requestId}/attachments`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Файл хавсаргахад алдаа гарлаа");
-      }
-      await loadRequests();
-      push({ kind: "success", title: "Файл хавсаргагдлаа" });
-    } catch (err) {
-      push({ kind: "error", title: "Файл хавсаргахад алдаа гарлаа", description: err instanceof Error ? err.message : undefined });
-    } finally {
-      setUploading(false);
-    }
+    await queue.add(files);
+    await run();
   }
 
   return (
@@ -95,7 +77,7 @@ export function AttachmentsPanel({
                   // Private, authenticated per-request bytes — not a static
                   // asset next/image's loader could optimize anyway.
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={href} alt={a.fileName} className="h-24 w-full object-cover" />
+                  <img src={a.hasThumb ? `${href}?thumb=1` : href} alt={a.fileName} loading="lazy" className="h-24 w-full object-cover" />
                 ) : (
                   <div className="flex h-24 w-full flex-col items-center justify-center text-text-muted">
                     <FileText className="size-6" />
@@ -137,22 +119,13 @@ export function AttachmentsPanel({
       )}
 
       {canUpload && (
-        <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={ALLOWED_ATTACHMENT_EXTENSIONS}
-            className="hidden"
-            onChange={(e) => {
-              handleFiles(Array.from(e.target.files ?? []));
-              e.target.value = "";
-            }}
+        <div className="space-y-3">
+          <AttachmentPicker onPick={(files) => void handleFiles(files)} />
+          <UploadQueueList
+            items={queue.items}
+            onRemove={queue.remove}
+            onRetry={() => void run()}
           />
-          <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} loading={uploading} disabled={uploading}>
-            <Paperclip className="size-3.5" />
-            Файл нэмэх
-          </Button>
         </div>
       )}
 

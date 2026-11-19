@@ -24,4 +24,5 @@ process.env.DATABASE_URL = testUrl;
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+process.env.NEXTAUTH_SECRET ??= "vitest-nextauth-secret";
 process.env.LOCAL_STORAGE_ROOT = mkdtempSync(path.join(tmpdir(), "ubbuk-test-storage-"));

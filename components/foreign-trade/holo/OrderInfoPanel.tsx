@@ -2,7 +2,8 @@ import { Box, ClipboardList, Paperclip, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { FtOrderView } from "@/lib/foreign-trade";
 import { formatNumber } from "@/lib/utils";
-import { AttachmentList, FilePicker } from "../AttachmentList";
+import { AttachmentList, FileQueueField } from "../AttachmentList";
+import type { UploadQueue } from "@/components/attachments/useUploadQueue";
 import { HoloPanel } from "./HoloPanel";
 import s from "./holo.module.css";
 
@@ -12,14 +13,12 @@ import s from "./holo.module.css";
  */
 export function OrderInfoPanel({
   order,
-  files,
-  onFiles,
+  queue,
   busy,
   onUpload,
 }: {
   order: FtOrderView;
-  files: File[];
-  onFiles: (f: File[]) => void;
+  queue: UploadQueue;
   busy: boolean;
   onUpload: () => void;
 }) {
@@ -48,8 +47,8 @@ export function OrderInfoPanel({
               {order.attachments.length === 0 ? <p className={s.infoValue}>Хавсралт алга</p> : <div className="mt-1.5"><AttachmentList orderId={order.id} items={order.attachments} /></div>}
               {order.access.editOrder && (
                 <div className="mt-3 space-y-2">
-                  <FilePicker files={files} onChange={onFiles} disabled={busy} />
-                  {files.length > 0 && (
+                  <FileQueueField queue={queue} disabled={busy} onRetry={onUpload} />
+                  {queue.items.length > 0 && (
                     <Button size="sm" loading={busy} onClick={onUpload}>
                       Хавсаргах
                     </Button>

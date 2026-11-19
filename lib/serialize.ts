@@ -46,7 +46,7 @@ type AccountingRecordWithUser = Pick<AccountingRecord, "ledgerNumber" | "recordD
 // storageKey is deliberately left out of requestInclude's attachment
 // select below -- the client never needs it, every download goes through
 // the authenticated route instead.
-type AttachmentMeta = Pick<Attachment, "id" | "fileName" | "mimeType" | "sizeBytes" | "uploadedAt" | "uploadedById">;
+type AttachmentMeta = Pick<Attachment, "id" | "fileName" | "mimeType" | "sizeBytes" | "thumbKey" | "uploadedAt" | "uploadedById">;
 type RequestWithRelations = Pick<
   MaterialRequest,
   "id" | "requestNumber" | "createdAt" | "completedAt" | "departmentId" | "requestedById" | "status" | "version" | "note"
@@ -91,6 +91,7 @@ export function serializeAttachment(attachment: AttachmentMeta): AttachmentView 
     fileName: attachment.fileName,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
+    hasThumb: attachment.thumbKey !== null,
     uploadedAt: attachment.uploadedAt.toISOString(),
     uploadedById: attachment.uploadedById,
   };
@@ -178,7 +179,7 @@ export const requestInclude = {
   requestedBy: true,
   items: { include: { material: true, warehouseCheckItems: true } },
   approvalSteps: { include: { assignedUser: true, actions: { include: { actor: true }, orderBy: { createdAt: "desc" as const }, take: 1 } } },
-  attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true } },
+  attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, thumbKey: true, uploadedAt: true, uploadedById: true } },
   accountingRecord: { include: { recordedBy: true } },
 } as const;
 
@@ -224,6 +225,6 @@ export const requestListSelect = {
       actions: { select: { documentHash: true, actor: { select: { role: true } } }, orderBy: { createdAt: "desc" as const }, take: 1 },
     },
   },
-  attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true } },
+  attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, thumbKey: true, uploadedAt: true, uploadedById: true } },
   accountingRecord: { select: { ledgerNumber: true, recordDate: true, note: true, recordedAt: true, recordedBy: { select: { name: true } } } },
 } as const;

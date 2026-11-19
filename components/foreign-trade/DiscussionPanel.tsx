@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/Button";
 import { FT_MESSAGE_MAX } from "@/lib/foreign-trade-validation";
 import type { FtOrderView } from "@/lib/foreign-trade";
 import { cn, formatDateTime } from "@/lib/utils";
-import { AttachmentList, FilePicker } from "./AttachmentList";
-import { checkFilesClient, ftApi, textareaClass } from "./api";
+import { AttachmentList, FileQueueField } from "./AttachmentList";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
+import { ftApi, textareaClass } from "./api";
 import { HoloEmpty, HoloPanel } from "./holo/HoloPanel";
 
 const ROLE_LABEL: Record<string, string> = { BOSS: "Цехийн дарга", MANAGER: "MANAGER", DIRECTOR: "Захирал", ENGINEERING: "Инженер", CHIEF_ACCOUNTANT: "Санхүү", ADMIN: "Админ" };
@@ -16,7 +17,7 @@ export function DiscussionPanel({ order, currentUserId, onChange }: { order: FtO
   const messages = order.messages;
   const [body, setBody] = useState("");
   const [quoteId, setQuoteId] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const queue = useUploadQueue({ onReject: (message) => setError(message) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -31,19 +32,20 @@ export function DiscussionPanel({ order, currentUserId, onChange }: { order: FtO
 
   async function send() {
     setError(null);
-    const fileError = checkFilesClient(files);
-    if (fileError) return setError(fileError);
-    if (!body.trim() && files.length === 0) return setError("Мессеж бичих эсвэл файл хавсаргана уу");
+    if (queue.items.some((i) => i.status === "preparing")) return setError("Зургийг бэлдэж байна. Хэдэн секунд хүлээгээд дахин дарна уу");
+    if (!body.trim() && queue.items.length === 0) return setError("Мессеж бичих эсвэл файл хавсаргана уу");
     setBusy(true);
-    const form = new FormData();
-    form.set("body", body);
-    if (quoteId) form.set("quoteId", quoteId);
-    files.forEach((f) => form.append("files", f));
-    const r = await ftApi(`/api/foreign-trade/${order.id}/messages`, { form });
+    // Files go straight to storage first; the message then only names them. If any file fails nothing is posted.
+    const { refs, failed } = queue.items.length ? await queue.upload({ presignUrl: `/api/foreign-trade/${order.id}/messages/presign` }) : { refs: [], failed: 0 };
+    if (failed > 0) {
+      setBusy(false);
+      return setError(`${failed} файл илгээгдсэнгүй. Жагсаалтаас «Дахин оролдох» товчийг дарна уу`);
+    }
+    const r = await ftApi(`/api/foreign-trade/${order.id}/messages`, { json: { body, quoteId: quoteId || undefined, files: refs.length ? refs : undefined } });
     setBusy(false);
     if (!r.ok) return setError(r.error);
+    queue.consume(refs);
     setBody("");
-    setFiles([]);
     setQuoteId("");
     onChange();
   }
@@ -99,7 +101,7 @@ export function DiscussionPanel({ order, currentUserId, onChange }: { order: FtO
             )}
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <FilePicker files={files} onChange={setFiles} disabled={busy} />
+              <FileQueueField queue={queue} disabled={busy} onRetry={() => void send()} />
               <Button onClick={send} loading={busy}>
                 <Send className="size-4" /> Илгээх
               </Button>

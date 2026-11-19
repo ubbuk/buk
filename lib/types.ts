@@ -112,6 +112,7 @@ export interface AttachmentView {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
+  hasThumb: boolean;
   uploadedAt: string;
   uploadedById: string;
 }

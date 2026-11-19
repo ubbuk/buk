@@ -148,7 +148,7 @@ beforeAll(async () => {
   await prisma.approvalStep.updateMany({ where: { requestId: reqIds.named, type: "WAREHOUSE_CHECK" }, data: { assignedUserId: id("empB") } });
 
   const uploaded = await addAttachments(reqIds.empBReq, id("empB"), [
-    { fileName: "b.pdf", mimeType: "application/pdf", sizeBytes: 4, buffer: Buffer.from("%PDF") },
+    { fileName: "b.pdf", mimeType: "application/pdf", sizeBytes: 8, buffer: Buffer.from("%PDF-1.4") },
   ]);
   if (!uploaded.ok) throw new Error(uploaded.error);
   empBAttachmentId = uploaded.data[0].id;
@@ -254,7 +254,7 @@ describe("EMPLOYEE cannot read, change or download another employee's request", 
 
   it("cannot attach files to, resubmit or price someone else's request", async () => {
     const form = new FormData();
-    form.append("files", new File([Buffer.from("%PDF")], "x.pdf", { type: "application/pdf" }));
+    form.append("files", new File([Buffer.from("%PDF-1.4")], "x.pdf", { type: "application/pdf" }));
     as("empA");
     const before = await prisma.attachment.count({ where: { requestId: reqIds.empBReq } });
     const upload = await UPLOAD(new Request("http://x", { method: "POST", body: form }), ctx({ id: reqIds.empBReq }));

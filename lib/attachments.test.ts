@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "./prisma";
 import { addAttachments, getAttachmentFile } from "./attachments";
 import { MAX_ATTACHMENTS_PER_REQUEST } from "./attachment-rules";
+import { signedBuffer } from "./attachment-fixtures";
 
 // Real dev Postgres + the real local-fs storage driver (lib/storage.ts),
 // same "no mocking" convention as lib/workflow.test.ts. Test files are
@@ -48,7 +49,7 @@ async function createTestRequest() {
 }
 
 function makeFile(name: string, mimeType: string, sizeBytes: number) {
-  return { fileName: name, mimeType, sizeBytes, buffer: Buffer.alloc(sizeBytes, "x") };
+  return { fileName: name, mimeType, sizeBytes, buffer: signedBuffer(mimeType, sizeBytes) };
 }
 
 describe("addAttachments", () => {
@@ -96,9 +97,20 @@ describe("addAttachments", () => {
     expect(row).toBeNull();
   });
 
-  it("rejects a file over the 10 MB limit", async () => {
+  it("rejects an image over 10 MB and a document over 20 MB, but takes a 15 MB document", async () => {
     const request = await createTestRequest();
-    const result = await addAttachments(request.id, REQUESTER_ID, [makeFile("big.pdf", "application/pdf", 10 * 1024 * 1024 + 1)]);
+    const bigImage = await addAttachments(request.id, REQUESTER_ID, [makeFile("big.jpg", "image/jpeg", 10 * 1024 * 1024 + 1)]);
+    expect(bigImage.ok).toBe(false);
+    if (!bigImage.ok) expect(bigImage.status).toBe(400);
+    const bigDoc = await addAttachments(request.id, REQUESTER_ID, [makeFile("big.pdf", "application/pdf", 20 * 1024 * 1024 + 1)]);
+    expect(bigDoc.ok).toBe(false);
+    const okDoc = await addAttachments(request.id, REQUESTER_ID, [makeFile("scan.pdf", "application/pdf", 15 * 1024 * 1024)]);
+    expect(okDoc.ok).toBe(true);
+  });
+
+  it("rejects a file whose bytes do not match its declared type", async () => {
+    const request = await createTestRequest();
+    const result = await addAttachments(request.id, REQUESTER_ID, [{ fileName: "fake.jpg", mimeType: "image/jpeg", sizeBytes: 11, buffer: Buffer.from("<html></html>") }]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(400);
   });

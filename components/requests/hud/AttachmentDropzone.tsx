@@ -1,9 +1,11 @@
 "use client";
 
-import { CloudUpload, Files, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { Files } from "lucide-react";
 import { formatFileSize } from "@/lib/utils";
-import { ALLOWED_ATTACHMENT_EXTENSIONS, MAX_ATTACHMENTS_PER_REQUEST } from "@/lib/attachment-rules";
+import { MAX_ATTACHMENTS_PER_REQUEST } from "@/lib/attachment-rules";
+import { AttachmentPicker } from "@/components/attachments/AttachmentPicker";
+import { UploadQueueList } from "@/components/attachments/UploadQueueList";
+import type { UploadQueue } from "@/components/attachments/useUploadQueue";
 import { HudPanel } from "./HudPanel";
 
 interface ExistingAttachment {
@@ -13,72 +15,27 @@ interface ExistingAttachment {
   href: string;
 }
 
-// Validation (type, size, count) stays in the form's onFilesSelected; this
-// only collects files from click or drag-and-drop and lists them.
+// Picking (camera / gallery / documents), compression and upload are handled by the queue; this only lays them out.
 export function AttachmentDropzone({
-  files,
+  queue,
   existing,
-  onSelect,
-  onRemove,
+  onRetry,
 }: {
-  files: File[];
+  queue: UploadQueue;
   existing: ExistingAttachment[];
-  onSelect: (files: File[]) => void;
-  onRemove: (index: number) => void;
+  onRetry: (id: string) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-
   return (
-    <HudPanel chamfer={14} innerClassName="p-5">
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={ALLOWED_ATTACHMENT_EXTENSIONS}
-        className="hidden"
-        onChange={(e) => {
-          onSelect(Array.from(e.target.files ?? []));
-          e.target.value = "";
-        }}
-      />
-      <div
-        data-drag={dragging}
-        className="hud-dropzone focus-ring flex min-h-[110px] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg px-4 py-5 text-center"
-        role="button"
-        tabIndex={0}
-        aria-label="Файл хавсаргах"
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            inputRef.current?.click();
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          onSelect(Array.from(e.dataTransfer.files));
-        }}
-      >
-        <CloudUpload className="size-9 text-tech" />
-        <p className="text-sm font-semibold text-text">
-          Файл чирж оруулах эсвэл <span className="text-accent underline">сонгох</span>
-        </p>
-        <p className="text-xs text-text-muted">
-          JPG, PNG, WEBP, PDF, XLSX, DOCX · Нэг файл 10 MB хүртэл · Нийт {MAX_ATTACHMENTS_PER_REQUEST} файл хүртэл
-        </p>
-      </div>
+    <HudPanel chamfer={14} innerClassName="space-y-3 p-4 sm:p-5">
+      <AttachmentPicker onPick={(files) => void queue.add(files)} />
+      <p className="text-xs text-text-muted">
+        Зургийг автоматаар жижигрүүлж, байршлын мэдээллийг устгана · PDF, Excel, Word 20 MB хүртэл · Нийт {MAX_ATTACHMENTS_PER_REQUEST} файл хүртэл
+      </p>
 
-      {(existing.length > 0 || files.length > 0) && (
-        <ul className="mt-3 grid gap-2 md:grid-cols-2">
+      {existing.length > 0 && (
+        <ul className="grid gap-2 md:grid-cols-2">
           {existing.map((a) => (
-            <li key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-tech/25 bg-bg/60 px-3 py-2 text-xs">
+            <li key={a.id} className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-tech/25 bg-bg/60 px-3 py-2 text-xs">
               <a href={a.href} target="_blank" rel="noreferrer" className="focus-ring flex min-w-0 items-center gap-2 text-text hover:text-accent">
                 <Files className="size-4 shrink-0 text-tech" />
                 <span className="truncate max-sm:whitespace-normal max-sm:break-words underline decoration-dotted">{a.fileName}</span>
@@ -86,25 +43,10 @@ export function AttachmentDropzone({
               <span className="shrink-0 text-text-muted">{formatFileSize(a.sizeBytes)}</span>
             </li>
           ))}
-          {files.map((f, i) => (
-            <li key={`${f.name}-${i}`} className="hud-pop flex items-center justify-between gap-2 rounded-lg border border-tech/25 bg-bg/60 px-3 py-2 text-xs">
-              <span className="flex min-w-0 items-center gap-2 text-text">
-                <Files className="size-4 shrink-0 text-accent" />
-                <span className="truncate max-sm:whitespace-normal max-sm:break-words">{f.name}</span>
-                <span className="shrink-0 text-text-muted">({formatFileSize(f.size)})</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemove(i)}
-                aria-label={`${f.name} хасах`}
-                className="focus-ring rounded text-text-muted hover:text-danger"
-              >
-                <X className="size-4" />
-              </button>
-            </li>
-          ))}
         </ul>
       )}
+
+      <UploadQueueList items={queue.items} onRemove={queue.remove} onRetry={onRetry} />
     </HudPanel>
   );
 }
