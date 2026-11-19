@@ -120,6 +120,35 @@ beforeAll(async () => {
 
 afterAll(cleanup);
 
+describe("POST /api/requests -- invalid payloads say which field is wrong", () => {
+  const send = (body: unknown) => POST(new Request("http://localhost/api/requests", { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) }));
+
+  it("an empty department (the department list did not load) is named, not a bare validation error", async () => {
+    as(users.betonEmp);
+    const res = await send({ departmentId: "", items: [item] });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Цех, тасаг сонгогдоогүй");
+    expect(body.error).not.toBe("Хүчингүй өгөгдөл");
+  });
+
+  it("names the row and field of a bad item, and survives a body that is not JSON", async () => {
+    as(users.betonEmp);
+    const bad = await (await send({ departmentId: BETON, items: [item, { ...item, requestedQuantity: 0 }] })).json();
+    expect(bad.error).toBe("2-р мөр · Тоо хэмжээ: Тоо хэмжээ 0-с их байх ёстой");
+    const res = await send("not json");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBeTruthy();
+  });
+
+  it("accepts the reported submission (Bal / Sh / 5 / no price / note) for an employee of the department", async () => {
+    as(users.betonEmp);
+    const res = await send({ departmentId: BETON, items: [{ materialId: null, materialName: "Bal", unit: "Sh", requestedQuantity: 5, unitPrice: null, note: "Heregtei" }] });
+    expect(res.status).toBe(201);
+    await prisma.materialRequest.deleteMany({ where: { id: (await res.json()).id } });
+  });
+});
+
 describe("POST /api/requests -- department authorization", () => {
   it("rejects a Beton employee filing for Mechanic (403) and writes nothing", async () => {
     as(users.betonEmp);

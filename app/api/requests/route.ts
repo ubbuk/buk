@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { canCreateRequestForDepartment, departmentHeadError } from "@/lib/department-access";
 import { isRequestHiddenFrom, requestScopeWhere } from "@/lib/request-visibility";
 import { requestInclude, requestListSelect, serializeRequest } from "@/lib/serialize";
-import { apiCreateRequestSchema } from "@/lib/validation";
+import { apiCreateRequestSchema, describeApiIssue } from "@/lib/validation";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { withTiming } from "@/lib/api-timing";
 import { resolveStep2Keeper, recordKeeperFallback } from "@/lib/warehouse-keeper";
@@ -56,7 +56,13 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
   const body = await req.json().catch(() => null);
   const parsed = apiCreateRequestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Хүчингүй өгөгдөл", issues: parsed.error.issues }, { status: 400 });
+    // Which fields failed and why, never their values: this is what `vercel logs` shows for a 400 here.
+    console.warn(JSON.stringify({ route: "POST /api/requests", rejected: body === null ? "body is not JSON" : parsed.error.issues.map((i) => ({ path: i.path.join("."), code: i.code })) }));
+    const first = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: first ? describeApiIssue(first) : "Захиалгын мэдээлэл уншигдсангүй. Дахин оролдоно уу", issues: parsed.error.issues },
+      { status: 400 }
+    );
   }
   const input = parsed.data;
 

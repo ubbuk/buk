@@ -327,6 +327,15 @@ export function MaterialRequestForm() {
       return;
     }
 
+    if (!departmentId) {
+      // The department list did not load (or is empty): the server would answer with a bare validation error.
+      push({
+        kind: "error",
+        title: "Цех, тасаг сонгогдоогүй байна",
+        description: departments.length === 0 ? "Цех, тасгийн жагсаалт ачаалагдсангүй. Хуудсаа дахин ачаална уу" : "Цех, тасгаа сонгоно уу",
+      });
+      return;
+    }
     if (queue.items.some((i) => i.status === "preparing")) {
       push({ kind: "info", title: "Зургийг бэлдэж байна", description: "Хэдэн секунд хүлээгээд дахин дарна уу" });
       return;
