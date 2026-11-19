@@ -68,13 +68,13 @@ describe("what a storage failure becomes", () => {
     expect(c(new Error("boom"))).toBe("STORAGE_UNKNOWN");
   });
 
-  it("presign: 503 with a sentence, and only the code in the log", async () => {
+  it("presign: 500 for a wrong setting (no retry) with a sentence, and only the code in the log", async () => {
     const { presignUploadsSafe } = await import("./attachment-upload");
     failing.error = new Error('Region not accepted: region="\tauto" is not a valid hostname component.');
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const r = await presignUploadsSafe({ prefix: "req/", actorId: "u" }, [{ fileName: "a.jpg", mimeType: "image/jpeg", sizeBytes: 1000 }]);
-      expect(r).toEqual({ ok: false, status: 503, error: "Файл хадгалах сангийн тохиргоо буруу байна. Системийн админд мэдэгдэнэ үү" });
+      expect(r).toEqual({ ok: false, status: 500, error: "Файл хадгалах сангийн тохиргоо буруу байна. Системийн админд мэдэгдэнэ үү" });
       const logged = log.mock.calls.map((c) => String(c[0])).join(" ");
       expect(logged).toContain('"storageFailure":"STORAGE_CONFIG"');
       expect(logged).toContain('"phase":"presign"');
@@ -86,7 +86,7 @@ describe("what a storage failure becomes", () => {
 });
 
 describe("finalize when the bucket cannot be asked", () => {
-  it("answers 503 with a sentence and the code, and leaves the user free to retry", async () => {
+  it("answers with a sentence and the code (500: a wrong key is not worth retrying)", async () => {
     vi.stubEnv("NEXTAUTH_SECRET", "test-secret");
     const { verifyUploads, signToken } = await import("./attachment-upload");
     failing.error = Object.assign(new Error("denied"), { name: "AccessDenied", $metadata: { httpStatusCode: 403 } });
@@ -95,8 +95,26 @@ describe("finalize when the bucket cannot be asked", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const r = await verifyUploads({ prefix: "req-fin/", actorId: "u" }, [{ fileName: "a.jpg", key, token }]);
-      expect(r).toEqual({ ok: false, status: 503, error: "Файл хадгалах сангийн эрх буруу байна. Системийн админд мэдэгдэнэ үү" });
+      expect(r).toEqual({ ok: false, status: 500, error: "Файл хадгалах сангийн эрх буруу байна. Системийн админд мэдэгдэнэ үү" });
       expect(log.mock.calls.map((c) => String(c[0])).join(" ")).toContain('"phase":"finalize"');
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe("only an unreachable store is a retryable 503", () => {
+  it("presign answers 503 for a network failure and 500 for everything the client cannot fix", async () => {
+    const { presignUploadsSafe } = await import("./attachment-upload");
+    const files = [{ fileName: "a.jpg", mimeType: "image/jpeg", sizeBytes: 1000 }];
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      failing.error = Object.assign(new Error("getaddrinfo ENOTFOUND x"), { code: "ENOTFOUND" });
+      expect(await presignUploadsSafe({ prefix: "r/", actorId: "u" }, files)).toMatchObject({ ok: false, status: 503 });
+      for (const e of [new Error("boom"), Object.assign(new Error("x"), { name: "NoSuchBucket" })]) {
+        failing.error = e;
+        expect(await presignUploadsSafe({ prefix: "r/", actorId: "u" }, files)).toMatchObject({ ok: false, status: 500 });
+      }
     } finally {
       log.mockRestore();
     }

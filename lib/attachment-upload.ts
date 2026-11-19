@@ -129,12 +129,13 @@ export async function presignUploads(scope: { prefix: string; actorId: string },
   return out;
 }
 
-/** presignUploads for the routes: a storage problem becomes a 503 with a sentence and a logged code, never a bare 500. */
+/** presignUploads for the routes: a storage problem becomes a sentence and a logged code (503 when retrying can help, else 500), never a bare 500. */
 export async function presignUploadsSafe(scope: { prefix: string; actorId: string }, files: DeclaredFile[]): Promise<UploadResult<PresignedFile[]>> {
   try {
     return { ok: true, data: await presignUploads(scope, files) };
   } catch (err) {
-    return { ok: false, status: 503, error: reportStorageFailure("presign", err).message };
+    const f = reportStorageFailure("presign", err);
+    return { ok: false, status: f.status, error: f.message };
   }
 }
 
@@ -194,7 +195,8 @@ export async function verifyUploads(scope: { prefix: string; actorId: string }, 
     return await inspectAll(scope, refs, bail);
   } catch (err) {
     // the bucket could not be asked: nothing is deleted (it could not be reached either) and the user may simply retry
-    return fail(503, reportStorageFailure("finalize", err).message);
+    const f = reportStorageFailure("finalize", err);
+    return fail(f.status, f.message);
   }
 }
 
