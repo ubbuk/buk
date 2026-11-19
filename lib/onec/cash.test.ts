@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildCash, fetchCash, type CashInputs } from "./cash";
+import { buildCash, fetchCash, redactCash, type CashInputs } from "./cash";
 import { resetNameCache } from "./odata-read";
 
 const MONTH = "2026-09";
@@ -97,6 +97,19 @@ describe("buildCash: орлого, зарлага, дотоод шилжүүлэ
     const x = buildCash(inputs({ records: [entry("d8", "2026-09-10", [OTHER], [REC], 999)], opening: [bal(A1, B1, 0)], closing: [] }));
     expect(x.totals).toMatchObject({ inflow: 0, outflow: 0, internal: 0, entries: 0, opening: 0, closing: 0 });
     expect(x.accounts).toEqual([]);
+  });
+});
+
+describe("buildCash: бүх гүйлгээ хадгалагдана (хуучин «сүүлийн 200» хязгаар хайлтыг таслахгүй)", () => {
+  it("300 бичилт: entries 300, recent 200, харьцсан дансны код орно; redactCash цалинг entries-ээс ч нууна", () => {
+    const many = Array.from({ length: 300 }, (_, i) => entry(`m${i}`, "2026-09-05", [A1, B1, F1], [REC, P1], 10 + i));
+    const r = buildCash(inputs({ records: many }));
+    expect(r.entries).toHaveLength(300);
+    expect(r.recent).toHaveLength(200);
+    expect(r.entries[0]).toMatchObject({ counterAccount: "1501" });
+    const secret = { ...r.entries[0], id: "p1", payroll: true, memo: "нууц утга", counterpart: "Нууц Нэр" };
+    const red = redactCash({ ...r, entries: [secret, ...r.entries.slice(1)], payroll: { inflow: secret.amount, outflow: 0, byDay: [{ date: secret.date, type: "inflow", account: secret.account, amount: secret.amount }] } });
+    expect(JSON.stringify(red.entries)).not.toContain("Нууц");
   });
 });
 

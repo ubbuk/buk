@@ -1134,3 +1134,23 @@ model OnecSyncLog {
   @@index([kind, finishedAt(sort: Desc)])
   @@map("onec_sync_log")
 }
+
+// «Мөнгөн хөрөнгө» таб: гүйлгээг ангилах дүрэм (lib/onec/cash-categories.ts). ADMIN засна; код доторх анхдагч дүрмээс өмнө үнэлэгдэнэ.
+//   direction: IN | OUT | ANY; field: ACCOUNT (харьцсан дансны кодын угтвар) | ACCOUNT_NAME | PARTY | MEMO | ARTICLE (агуулсан үг);
+//   category: CATEGORY_IDS-ийн нэг (аппликейшн шалгана).
+model OnecCashCategoryRule {
+  id          String   @id @default(cuid())
+  direction   String   @default("ANY")
+  field       String
+  pattern     String
+  category    String
+  priority    Int      @default(100)
+  isActive    Boolean  @default(true) @map("is_active")
+  note        String?
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([isActive, priority])
+  @@map("onec_cash_category_rule")
+}
