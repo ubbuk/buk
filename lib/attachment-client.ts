@@ -89,6 +89,12 @@ export async function prepareFile(file: File): Promise<PreparedFile> {
   }
 }
 
+/** Worth another try: the request timed out, was throttled or the service was briefly unavailable. A plain 500 is a fault
+ *  (wrong storage setting or key, a bug) that a retry cannot fix, so the message is shown at once. */
+export function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
+}
+
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   let res: Response;
   try {
@@ -99,7 +105,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const message = (data && typeof data.error === "string" && data.error) || (res.status === 413 ? "Файл хэт том байна" : `Серверийн алдаа (${res.status})`);
-    throw new UploadError(message, res.status, res.status >= 500 || res.status === 408 || res.status === 429);
+    throw new UploadError(message, res.status, isTransientStatus(res.status));
   }
   return data as T;
 }
@@ -116,7 +122,7 @@ function putBlob(target: UploadTarget, blob: Blob, onProgress: (loaded: number) 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
       // 403 from the bucket is an expired/invalid signature: the next attempt presigns again, so it is worth retrying.
-      const retryable = xhr.status >= 500 || xhr.status === 403 || xhr.status === 408 || xhr.status === 429;
+      const retryable = isTransientStatus(xhr.status) || xhr.status === 403;
       reject(new UploadError(xhr.status === 403 ? "Upload-ын хугацаа дууссан байна" : `Файл илгээхэд алдаа гарлаа (${xhr.status})`, xhr.status, retryable));
     };
     xhr.onerror = () => reject(new UploadError("Сүлжээ тасарлаа", 0, true));

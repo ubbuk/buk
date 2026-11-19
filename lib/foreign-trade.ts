@@ -10,7 +10,7 @@ import { signatureMatches, SIGNATURE_BYTES } from "./file-signature";
 import {
   discardObjects,
   discardUploads,
-  presignUploads,
+  presignUploadsSafe,
   validateDeclared,
   verifyUploads,
   type DeclaredFile,
@@ -755,7 +755,7 @@ export async function presignAttachments(actor: FtActor, id: string, declared: D
     const problem = validateDeclared(f);
     if (problem) return fail(400, problem);
   }
-  return { ok: true, data: await presignUploads({ prefix: ftPrefix(id), actorId: actor.id }, declared) };
+  return presignUploadsSafe({ prefix: ftPrefix(id), actorId: actor.id }, declared);
 }
 
 /** Step 3: the files are in the bucket; verify them there and register the metadata. */
@@ -802,7 +802,7 @@ export async function presignMessageFiles(actor: FtActor, id: string, declared: 
     const problem = validateDeclared(f);
     if (problem) return fail(400, problem);
   }
-  return { ok: true, data: await presignUploads({ prefix: ftPrefix(id), actorId: actor.id }, declared) };
+  return presignUploadsSafe({ prefix: ftPrefix(id), actorId: actor.id }, declared);
 }
 
 /** Deletes an order together with its files (rows go by cascade; the objects in storage do not). */

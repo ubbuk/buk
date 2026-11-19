@@ -10,6 +10,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { prisma } from "./prisma";
 import { storage } from "./storage";
+import { reportStorageFailure } from "./storage-errors";
 import { signatureMatches, SIGNATURE_BYTES } from "./file-signature";
 import { isAllowedMime, isHeic, isImageMime, MAX_THUMB_SIZE_BYTES, maxSizeFor, maxSizeLabel } from "./attachment-rules";
 
@@ -128,6 +129,16 @@ export async function presignUploads(scope: { prefix: string; actorId: string },
   return out;
 }
 
+/** presignUploads for the routes: a storage problem becomes a sentence and a logged code (503 when retrying can help, else 500), never a bare 500. */
+export async function presignUploadsSafe(scope: { prefix: string; actorId: string }, files: DeclaredFile[]): Promise<UploadResult<PresignedFile[]>> {
+  try {
+    return { ok: true, data: await presignUploads(scope, files) };
+  } catch (err) {
+    const f = reportStorageFailure("presign", err);
+    return { ok: false, status: f.status, error: f.message };
+  }
+}
+
 async function inspect(token: string, key: string, scope: { prefix: string; actorId: string }, limit: number | null): Promise<{ ok: true; mime: string; size: number } | { ok: false; error: string }> {
   const t = readToken(token);
   if (!t || t.k !== key || t.u !== scope.actorId || !key.startsWith(scope.prefix)) return { ok: false, error: "Файлын баталгаажуулалт хүчингүй байна. Дахин оруулна уу" };
@@ -180,6 +191,20 @@ export async function verifyUploads(scope: { prefix: string; actorId: string }, 
   ]);
   if (a + b > 0) return fail(409, "Энэ файл аль хэдийн хавсаргагдсан байна"); // not discarded: those objects belong to the existing rows
 
+  try {
+    return await inspectAll(scope, refs, bail);
+  } catch (err) {
+    // the bucket could not be asked: nothing is deleted (it could not be reached either) and the user may simply retry
+    const f = reportStorageFailure("finalize", err);
+    return fail(f.status, f.message);
+  }
+}
+
+async function inspectAll(
+  scope: { prefix: string; actorId: string },
+  refs: UploadedRef[],
+  bail: (status: number, error: string) => Promise<UploadResult<VerifiedFile[]>>
+): Promise<UploadResult<VerifiedFile[]>> {
   const files: VerifiedFile[] = [];
   for (const r of refs) {
     const mimeLimit = readToken(r.token)?.m;
