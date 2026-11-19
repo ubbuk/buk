@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { clientIp } from "@/lib/client-ip";
 import { createUserAsAdmin } from "@/lib/credential-reset";
+import { emailSchema } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
 import { USER_ROLES } from "@/lib/types";
 
@@ -38,7 +39,8 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  email: z.string().email(),
+  // canonical form (trim, NFKC, lower case) and a sentence that says what is wrong with a bad one: lib/email.ts
+  email: emailSchema,
   name: z.string().trim().min(1),
   title: z.string().trim().min(1).nullable().optional(),
   role: z.enum(USER_ROLES),
@@ -57,7 +59,16 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл" }, { status: 400 });
+  if (!parsed.success) {
+    // Which field and why, never the value (an address is personal data): this is what `vercel logs` shows for the 400.
+    console.warn(
+      JSON.stringify({
+        route: "POST /api/admin/users",
+        rejected: body === null ? "body is not JSON" : parsed.error.issues.map((i) => ({ path: i.path.join("."), code: i.code, reason: (i as { params?: { reason?: string } }).params?.reason })),
+      })
+    );
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл" }, { status: 400 });
+  }
 
   const { reason, confirmed, ...data } = parsed.data;
   const result = await createUserAsAdmin({ adminId: session.user.id, ip: clientIp(req.headers), data, grant: { reason, confirmed } });

@@ -496,6 +496,57 @@ describe("user creation", () => {
     expect(await prisma.user.count({ where: { email } })).toBe(0);
   });
 
+  it("routes: a bad address is named (Cyrillic look-alikes especially), logged without its value, and nothing is created", async () => {
+    const admin = await user("ADMIN");
+    session.current = { user: { id: admin, role: "ADMIN" } };
+    const post = (b: unknown) => USERS_POST(new Request("http://localhost/x", { method: "POST", headers: { "x-forwarded-for": ip() }, body: JSON.stringify(b) }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const secret = `у${P}cyr-${TAG}@test.local`; // Cyrillic у in front
+      const before = await prisma.user.count();
+      const cyr = await post({ email: secret, name: "N", role: "EMPLOYEE" });
+      expect(cyr.status).toBe(400);
+      expect((await cyr.json()).error).toBe("И-мэйл хаягт кирилл үсэг орсон байна, латин гараар бичнэ үү");
+      const bad = await post({ email: `${P}spaced-${TAG} @test.local`, name: "N", role: "EMPLOYEE" });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toBe("И-мэйл хаяг буруу байна (латин үсэг, зайгүй)");
+      expect(await prisma.user.count()).toBe(before);
+
+      const logged = warn.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(logged).toContain('"route":"POST /api/admin/users"');
+      expect(logged).toContain('"path":"email"');
+      expect(logged).toContain('"reason":"cyrillic"');
+      expect(logged).not.toContain(`${P}cyr-`); // never the address itself
+      expect(logged).not.toContain(`${P}spaced-`);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stores the address in canonical form and refuses a duplicate that differs only in case", async () => {
+    const admin = await user("ADMIN");
+    session.current = { user: { id: admin, role: "ADMIN" } };
+    const post = (b: unknown) => USERS_POST(new Request("http://localhost/x", { method: "POST", headers: { "x-forwarded-for": ip() }, body: JSON.stringify(b) }));
+    const local = `${P}Mixed-${TAG}`;
+    const ok = await post({ email: `  ${local}@Test.LOCAL  `, name: "N", role: "EMPLOYEE" });
+    expect(ok.status).toBe(201);
+    const body = await ok.json();
+    expect(body.email).toBe(`${local}@test.local`.toLowerCase());
+    created.push(body.id);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: body.id } })).email).toBe(`${local}@test.local`.toLowerCase());
+
+    // same address, other capitals / spaces: 409, not a second account
+    const again = await post({ email: `${local.toUpperCase()}@test.local`, name: "N2", role: "EMPLOYEE" });
+    expect(again.status).toBe(409);
+
+    // an account stored BEFORE lower-casing (capitals) still blocks the lower-case spelling
+    const legacy = await user("EMPLOYEE");
+    await prisma.user.update({ where: { id: legacy }, data: { email: `${P}Hash-${TAG}@Gmail.com` } });
+    const clash = await post({ email: `${P}hash-${TAG}@gmail.com`, name: "N3", role: "EMPLOYEE" });
+    expect(clash.status).toBe(409);
+    expect(await prisma.user.count({ where: { email: { equals: `${P}hash-${TAG}@gmail.com`, mode: "insensitive" } } })).toBe(1);
+  });
+
   it("routes: POST needs no admin password, is ADMIN-only, and GET is unchanged", async () => {
     const admin = await user("ADMIN");
     const email = `${P}new-${TAG}-route@test.local`;
