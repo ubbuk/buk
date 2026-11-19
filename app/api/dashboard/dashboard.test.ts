@@ -21,6 +21,7 @@ import { POST as REFRESH } from "./refresh/route";
 import { GET as RECEIVABLES } from "./receivables/route";
 import { GET as STOCK } from "./stock/route";
 import { GET as STOCK_TREND } from "./stock/trend/route";
+import { GET as SALES } from "./sales/route";
 import { GET as SUMMARY } from "./summary/route";
 import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
@@ -103,6 +104,7 @@ const ROUTES = {
   stock: () => STOCK(get("/api/dashboard/stock")),
   stockTrend: () => STOCK_TREND(get(`/api/dashboard/stock/trend?year=${currentMonth().slice(0, 4)}`)),
   usage: () => USAGE(get(`/api/dashboard/usage?month=${MONTH}`)),
+  salesView: () => SALES(get(`/api/dashboard/sales?month=${MONTH}`)),
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
   receivables: () => RECEIVABLES(get(`/api/dashboard/receivables?month=${currentMonth()}`)),
   wip: () => WIP(get(`/api/dashboard/wip?month=${currentMonth()}`)),
@@ -150,7 +152,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "stockTrend", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "stockTrend", "usage", "sales", "salesView", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -784,6 +786,43 @@ describe("/api/dashboard/summary: өртгийн задаргаа (нийт өр
     const r = await (await SUMMARY(get(`/api/dashboard/summary?month=${MON}`))).json();
     expect(r.kpi).toMatchObject({ revenue: 1400, cost: 950, cost_documents: 800, cost_requisitions: 150, gross_profit: 450 });
     expect(r.kpi.cost_documents + r.kpi.cost_requisitions).toBe(r.kpi.cost);
+  });
+});
+
+describe("/api/dashboard/sales: удирдлагын харагдац (орлого, өртөг, ашиг; харилцагчаар, бүтээгдэхүүнээр)", () => {
+  const MON = "2020-07";
+  const row = (date: string, rowType: string, over: Record<string, unknown>) => ({ ...sale(date, 0), doc: "dash-sales-view", rowType, ...over });
+  beforeAll(async () => {
+    await prisma.onecSales.createMany({
+      data: [
+        row(`${MON}-05`, "sale", { clientCode: "K1", client: "Альфа ХХК", itemCode: "T1", item: "Цемент", unit: "тн", qty: 10, amount: 1000, cost: 600 }),
+        row(`${MON}-06`, "sale", { clientCode: "K1", client: "Альфа ХХК", itemCode: "T2", item: "Боолт", unit: "ш", qty: 200, amount: 500, cost: 200 }),
+        row(`${MON}-07`, "sale", { clientCode: "K2", client: "Бета ХХК", itemCode: "T1", item: "Цемент", unit: "тн", qty: 5, amount: 400, cost: 300 }),
+        row(`${MON}-08`, "cost_only", { qty: 0, amount: 0, cost: 150 }),
+      ],
+    });
+  });
+  afterAll(() => prisma.onecSales.deleteMany({ where: { doc: "dash-sales-view" } }));
+
+  it("KPI нь /summary-тэй ижил (ашиг = орлого − нийт өртөг), харилцагч, бүтээгдэхүүнээр; нэгж нэмэгдэхгүй; 12 сарын график; хуучин нэр, техникийн үг гарахгүй", async () => {
+    as("DIRECTOR");
+    const r = await (await SALES(get(`/api/dashboard/sales?month=${MON}`))).json();
+    const old = await (await SUMMARY(get(`/api/dashboard/summary?month=${MON}`))).json();
+    expect(r.kpi).toMatchObject({ revenue: old.kpi.revenue, cost: old.kpi.cost, profit: old.kpi.gross_profit, costDirect: 150, costOfGoods: 1100 });
+    expect(r.clients.map((c: { name: string; revenue: number }) => [c.name, c.revenue])).toEqual([["Альфа ХХК", 1500], ["Бета ХХК", 400]]);
+    const alpha = r.clients[0];
+    expect(alpha.quantities).toEqual([{ unit: "тонн", qty: 10 }, { unit: "ширхэг", qty: 200 }]);
+    expect(r.items.find((i: { code: string }) => i.code === "T1")).toMatchObject({ qty: 15, revenue: 1400, clients: [{ name: "Альфа ХХК" }, { name: "Бета ХХК" }] });
+    expect(r.trend.find((t: { month: string }) => t.month === MON)).toEqual({ month: MON, revenue: 1900, profit: 650 });
+    expect(JSON.stringify(r)).not.toMatch(/Бохир|Catalog_|Комментарий/);
+  });
+
+  it("өгөгдөлгүй сар: хоосон жагсаалт, ирээдүйн биш буруу сар 400", async () => {
+    as("DIRECTOR");
+    const r = await (await SALES(get("/api/dashboard/sales?month=2020-08"))).json();
+    expect(r.clients).toEqual([]);
+    expect(r.kpi.margin).toBeNull();
+    expect((await SALES(get("/api/dashboard/sales?month=bad"))).status).toBe(400);
   });
 });
 
