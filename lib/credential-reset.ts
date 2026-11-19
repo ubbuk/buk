@@ -196,7 +196,8 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
   }
   if (!admission.ok) return fail(429, TOO_MANY, admission.retryAfterSeconds);
 
-  const existing = await prisma.user.findUnique({ where: { email: input.data.email }, select: { id: true } });
+  // Accounts created before addresses were lower-cased may hold capitals: compare without regard to case.
+  const existing = await prisma.user.findFirst({ where: { email: { equals: input.data.email, mode: "insensitive" } }, select: { id: true } });
   if (existing) return fail(409, "Энэ и-мэйл хаягтай хэрэглэгч бүртгэлтэй байна");
 
   const tempPassword = generateTempPassword();

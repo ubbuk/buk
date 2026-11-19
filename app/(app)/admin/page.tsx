@@ -708,7 +708,18 @@ export default function AdminPage() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Шинэ хэрэглэгч үүсгэх">
         <div className="space-y-3">
-          <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="И-мэйл" className={inputClass} />
+          <input
+            type="email"
+            inputMode="email"
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="И-мэйл (латин үсгээр)"
+            className={inputClass}
+          />
           <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Овог, нэр" className={inputClass} />
           <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Албан тушаал (жиш: Цехийн дарга)" className={inputClass} />
           <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className={inputClass}>
