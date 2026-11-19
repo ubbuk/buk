@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiCreateRequestItemSchema, materialRequestItemSchema } from "./validation";
+import { apiCreateRequestItemSchema, apiCreateRequestSchema, describeApiIssue, materialRequestItemSchema } from "./validation";
 
 // Schema-level checks for the "unitPrice is optional" change -- fast, no
 // DB -- covering the validation layer from the spec's test list directly:
@@ -68,5 +68,33 @@ describe("apiCreateRequestItemSchema (POST /api/requests payload)", () => {
 
   it("rejects an invalid-format price", () => {
     expect(apiCreateRequestItemSchema.safeParse({ ...apiItem, unitPrice: "100₮" }).success).toBe(false);
+  });
+});
+
+describe("apiCreateRequestSchema: the reported iPhone submission and the messages for a bad one", () => {
+  // Exactly what the form sends for: material "Bal", unit "Sh", quantity 5, no price, note "Heregtei".
+  const reported = { departmentId: "d-concrete", items: [{ materialId: null, materialName: "Bal", unit: "Sh", requestedQuantity: 5, unitPrice: null, note: "Heregtei" }] };
+
+  it("accepts it", () => {
+    expect(apiCreateRequestSchema.safeParse(reported).success).toBe(true);
+    // ...and the same without the optional fields a client may leave out
+    expect(apiCreateRequestSchema.safeParse({ departmentId: "d", items: [{ materialName: "Bal", unit: "Sh", requestedQuantity: 5 }] }).success).toBe(true);
+  });
+
+  const firstMessage = (payload: unknown) => {
+    const r = apiCreateRequestSchema.safeParse(payload);
+    return r.success ? null : describeApiIssue(r.error.issues[0]);
+  };
+
+  it("names the field and the row that is wrong", () => {
+    expect(firstMessage({ ...reported, departmentId: "" })).toContain("Цех, тасаг: Цех, тасаг сонгогдоогүй");
+    expect(firstMessage({ items: reported.items })).toContain("Цех, тасаг");
+    expect(firstMessage({ ...reported, items: [] })).toContain("Материалын жагсаалт");
+    const bad = (over: object) => firstMessage({ ...reported, items: [reported.items[0], { ...reported.items[0], ...over }] });
+    expect(bad({ requestedQuantity: 0 })).toBe("2-р мөр · Тоо хэмжээ: Тоо хэмжээ 0-с их байх ёстой");
+    expect(bad({ requestedQuantity: "5" })).toBe("2-р мөр · Тоо хэмжээ: Тоо хэмжээ тоо байх ёстой");
+    expect(bad({ unit: " " })).toBe("2-р мөр · Нэгж: Нэгжийг оруулна уу");
+    expect(bad({ materialName: "" })).toBe("2-р мөр · Материалын нэр: Материалын нэрийг оруулна уу");
+    expect(bad({ unitPrice: -1 })).toBe("2-р мөр · Нэгж үнэ: Нэгж үнэ сөрөг байж болохгүй");
   });
 });
