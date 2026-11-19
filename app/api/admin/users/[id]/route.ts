@@ -40,6 +40,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
 
+  if (parsed.data.departmentId && !(await prisma.department.findUnique({ where: { id: parsed.data.departmentId }, select: { id: true } }))) {
+    return NextResponse.json({ error: "Сонгосон цех, тасаг олдсонгүй. Жагсаалтыг шинэчлээд дахин сонгоно уу", code: "DEPARTMENT_NOT_FOUND" }, { status: 400 });
+  }
+
   // Deactivating a procurement manager, or taking away the MANAGER role, would strand the
   // items assigned to them (nobody else may buy them) and, for the International manager,
   // the classification queue. Refuse unless the ADMIN explicitly acknowledges it; the
@@ -144,6 +148,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return NextResponse.json({ id: updated.id, role: updated.role, title: updated.title, departmentId: updated.departmentId, isActive: updated.isActive });
 }
 
+// A row that is still referenced blocks the delete. Postgres reports a RESTRICT foreign key (what Prisma generates for a
+// required relation) as SQLSTATE 23001, which Prisma does not map to P2003: it arrives as an *unknown* request error whose
+// text says "violates RESTRICT setting of foreign key". Catching only P2003 turned every delete of a user with history
+// into a bare 500 ("Устгаж чадсангүй" with no reason).
+function isForeignKeyBlock(e: unknown): boolean {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) return e.code === "P2003";
+  return e instanceof Prisma.PrismaClientUnknownRequestError && /violates (RESTRICT setting of )?foreign key/i.test(e.message);
+}
+
 // Hard delete is only possible for accounts with no history (no requests,
 // approvals, stock or audit entries, not a department head). The foreign keys
 // enforce that: the transaction rolls back and we answer 409, pointing the admin
@@ -161,7 +174,14 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const activeAssignment = await prisma.approvalRoleAssignment.findFirst({ where: { userId: id, isActive: true } });
   if (activeAssignment) {
     return NextResponse.json(
-      { error: "Энэ хэрэглэгч батлагчаар томилогдсон байна. Эхлээд батлагчийг солино уу" },
+      { error: "Энэ хэрэглэгч батлагчаар томилогдсон тул устгах боломжгүй. Эхлээд батлагчийг солих эсвэл хэрэглэгчийг идэвхгүй болгоно уу", code: "IS_APPROVER" },
+      { status: 409 }
+    );
+  }
+  const headed = await prisma.department.findMany({ where: { headId: id }, select: { name: true }, take: 3 });
+  if (headed.length > 0) {
+    return NextResponse.json(
+      { error: `Энэ хэрэглэгч «${headed.map((d) => d.name).join("», «")}» цех, тасгийн дарга тул устгах боломжгүй. Эхлээд даргыг солих эсвэл хэрэглэгчийг идэвхгүй болгоно уу`, code: "IS_DEPARTMENT_HEAD" },
       { status: 409 }
     );
   }
@@ -175,13 +195,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       prisma.user.delete({ where: { id } }),
     ]);
   } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+    if (isForeignKeyBlock(e)) {
       return NextResponse.json(
-        { error: "Энэ хэрэглэгчтэй холбоотой түүх (хүсэлт, баталгаа, цехийн дарга г.м) байгаа тул устгах боломжгүй. Оронд нь идэвхгүй болгоно уу" },
+        { error: "Энэ хэрэглэгчтэй холбоотой түүх (хүсэлт, баталгаа, аудит г.м) байгаа тул устгах боломжгүй. Оронд нь идэвхгүй болгоно уу", code: "HAS_HISTORY" },
         { status: 409 }
       );
     }
-    throw e;
+    // an answer the screen can show (a bare 500 has no body, which is why the toast used to carry no reason); code only, no values
+    console.error(JSON.stringify({ route: "DELETE /api/admin/users/[id]", failed: e instanceof Prisma.PrismaClientKnownRequestError ? e.code : e instanceof Error ? e.name : "unknown" }));
+    return NextResponse.json({ error: "Устгах үед алдаа гарлаа. Юу ч устгагдаагүй. Идэвхгүй болгох боломжтой" }, { status: 500 });
   }
 
   await prisma.auditLog.create({
