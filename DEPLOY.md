@@ -30,7 +30,11 @@ DATABASE_URL="<Aiven Service URI>" npx prisma migrate deploy
 
 ## 2. S3-тэй нийцтэй bucket (хавсралтад)
 
-Cloudflare R2 эсвэл AWS S3 дээр **private** bucket үүсгээд access key авна. Vercel-ийн environment variables-д `S3_*`-г оруулна (`.env.example`-г хар).
+Cloudflare R2 эсвэл AWS S3 дээр **private** bucket үүсгээд access key авна (R2: зөвхөн энэ bucket-д *Object Read & Write* эрхтэй API token). Vercel-ийн environment variables-д `S3_*`-г оруулна (`.env.example`-г хар).
+
+Хөтөч файлыг bucket руу **шууд** (presigned URL-ээр) илгээдэг тул bucket-д CORS policy заавал хэрэгтэй: [docs/r2-cors.json](docs/r2-cors.json)-ийг R2 → bucket → Settings → CORS Policy-д буулгана. Production-д `STORAGE_DRIVER` тохируулаагүй бол файл хавсаргах үйлдэл «Файл хадгалах сан тохируулагдаагүй» гэсэн алдаатай хориглогдоно (local диск рүү чимээгүй унахгүй).
+
+Хаягдсан upload-ын үлдэгдлийг шалгах: `npx tsx --env-file=.env scripts/prune-orphan-attachments.ts` (анхдагчаар зөвхөн жагсаана; `--delete` нэмбэл устгана).
 
 ## 3. Vercel
 

@@ -5,7 +5,11 @@ import {
   addAttachments,
   addQuote,
   decide,
+  deleteOrderWithFiles,
   deleteQuote,
+  finalizeAttachments,
+  presignAttachments,
+  presignMessageFiles,
   createOrder,
   getAttachmentFile,
   getOrder,
@@ -20,6 +24,9 @@ import {
   type FtOrderView,
 } from "@/lib/foreign-trade";
 import { compareQuotes, ftAccess } from "@/lib/foreign-trade-rules";
+import { storage } from "@/lib/storage";
+import { signedBuffer } from "@/lib/attachment-fixtures";
+import type { UploadedRef } from "@/lib/attachment-upload";
 import type { FtActor } from "@/lib/foreign-trade-rules";
 
 // The foreign trade workflow end to end on the isolated test database: roles and positions, visibility, the OR technical
@@ -407,7 +414,7 @@ describe("discussion", () => {
 
   it("takes files (including the old .xls); refuses other types; quote files follow the price research visibility", async () => {
     const id = await orderAt("manager");
-    const xls = { fileName: "price.xls", mimeType: "application/vnd.ms-excel", sizeBytes: 4, buffer: Buffer.from("abcd") };
+    const xls = { fileName: "price.xls", mimeType: "application/vnd.ms-excel", sizeBytes: 8, buffer: Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) };
     const exe = { fileName: "x.exe", mimeType: "application/x-msdownload", sizeBytes: 4, buffer: Buffer.from("abcd") };
     expect((await postMessage(actors.boss, id, { body: "see file" }, [exe])).ok).toBe(false);
     const m = must(await postMessage(actors.boss, id, { body: "" }, [xls]));
@@ -424,6 +431,65 @@ describe("discussion", () => {
     must(await shareResearch(actors.mgr, id, { boss: true }));
     expect((await getAttachmentFile(actors.boss, id, qf.id)).ok).toBe(true);
     expect((await getAttachmentFile(actors.mgr, id, qf.id)).ok && (await getAttachmentFile(actors.boss, id, qf.id)).ok).toBe(true);
+  });
+});
+
+describe("direct uploads", () => {
+  const pdf = (n = 64) => signedBuffer("application/pdf", n);
+  const put = async (id: string, actor: FtActor, name: string, bytes: Buffer, over: { quoteId?: string; message?: boolean } = {}): Promise<UploadedRef> => {
+    const declared = [{ fileName: name, mimeType: "application/pdf", sizeBytes: bytes.length }];
+    const res = over.message ? await presignMessageFiles(actor, id, declared) : await presignAttachments(actor, id, declared, over.quoteId);
+    const p = must(res)[0];
+    await storage.put(p.file.key, bytes);
+    return { fileName: name, key: p.file.key, token: p.file.token };
+  };
+
+  it("lets the creator attach to the order, a MANAGER to a quote, and nobody else", async () => {
+    const id = await orderAt("manager");
+    // the order is the BOSS's to edit only in draft: at the manager stage the creator may not attach
+    const late = await presignAttachments(actors.boss, id, [{ fileName: "a.pdf", mimeType: "application/pdf", sizeBytes: 10 }]);
+    expect(late.ok).toBe(false);
+
+    const q = must(await addQuote(actors.mgr, id, quote()));
+    expect((await presignAttachments(actors.boss, id, [{ fileName: "a.pdf", mimeType: "application/pdf", sizeBytes: 10 }], q.id)).ok).toBe(false);
+    const ref = await put(id, actors.mgr, "offer.pdf", pdf(), { quoteId: q.id });
+    expect((await finalizeAttachments(actors.boss, id, [ref], q.id)).ok).toBe(false); // someone else cannot register it
+    const done = must(await finalizeAttachments(actors.mgr, id, [ref], q.id));
+    expect(done[0].fileName).toBe("offer.pdf");
+    expect((await getAttachmentFile(actors.mgr, id, done[0].id)).ok).toBe(true);
+    expect((await getAttachmentFile(actors.boss, id, done[0].id)).ok).toBe(false); // not presented to the BOSS yet
+  });
+
+  it("a message carries files uploaded beforehand; a bad upload posts nothing", async () => {
+    const id = await orderAt("manager");
+    const ref = await put(id, actors.boss, "spec.pdf", pdf(), { message: true });
+    const m = must(await postMessage(actors.boss, id, { body: "" }, [], [ref]));
+    const msg = (await view("mgr", id))!.messages!.find((x) => x.id === m.id)!;
+    expect(msg.attachments.map((a) => a.fileName)).toEqual(["spec.pdf"]);
+    expect(msg.attachments[0].hasThumb).toBe(false);
+
+    const bad = await put(id, actors.boss, "fake.pdf", Buffer.from("<html>"), { message: true });
+    const before = (await view("mgr", id))!.messages!.length;
+    expect((await postMessage(actors.boss, id, { body: "see" }, [], [bad])).ok).toBe(false);
+    expect((await view("mgr", id))!.messages!.length).toBe(before);
+    expect(await storage.head(bad.key)).toBeNull();
+  });
+
+  it("deleting a quote or an order removes the stored files too", async () => {
+    const id = await orderAt("manager");
+    const q = must(await addQuote(actors.mgr, id, quote()));
+    const quoteFile = must(await finalizeAttachments(actors.mgr, id, [await put(id, actors.mgr, "q.pdf", pdf(), { quoteId: q.id })], q.id))[0];
+    const key = (await prisma.foreignTradeAttachment.findUniqueOrThrow({ where: { id: quoteFile.id } })).storageKey;
+    expect(await storage.head(key)).not.toBeNull();
+    must(await deleteQuote(actors.mgr, id, q.id));
+    expect(await storage.head(key)).toBeNull();
+
+    const ref = await put(id, actors.boss, "m.pdf", pdf(), { message: true });
+    must(await postMessage(actors.boss, id, { body: "x" }, [], [ref]));
+    expect(await storage.head(ref.key)).not.toBeNull();
+    await deleteOrderWithFiles(id);
+    expect(await storage.head(ref.key)).toBeNull();
+    expect(await prisma.foreignTradeAttachment.count({ where: { orderId: id } })).toBe(0);
   });
 });
 

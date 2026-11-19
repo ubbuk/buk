@@ -9,8 +9,10 @@ import { compareQuotes, FT_CURRENCIES } from "@/lib/foreign-trade-rules";
 import { ftQuoteSchema } from "@/lib/foreign-trade-validation";
 import type { FtOrderView, FtQuoteView } from "@/lib/foreign-trade";
 import { cn, formatNumber } from "@/lib/utils";
-import { AttachmentList, FilePicker } from "./AttachmentList";
-import { checkFilesClient, ftApi, inputClass, textareaClass } from "./api";
+import { AttachmentList, FileQueueField } from "./AttachmentList";
+import { uploadAndFinalize } from "@/components/attachments/uploadHelpers";
+import { useUploadQueue } from "@/components/attachments/useUploadQueue";
+import { ftApi, inputClass, textareaClass } from "./api";
 import { HoloEmpty, HoloPanel } from "./holo/HoloPanel";
 
 interface Draft {
@@ -45,7 +47,7 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
   const toast = useToast();
   const quotes = order.quotes;
   const [editing, setEditing] = useState<{ id: string | null; draft: Draft } | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const queue = useUploadQueue({ onReject: (message) => setError(message) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState<FtQuoteView | null>(null);
@@ -79,8 +81,7 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
       note: d.note,
     });
     if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? "Хүчингүй өгөгдөл");
-    const fileError = checkFilesClient(files);
-    if (fileError) return setError(fileError);
+    if (queue.items.some((i) => i.status === "preparing")) return setError("Зургийг бэлдэж байна. Хэдэн секунд хүлээгээд дахин дарна уу");
 
     setBusy(true);
     const r = editing.id
@@ -91,19 +92,28 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
       return setError(r.error);
     }
     const quoteId = editing.id ?? (r.data as { id: string }).id;
-    if (files.length) {
-      const form = new FormData();
-      form.set("quoteId", quoteId);
-      files.forEach((f) => form.append("files", f));
-      const up = await ftApi(`/api/foreign-trade/${order.id}/attachments`, { form });
-      if (!up.ok) toast.push({ kind: "warning", title: "Санал хадгалагдсан боловч баримт хавсаргаж чадсангүй", description: up.error });
+    if (queue.items.length) {
+      const up = await uploadAndFinalize(queue, {
+        presignUrl: `/api/foreign-trade/${order.id}/attachments/presign`,
+        presignExtra: { quoteId },
+        finalizeUrl: `/api/foreign-trade/${order.id}/attachments/finalize`,
+        finalizeExtra: { quoteId },
+      });
+      if (!up.ok) {
+        // The quote is saved; keep the editor open on it so a retry attaches to this quote instead of creating another.
+        toast.push({ kind: "warning", title: "Санал хадгалагдсан боловч баримт хавсаргаж чадсангүй", description: up.error });
+        setEditing({ id: quoteId, draft: d });
+        setBusy(false);
+        onChange();
+        return setError(up.error);
+      }
     }
     if (editing.id && (r.data as { selectionCleared: boolean }).selectionCleared) {
       toast.push({ kind: "info", title: "Сонгосон нийлүүлэгчийн санал өөрчлөгдсөн тул сонголт хүчингүй боллоо", description: "Нийлүүлэгчээ дахин сонгож үндэслэлээ бүртгэнэ үү" });
     }
     setBusy(false);
     setEditing(null);
-    setFiles([]);
+    queue.reset();
     onChange();
   }
 
@@ -139,7 +149,7 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
         <Button size="sm" variant={selectedId === q.id ? "success" : "secondary"} onClick={() => { setError(null); setRationale(order.selection?.quoteId === q.id ? order.selection.rationale : ""); setSelecting(q); }}>
           <CheckCircle2 className="size-3.5" /> {selectedId === q.id ? "Сонгосон" : "Сонгох"}
         </Button>
-        <Button size="sm" variant="ghost" aria-label="Засах" onClick={() => { setError(null); setFiles([]); setEditing({ id: q.id, draft: toDraft(q) }); }}>
+        <Button size="sm" variant="ghost" aria-label="Засах" onClick={() => { setError(null); queue.reset(); setEditing({ id: q.id, draft: toDraft(q) }); }}>
           <Pencil className="size-3.5" />
         </Button>
         <Button size="sm" variant="ghost" aria-label="Устгах" onClick={() => removeQuote(q)}>
@@ -172,7 +182,7 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
             <Button size="sm" variant="secondary" disabled={order.sharedWithTechnical} onClick={() => share("technical")}>
               <Send className="size-3.5" /> {order.sharedWithTechnical ? "Техникийн хяналтад танилцуулсан" : "Техникийн хяналтад танилцуулах"}
             </Button>
-            <Button size="sm" onClick={() => { setError(null); setFiles([]); setEditing({ id: null, draft: emptyDraft }); }}>
+            <Button size="sm" onClick={() => { setError(null); queue.reset(); setEditing({ id: null, draft: emptyDraft }); }}>
               <Plus className="size-3.5" /> Нийлүүлэгч нэмэх
             </Button>
             </>
@@ -273,7 +283,7 @@ export function QuotesPanel({ order, onChange }: { order: FtOrderView; onChange:
               <input value={editing.draft.warranty} onChange={(e) => set({ warranty: e.target.value })} placeholder="Баталгаат нөхцөл" aria-label="Баталгаат нөхцөл" className={inputClass} />
             </div>
             <textarea value={editing.draft.note} onChange={(e) => set({ note: e.target.value })} rows={2} placeholder="Тэмдэглэл" aria-label="Тэмдэглэл" className={textareaClass} />
-            <FilePicker files={files} onChange={setFiles} disabled={busy} label="Үнийн саналын баримт" />
+            <FileQueueField queue={queue} disabled={busy} label="Үнийн саналын баримт" onRetry={() => void saveQuote()} />
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy}>Болих</Button>

@@ -2,10 +2,22 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type ApprovalPosition, type NotificationType } from "@prisma/client";
 import { prisma } from "./prisma";
 import { currentYear } from "./onec/dates";
-import { storage } from "./storage";
+import { storage, storageConfigProblem } from "./storage";
 import { verifyPin } from "./pin";
 import { emitBroadcast, emitUserEvent } from "./events";
-import { ALLOWED_ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_SIZE_BYTES, MAX_ATTACHMENTS_PER_REQUEST } from "./attachment-rules";
+import { ALLOWED_ATTACHMENT_MIME_TYPES, MAX_ATTACHMENTS_PER_REQUEST, maxSizeFor, maxSizeLabel } from "./attachment-rules";
+import { signatureMatches, SIGNATURE_BYTES } from "./file-signature";
+import {
+  discardObjects,
+  discardUploads,
+  presignUploads,
+  validateDeclared,
+  verifyUploads,
+  type DeclaredFile,
+  type PresignedFile,
+  type UploadedRef,
+  type VerifiedFile,
+} from "./attachment-upload";
 import {
   FT_BOSS_STATUSES,
   FT_MANAGER_STATUSES,
@@ -373,7 +385,7 @@ export async function updateQuote(actor: FtActor, id: string, quoteId: string, i
 export async function deleteQuote(actor: FtActor, id: string, quoteId: string): Promise<FtResult<{ deleted: true }>> {
   const gate = await requireManagerWork(actor, id);
   if (gate.error) return gate.error;
-  const files = await prisma.foreignTradeAttachment.findMany({ where: { quoteId, orderId: id }, select: { storageKey: true } });
+  const files = await prisma.foreignTradeAttachment.findMany({ where: { quoteId, orderId: id }, select: { storageKey: true, thumbKey: true } });
   const ok = await prisma.$transaction(async (tx) => {
     const live = await lockManagerStage(tx, id);
     if (!live) return "WRONG_STAGE" as const;
@@ -387,7 +399,7 @@ export async function deleteQuote(actor: FtActor, id: string, quoteId: string): 
   if (ok === "WRONG_STAGE") return fail(409, WRONG_STAGE);
   if (ok === "SELECTED") return fail(409, "Сонгогдсон нийлүүлэгчийн саналыг устгах боломжгүй. Эхлээд өөр нийлүүлэгч сонгоно уу");
   if (!ok) return fail(404, "Нийлүүлэгчийн санал олдсонгүй");
-  for (const f of files) await storage.delete(f.storageKey).catch(() => {});
+  await discardObjects(files.flatMap((f) => [f.storageKey, f.thumbKey]));
   emitBroadcast({ type: "request-changed" });
   return { ok: true, data: { deleted: true } };
 }
@@ -575,8 +587,9 @@ function checkFiles(files: IncomingFile[]): string | null {
   if (files.length > MAX_ATTACHMENTS_PER_REQUEST) return `Нэг удаад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргана`;
   for (const f of files) {
     if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(f.mimeType as (typeof ALLOWED_ATTACHMENT_MIME_TYPES)[number])) return `Дэмжигдэхгүй файлын төрөл: ${f.fileName} (${f.mimeType})`;
-    if (f.sizeBytes > MAX_ATTACHMENT_SIZE_BYTES) return `Файл хэт том байна (10 MB-с ихгүй байх ёстой): ${f.fileName}`;
+    if (f.sizeBytes > maxSizeFor(f.mimeType)) return `Файл хэт том байна (${maxSizeLabel(f.mimeType)}-с ихгүй байх ёстой): ${f.fileName}`;
     if (f.sizeBytes === 0) return `Хоосон файл хавсаргах боломжгүй: ${f.fileName}`;
+    if (!signatureMatches(f.mimeType, f.buffer.subarray(0, SIGNATURE_BYTES))) return `Файлын агуулга төрөлтэйгээ таарахгүй байна: ${f.fileName}`;
   }
   return null;
 }
@@ -607,33 +620,69 @@ const attachmentRow = (orderId: string, actorId: string, w: { key: string; file:
   uploadedById: actorId,
 });
 
-export async function postMessage(actor: FtActor, id: string, input: { body: string; quoteId?: string }, files: IncomingFile[]): Promise<FtResult<{ id: string }>> {
+/** The same row for a file the browser already uploaded to the bucket and the server verified. */
+const verifiedRow = (orderId: string, actorId: string, f: VerifiedFile, link: { quoteId?: string; messageId?: string }) => ({
+  orderId,
+  ...link,
+  fileName: f.fileName,
+  storageKey: f.key,
+  thumbKey: f.thumbKey,
+  mimeType: f.mimeType,
+  sizeBytes: f.sizeBytes,
+  uploadedById: actorId,
+});
+
+const ftPrefix = (orderId: string) => `foreign-trade/${orderId}/`;
+
+export async function postMessage(
+  actor: FtActor,
+  id: string,
+  input: { body: string; quoteId?: string },
+  files: IncomingFile[],
+  refs: UploadedRef[] = []
+): Promise<FtResult<{ id: string }>> {
   const found = await loadForAction(actor, id);
   if (!found) return fail(404, NOT_FOUND);
   if (!found.access.postMessage) return fail(403, "Та энэ захиалгын хэлэлцүүлэгт оролцох эрхгүй байна");
   const body = input.body.trim();
-  if (!body && files.length === 0) return fail(400, "Мессеж бичих эсвэл файл хавсаргана уу");
+  const fileCount = files.length + refs.length;
+  if (!body && fileCount === 0) return fail(400, "Мессеж бичих эсвэл файл хавсаргана уу");
   if (body.length > FT_MESSAGE_MAX) return fail(400, `Мессеж ${FT_MESSAGE_MAX} тэмдэгтээс хэтрэхгүй байх ёстой`);
+  const storageProblem = fileCount > 0 ? storageConfigProblem() : null;
+  if (storageProblem) return fail(503, storageProblem);
+  const scope = { prefix: ftPrefix(id), actorId: actor.id };
+  const refuse = async (status: number, error: string) => {
+    await discardUploads(scope, refs);
+    return fail(status, error);
+  };
+  if (fileCount > MAX_ATTACHMENTS_PER_REQUEST) return refuse(400, `Нэг удаад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргана`);
   const fileError = checkFiles(files);
-  if (fileError) return fail(400, fileError);
+  if (fileError) return refuse(400, fileError);
   if (input.quoteId) {
-    if (!found.access.seeQuotes) return fail(400, "Нийлүүлэгчийн саналыг харах эрхгүй байна");
-    if (!(await prisma.foreignTradeQuote.findFirst({ where: { id: input.quoteId, orderId: id }, select: { id: true } }))) return fail(400, "Нийлүүлэгчийн санал олдсонгүй");
+    if (!found.access.seeQuotes) return refuse(400, "Нийлүүлэгчийн саналыг харах эрхгүй байна");
+    if (!(await prisma.foreignTradeQuote.findFirst({ where: { id: input.quoteId, orderId: id }, select: { id: true } }))) return refuse(400, "Нийлүүлэгчийн санал олдсонгүй");
   }
+  const verified = refs.length > 0 ? await verifyUploads(scope, refs) : null;
+  if (verified && !verified.ok) return fail(verified.status, verified.error);
+  const uploaded = verified?.ok ? verified.data : [];
 
-  const written = await storeFiles(id, files);
+  const written = await storeFiles(id, files).catch(async (err) => {
+    await discardObjects(uploaded.flatMap((f) => [f.key, f.thumbKey]));
+    throw err;
+  });
   try {
     const out = await prisma.$transaction(async (tx) => {
       const author = await tx.user.findUniqueOrThrow({ where: { id: actor.id }, select: { name: true } });
       const msg = await tx.foreignTradeMessage.create({ data: { orderId: id, authorId: actor.id, body, quoteId: input.quoteId ?? null }, select: { id: true } });
       for (const w of written) await tx.foreignTradeAttachment.create({ data: attachmentRow(id, actor.id, w, { messageId: msg.id }) });
-      await audit(tx, id, actor.id, "FT_MESSAGE", { messageId: msg.id, quoteId: input.quoteId ?? null, files: written.map((w) => w.file.fileName), length: body.length });
+      for (const f of uploaded) await tx.foreignTradeAttachment.create({ data: verifiedRow(id, actor.id, f, { messageId: msg.id }) });
+      await audit(tx, id, actor.id, "FT_MESSAGE", { messageId: msg.id, quoteId: input.quoteId ?? null, files: [...written.map((w) => w.file.fileName), ...uploaded.map((f) => f.fileName)], length: body.length });
 
       // Discussion notices go to the four participants only (BOSS, MANAGERs, the two technical positions): never to the
       // finance director, the executive director or the finance department, and never to the author.
       const participants = [found.order.createdById, ...(await usersWithRole(tx, "MANAGER"))];
       if (found.order.sharedWithTechnical) participants.push(...(await holdersOf(tx, FT_STAGE_POSITIONS.TECHNICAL)));
-      const preview = body ? (body.length > 120 ? `${body.slice(0, 117)}...` : body) : `${written.length} файл хавсаргав`;
+      const preview = body ? (body.length > 120 ? `${body.slice(0, 117)}...` : body) : `${fileCount} файл хавсаргав`;
       const recipients = await notify(tx, id, participants, { type: "FOREIGN_TRADE_DISCUSSION", title: `№${found.order.orderNumber} хэлэлцүүлэгт шинэ мессеж`, body: `${author.name}: ${preview}` }, actor.id);
       return { id: msg.id, recipients };
     });
@@ -641,14 +690,17 @@ export async function postMessage(actor: FtActor, id: string, input: { body: str
     return { ok: true, data: { id: out.id } };
   } catch (err) {
     for (const w of written) await storage.delete(w.key).catch(() => {});
+    await discardObjects(uploaded.flatMap((f) => [f.key, f.thumbKey]));
     throw err;
   }
 }
 
 // --- attachments on the order / on a quote ----------------------------------------------------------------
 
-export async function addAttachments(actor: FtActor, id: string, files: IncomingFile[], quoteId?: string): Promise<FtResult<{ id: string; fileName: string }[]>> {
-  if (files.length === 0) return fail(400, "Файл сонгоогүй байна");
+/** Who may attach to the order (its creator, while it is theirs to edit) or to a quote (a MANAGER, during price research). */
+async function attachGate(actor: FtActor, id: string, quoteId?: string): Promise<FtResult<null>> {
+  const storageProblem = storageConfigProblem();
+  if (storageProblem) return fail(503, storageProblem);
   const found = await loadForAction(actor, id);
   if (!found) return fail(404, NOT_FOUND);
   if (quoteId) {
@@ -660,6 +712,20 @@ export async function addAttachments(actor: FtActor, id: string, files: Incoming
     if (!found.access.isCreator) return fail(403, "Зөвхөн захиалга үүсгэсэн цехийн дарга файл хавсаргана");
     if (!found.access.editOrder) return fail(409, WRONG_STAGE);
   }
+  return { ok: true, data: null };
+}
+
+/** Whether `incoming` more files fit on the order / the quote (the per-call limit alone would let repeated calls pile up). */
+async function attachmentRoom(id: string, incoming: number, quoteId?: string): Promise<string | null> {
+  const existing = await prisma.foreignTradeAttachment.count({ where: quoteId ? { orderId: id, quoteId } : { orderId: id, quoteId: null, messageId: null } });
+  return existing + incoming > MAX_ATTACHMENTS_PER_REQUEST ? `Нэг дор хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргах боломжтой (одоо ${existing}, нэмж ${incoming} илгээв)` : null;
+}
+
+/** Legacy multipart path (small files only: the request passes through the server). The browser uses presign + finalize. */
+export async function addAttachments(actor: FtActor, id: string, files: IncomingFile[], quoteId?: string): Promise<FtResult<{ id: string; fileName: string }[]>> {
+  if (files.length === 0) return fail(400, "Файл сонгоогүй байна");
+  const gate = await attachGate(actor, id, quoteId);
+  if (!gate.ok) return gate;
   const fileError = checkFiles(files);
   if (fileError) return fail(400, fileError);
 
@@ -679,17 +745,91 @@ export async function addAttachments(actor: FtActor, id: string, files: Incoming
   }
 }
 
+/** Step 1 of a direct upload for the order (or a quote): checks the right and the declared files, returns the PUT URLs. */
+export async function presignAttachments(actor: FtActor, id: string, declared: DeclaredFile[], quoteId?: string): Promise<FtResult<PresignedFile[]>> {
+  if (declared.length === 0) return fail(400, "Файл сонгоогүй байна");
+  const gate = await attachGate(actor, id, quoteId);
+  if (!gate.ok) return gate;
+  if (declared.length > MAX_ATTACHMENTS_PER_REQUEST) return fail(400, `Нэг удаад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргана`);
+  for (const f of declared) {
+    const problem = validateDeclared(f);
+    if (problem) return fail(400, problem);
+  }
+  return { ok: true, data: await presignUploads({ prefix: ftPrefix(id), actorId: actor.id }, declared) };
+}
+
+/** Step 3: the files are in the bucket; verify them there and register the metadata. */
+export async function finalizeAttachments(actor: FtActor, id: string, refs: UploadedRef[], quoteId?: string): Promise<FtResult<{ id: string; fileName: string }[]>> {
+  const scope = { prefix: ftPrefix(id), actorId: actor.id };
+  if (refs.length === 0) return fail(400, "Файл сонгоогүй байна");
+  const refuse = async (status: number, error: string): Promise<FtResult<never>> => {
+    if (status !== 503) await discardUploads(scope, refs);
+    return fail(status, error);
+  };
+  const gate = await attachGate(actor, id, quoteId);
+  if (!gate.ok) return refuse(gate.status, gate.error);
+  if (refs.length > MAX_ATTACHMENTS_PER_REQUEST) return refuse(400, `Нэг удаад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргана`);
+  const room = await attachmentRoom(id, refs.length, quoteId);
+  if (room) return refuse(400, room);
+  const verified = await verifyUploads(scope, refs);
+  if (!verified.ok) return fail(verified.status, verified.error);
+
+  try {
+    const rows = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const f of verified.data) created.push(await tx.foreignTradeAttachment.create({ data: verifiedRow(id, actor.id, f, quoteId ? { quoteId } : {}), select: { id: true, fileName: true } }));
+      await audit(tx, id, actor.id, "ATTACHMENT_UPLOAD", { files: created.map((r) => r.fileName), quoteId: quoteId ?? null });
+      return created;
+    });
+    emitBroadcast({ type: "request-changed" });
+    return { ok: true, data: rows };
+  } catch (err) {
+    await discardObjects(verified.data.flatMap((f) => [f.key, f.thumbKey]));
+    throw err;
+  }
+}
+
+/** Step 1 for a discussion message's files: whoever may post a message may attach to it. */
+export async function presignMessageFiles(actor: FtActor, id: string, declared: DeclaredFile[]): Promise<FtResult<PresignedFile[]>> {
+  if (declared.length === 0) return fail(400, "Файл сонгоогүй байна");
+  const storageProblem = storageConfigProblem();
+  if (storageProblem) return fail(503, storageProblem);
+  const found = await loadForAction(actor, id);
+  if (!found) return fail(404, NOT_FOUND);
+  if (!found.access.postMessage) return fail(403, "Та энэ захиалгын хэлэлцүүлэгт оролцох эрхгүй байна");
+  if (declared.length > MAX_ATTACHMENTS_PER_REQUEST) return fail(400, `Нэг удаад хамгийн ихдээ ${MAX_ATTACHMENTS_PER_REQUEST} файл хавсаргана`);
+  for (const f of declared) {
+    const problem = validateDeclared(f);
+    if (problem) return fail(400, problem);
+  }
+  return { ok: true, data: await presignUploads({ prefix: ftPrefix(id), actorId: actor.id }, declared) };
+}
+
+/** Deletes an order together with its files (rows go by cascade; the objects in storage do not). */
+export async function deleteOrderWithFiles(orderId: string): Promise<void> {
+  const files = await prisma.foreignTradeAttachment.findMany({ where: { orderId }, select: { storageKey: true, thumbKey: true } });
+  await prisma.foreignTradeOrder.delete({ where: { id: orderId } });
+  await discardObjects(files.flatMap((f) => [f.storageKey, f.thumbKey]));
+}
+
 /** A file is as visible as the part of the order it belongs to: the order, a quote (price research) or a discussion message. */
-export async function getAttachmentFile(actor: FtActor, id: string, attachmentId: string): Promise<FtResult<{ fileName: string; mimeType: string; data: Buffer }>> {
+export async function getAttachmentRef(actor: FtActor, id: string, attachmentId: string, thumb = false): Promise<FtResult<{ fileName: string; mimeType: string; key: string }>> {
   const found = await loadForAction(actor, id);
   if (!found) return fail(404, "Хавсралт олдсонгүй");
   const att = await prisma.foreignTradeAttachment.findFirst({ where: { id: attachmentId, orderId: id } });
   if (!att) return fail(404, "Хавсралт олдсонгүй");
   const allowed = att.quoteId ? found.access.seeQuotes : att.messageId ? found.access.readDiscussion : true;
   if (!allowed) return fail(404, "Хавсралт олдсонгүй");
-  const data = await storage.get(att.storageKey);
+  if (thumb && att.thumbKey) return { ok: true, data: { fileName: att.fileName, mimeType: "image/jpeg", key: att.thumbKey } };
+  return { ok: true, data: { fileName: att.fileName, mimeType: att.mimeType, key: att.storageKey } };
+}
+
+export async function getAttachmentFile(actor: FtActor, id: string, attachmentId: string): Promise<FtResult<{ fileName: string; mimeType: string; data: Buffer }>> {
+  const ref = await getAttachmentRef(actor, id, attachmentId);
+  if (!ref.ok) return ref;
+  const data = await storage.get(ref.data.key);
   if (!data) return fail(404, "Файл олдсонгүй");
-  return { ok: true, data: { fileName: att.fileName, mimeType: att.mimeType, data } };
+  return { ok: true, data: { fileName: ref.data.fileName, mimeType: ref.data.mimeType, data } };
 }
 
 // --- reading ----------------------------------------------------------------------------------------------
@@ -706,6 +846,7 @@ export interface FtAttachmentView {
   sizeBytes: number;
   uploadedAt: string;
   uploadedBy: string;
+  hasThumb: boolean;
 }
 export interface FtQuoteView {
   id: string;
@@ -750,13 +891,14 @@ export interface FtOrderView {
 const personSelect = { id: true, name: true, title: true } as const;
 const num = (d: Prisma.Decimal) => Number(d);
 
-const attachmentView = (a: { id: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: Date; uploadedBy: { name: string } }): FtAttachmentView => ({
+const attachmentView = (a: { id: string; fileName: string; mimeType: string; sizeBytes: number; thumbKey: string | null; uploadedAt: Date; uploadedBy: { name: string } }): FtAttachmentView => ({
   id: a.id,
   fileName: a.fileName,
   mimeType: a.mimeType,
   sizeBytes: a.sizeBytes,
   uploadedAt: a.uploadedAt.toISOString(),
   uploadedBy: a.uploadedBy.name,
+  hasThumb: a.thumbKey !== null,
 });
 
 function waitingOn(access: FtAccess): boolean {

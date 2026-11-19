@@ -103,7 +103,7 @@ beforeAll(async () => {
 
   // A file on emp2's request: emp must not be able to download it.
   const uploaded = await addAttachments(requestIds.beton2, users.betonEmp2.id, [
-    { fileName: "secret.pdf", mimeType: "application/pdf", sizeBytes: 4, buffer: Buffer.from("%PDF") },
+    { fileName: "secret.pdf", mimeType: "application/pdf", sizeBytes: 8, buffer: Buffer.from("%PDF-1.4") },
   ]);
   if (!uploaded.ok) throw new Error(uploaded.error);
   attachmentId = uploaded.data[0].id;
@@ -230,7 +230,7 @@ describe("GET /api/requests/[id]/attachments/[attachmentId]", () => {
     for (const u of [users.betonEmp2, users.betonHead, users.admin]) {
       const res = await download(u);
       expect(res.status).toBe(200);
-      expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("%PDF");
+      expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("%PDF-1.4");
     }
   });
   it("requires a session", async () => {

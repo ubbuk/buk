@@ -60,6 +60,8 @@ services:
       DATABASE_URL: postgresql://ubbuk_staging:${STAGING_DB_PASSWORD}@db:5432/ubbuk_staging?schema=public&connection_limit=20&pool_timeout=20
       NEXTAUTH_URL: http://127.0.0.1:3100
       NEXTAUTH_SECRET: ${STAGING_NEXTAUTH_SECRET:?set in .env.staging.local}
+      # NODE_ENV=production refuses the local disk unless it is asked for explicitly (lib/storage.ts).
+      STORAGE_DRIVER: local
       LOCAL_STORAGE_ROOT: /data/attachments
     volumes:
       - staging-attachments:/data/attachments  

@@ -638,6 +638,7 @@ model Attachment {
   requestId    String
   fileName     String
   storageKey   String
+  thumbKey     String?
   mimeType     String
   sizeBytes    Int
   uploadedById String
@@ -939,6 +940,7 @@ model ForeignTradeAttachment {
   messageId    String?
   fileName     String
   storageKey   String
+  thumbKey     String?
   mimeType     String
   sizeBytes    Int
   uploadedById String

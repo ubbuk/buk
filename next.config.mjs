@@ -12,6 +12,8 @@ const nextConfig = {
   outputFileTracingRoot: __dirname,
   async headers() {
     return [
+      // The browser must trust the Content-Type the server states (uploaded files are served back through /api).
+      { source: "/:path*", headers: [{ key: "X-Content-Type-Options", value: "nosniff" }] },
       // Static assets keep their name when edited: cache for a week and serve
       // stale while revalidating in the background.
       {

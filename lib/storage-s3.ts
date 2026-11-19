@@ -1,5 +1,5 @@
 import type { S3Client } from "@aws-sdk/client-s3";
-import type { ObjectStorage, StoredObjectInfo } from "./storage";
+import type { AttachmentStorage, PresignedPut, PresignGetOptions, StoredObjectInfo } from "./storage";
 
 // S3-compatible driver (AWS S3, Cloudflare R2, MinIO, ...) for deployments
 // where the local disk is ephemeral or read-only -- e.g. Vercel. Selected with
@@ -30,6 +30,10 @@ function s3ClientFromEnv(): Promise<Pick<S3Client, "send">> {
         region,
         endpoint,
         forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+        // R2 (and MinIO) do not understand the CRC32 trailer the SDK adds by default since 3.729: with it a presigned PUT
+        // carries x-amz-checksum headers the browser cannot compute and the upload is rejected.
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
         credentials: { accessKeyId, secretAccessKey },
       })
   );
@@ -40,7 +44,7 @@ function isNotFound(err: unknown) {
   return e?.name === "NoSuchKey" || e?.Code === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
 }
 
-export class S3Storage implements ObjectStorage {
+export class S3Storage implements AttachmentStorage {
   private readonly bucket: string;
   private readonly prefix: string;
   private clientPromise: Promise<Pick<S3Client, "send">> | null;
@@ -65,6 +69,55 @@ export class S3Storage implements ObjectStorage {
     const { PutObjectCommand } = await import("@aws-sdk/client-s3");
     const client = await this.client();
     await client.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), Body: data }));
+  }
+
+  async head(key: string) {
+    const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = await this.client();
+    try {
+      const res = await client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }));
+      return { size: res.ContentLength ?? 0, contentType: res.ContentType ?? null };
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+  }
+
+  async readHead(key: string, length: number): Promise<Buffer | null> {
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = await this.client();
+    try {
+      const res = await client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), Range: `bytes=0-${length - 1}` }));
+      if (!res.Body) return null;
+      return Buffer.from(await res.Body.transformToByteArray());
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      // An empty object has no byte 0: that is an empty file, not a failure.
+      if ((err as { name?: string })?.name === "InvalidRange") return Buffer.alloc(0);
+      throw err;
+    }
+  }
+
+  async presignPut(key: string, opts: { contentType: string; expiresIn: number }): Promise<PresignedPut> {
+    const [{ PutObjectCommand }, { getSignedUrl }] = await Promise.all([import("@aws-sdk/client-s3"), import("@aws-sdk/s3-request-presigner")]);
+    const client = (await this.client()) as S3Client;
+    // Content-Type is signed: the browser must send exactly this header, so a file cannot be stored under another type.
+    const url = await getSignedUrl(client, new PutObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), ContentType: opts.contentType }), {
+      expiresIn: opts.expiresIn,
+      // The presigner signs only `host` unless told otherwise, so without this the Content-Type header would be unchecked.
+      signableHeaders: new Set(["content-type"]),
+    });
+    return { url, headers: { "Content-Type": opts.contentType } };
+  }
+
+  async presignGet(key: string, opts: PresignGetOptions): Promise<string> {
+    const [{ GetObjectCommand }, { getSignedUrl }] = await Promise.all([import("@aws-sdk/client-s3"), import("@aws-sdk/s3-request-presigner")]);
+    const client = (await this.client()) as S3Client;
+    return getSignedUrl(
+      client,
+      new GetObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), ResponseContentType: opts.contentType, ResponseContentDisposition: opts.disposition }),
+      { expiresIn: opts.expiresIn }
+    );
   }
 
   async putNew(key: string, data: Buffer): Promise<boolean> {
