@@ -1,4 +1,5 @@
 import type { S3Client } from "@aws-sdk/client-s3";
+import { normalizeEndpoint, StorageConfigError, storageEnv, validRegion } from "./storage-env";
 import type { AttachmentStorage, PresignedPut, PresignGetOptions, StoredObjectInfo } from "./storage";
 
 // S3-compatible driver (AWS S3, Cloudflare R2, MinIO, ...) for deployments
@@ -16,20 +17,23 @@ export interface S3StorageOptions {
 }
 
 function s3ClientFromEnv(): Promise<Pick<S3Client, "send">> {
-  const region = process.env.S3_REGION ?? "auto";
-  const endpoint = process.env.S3_ENDPOINT || undefined;
-  const accessKeyId = process.env.S3_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
+  const region = storageEnv("S3_REGION") ?? "auto";
+  const rawEndpoint = storageEnv("S3_ENDPOINT");
+  const endpoint = rawEndpoint === undefined ? undefined : normalizeEndpoint(rawEndpoint);
+  const accessKeyId = storageEnv("S3_ACCESS_KEY_ID");
+  const secretAccessKey = storageEnv("S3_SECRET_ACCESS_KEY");
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("STORAGE_DRIVER=s3 needs S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY");
+    throw new StorageConfigError("STORAGE_DRIVER=s3 needs S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY");
   }
+  if (!validRegion(region)) throw new StorageConfigError("Invalid region: S3_REGION must be a plain name such as auto");
+  if (rawEndpoint !== undefined && endpoint === null) throw new StorageConfigError("Invalid endpoint: S3_ENDPOINT must be https://<account>.r2.cloudflarestorage.com with no bucket name");
   // Imported lazily so the SDK is only loaded when this driver is actually used.
   return import("@aws-sdk/client-s3").then(
     ({ S3Client }) =>
       new S3Client({
         region,
-        endpoint,
-        forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+        endpoint: endpoint ?? undefined,
+        forcePathStyle: storageEnv("S3_FORCE_PATH_STYLE") === "true",
         // R2 (and MinIO) do not understand the CRC32 trailer the SDK adds by default since 3.729: with it a presigned PUT
         // carries x-amz-checksum headers the browser cannot compute and the upload is rejected.
         requestChecksumCalculation: "WHEN_REQUIRED",

@@ -13,6 +13,7 @@
 import { mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { S3Storage } from "./storage-s3";
+import { StorageConfigError, storageEnv } from "./storage-env";
 
 export interface StoredObjectInfo {
   key: string;
@@ -175,7 +176,7 @@ class LocalFsStorage implements AttachmentStorage {
   }
 }
 
-export class StorageConfigError extends Error {}
+export { StorageConfigError };
 
 const NOT_CONFIGURED =
   "Файл хадгалах сан тохируулагдаагүй байна (STORAGE_DRIVER). Системийн админд мэдэгдэнэ үү";
@@ -186,7 +187,7 @@ const NOT_CONFIGURED =
  * driver therefore has to be asked for explicitly in production (a self-hosted server with a volume) and is refused on Vercel.
  */
 export function resolveStorageDriver(env: NodeJS.ProcessEnv = process.env): "local" | "s3" {
-  const driver = env.STORAGE_DRIVER;
+  const driver = storageEnv("STORAGE_DRIVER", env);
   if (driver === "s3") return "s3";
   if (!driver) {
     if (env.NODE_ENV === "production" || env.VERCEL) throw new StorageConfigError(NOT_CONFIGURED);
@@ -206,9 +207,9 @@ function createStorage(): AttachmentStorage {
     case "s3": {
       // Any S3-compatible service (AWS S3, Cloudflare R2, MinIO). Required on hosts with an
       // ephemeral/read-only disk such as Vercel. Credentials come from the S3_* env vars.
-      const bucket = process.env.S3_BUCKET;
+      const bucket = storageEnv("S3_BUCKET");
       if (!bucket) throw new StorageConfigError("STORAGE_DRIVER=s3 needs S3_BUCKET");
-      return new S3Storage({ bucket, prefix: process.env.S3_PREFIX ?? "attachments/" });
+      return new S3Storage({ bucket, prefix: storageEnv("S3_PREFIX") ?? "attachments/" });
     }
   }
 }
@@ -249,9 +250,9 @@ export const storage: AttachmentStorage = {
  * URL). Used by the Backup Vault to show an honest storage location/durability.
  */
 export function describeStorage(): { driver: "local" | "s3"; location: string; durable: boolean } {
-  const driver = process.env.STORAGE_DRIVER || "local";
+  const driver = storageEnv("STORAGE_DRIVER") || "local";
   if (driver === "s3") {
-    return { driver: "s3", location: `S3-compatible bucket "${process.env.S3_BUCKET ?? "?"}" (prefix "${process.env.S3_PREFIX ?? "attachments/"}")`, durable: true };
+    return { driver: "s3", location: `S3-compatible bucket "${storageEnv("S3_BUCKET") ?? "?"}" (prefix "${storageEnv("S3_PREFIX") ?? "attachments/"}")`, durable: true };
   }
   // A local disk is fine on a server you control, but is wiped on serverless hosts such as Vercel.
   const serverless = !!process.env.VERCEL;
