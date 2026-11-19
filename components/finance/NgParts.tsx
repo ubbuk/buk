@@ -64,6 +64,7 @@ const TONE_ICON: Record<string, string> = {
 export function FinanceKpi({
   label,
   value,
+  valueText,
   icon: Icon,
   tone = "neutral",
   hint,
@@ -76,7 +77,9 @@ export function FinanceKpi({
   /** дарвал задлах (жагсаалт руу шилжинэ) */
   onClick?: () => void;
   label: string;
-  value: string | number;
+  value: React.ReactNode;
+  /** `value` нь текст биш (жишээ нь дарж бүтэн дүнг харуулдаг Amount) үед урт хэмжээг тооцохын тулд */
+  valueText?: string;
   icon: LucideIcon;
   tone?: "neutral" | "accent" | "success" | "warning" | "danger";
   hint?: string;
@@ -110,7 +113,7 @@ export function FinanceKpi({
         </div>
         <div className="min-w-0">
           <p className="line-clamp-2 text-xs font-medium leading-tight text-text-muted">{label}</p>
-          <p className={cn("ng-num mt-1 break-all font-semibold leading-tight", String(value).length > 13 ? "text-sm sm:text-[19px]" : "text-lg sm:text-[25px]", featured ? "ng-gold-text" : "text-text")}>{value}</p>
+          <p className={cn("ng-num mt-1 break-all font-semibold leading-tight", (valueText ?? String(value)).length > 13 ? "text-sm sm:text-[19px]" : "text-lg sm:text-[25px]", featured ? "ng-gold-text" : "text-text")}>{value}</p>
         </div>
       </div>
       <div className="relative mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1">

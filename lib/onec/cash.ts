@@ -45,6 +45,9 @@ export interface CashEntry {
   memo: string;
   /** баримтын төрлийн нэр (Банкны орлого г.м.) */
   document: string;
+  /** харьцсан дансны код ба нэр («3101», «Дансны өглөг»): ангилалд ашиглана, нүүрэнд харуулахгүй, зөвхөн хамгийн доод drill-down-д */
+  counterAccount?: string;
+  counterAccountName?: string;
   /** баримтыг нээхийн тулд: 1С-ийн баримтын нэр (Document_ угтваргүй) ба GUID */
   docType: string;
   ref: string;
@@ -86,6 +89,8 @@ export interface CashResult {
   byCounterpart: CashCounterpart[];
   transfers: CashEntry[];
   recent: CashEntry[];
+  /** сарын БҮХ орлого, зарлага (хязгааргүй; серверийн хайлт, ангилал, хуудаслалтад). Хариунд ХЭЗЭЭ Ч шууд явуулахгүй (стрипнэ). */
+  entries: CashEntry[];
 }
 
 export interface CashInputs {
@@ -219,7 +224,15 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
       cur.amount += amount;
       payrollByDay.set(dk, cur);
     }
-    entries.push({ ...base, type: income ? "inflow" : "outflow", account: k.name, counterpart: cpName, ...(payroll ? { payroll: true } : {}) });
+    entries.push({
+      ...base,
+      type: income ? "inflow" : "outflow",
+      account: k.name,
+      counterpart: cpName,
+      counterAccount: otherAcc ? codeKey(otherAcc.code) : "",
+      counterAccountName: otherAcc?.name ?? "",
+      ...(payroll ? { payroll: true } : {}),
+    });
   }
 
   const accountRows = [...rows.values()]
@@ -275,6 +288,7 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
       .slice(0, COUNTERPART_LIMIT),
     transfers: transfers.sort(byDateDesc),
     recent: entries.sort(byDateDesc).slice(0, RECENT_LIMIT),
+    entries,
   };
 }
 
@@ -304,11 +318,12 @@ export function redactCash(cash: CashResult): CashResult {
     ...cash,
     byCounterpart: byCounterpart.sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow)),
     recent: [...cash.recent.filter((e) => !e.payroll), ...aggregated].sort(byDateDesc),
+    entries: [...cash.entries.filter((e) => !e.payroll), ...aggregated].sort(byDateDesc),
   };
 }
 
 /** Дансны төлөвлөгөөнөөс мөнгөний дансууд (код нь «1101.00» хэлбэртэй): угтвар бүрээр серверийн шүүлтээр, эрэмбэгүй хуудаслахгүй */
-async function fetchCashAccounts(): Promise<Map<string, { code: string; name: string }>> {
+export async function fetchCashAccounts(): Promise<Map<string, { code: string; name: string }>> {
   const out = new Map<string, { code: string; name: string }>();
   for (const prefix of CASH_PREFIXES) {
     const rows = await odataRows(`${enc(CHART)}?$format=json&$select=${enc("Ref_Key,Code,Description")}&$filter=${enc(`startswith(Code,'${prefix}')`)}&$top=500`);
@@ -317,7 +332,7 @@ async function fetchCashAccounts(): Promise<Map<string, { code: string; name: st
   return out;
 }
 
-const orChain = (field: string, keys: readonly string[]) => keys.map((k) => `${field} eq guid'${k}'`).join(" or ");
+export const orChain = (field: string, keys: readonly string[]) => keys.map((k) => `${field} eq guid'${k}'`).join(" or ");
 
 /** 1С-ээс сарын мөнгөн хөрөнгийг татна (бүх хүсэлт GET) */
 export function fetchCash(month: string): Promise<CashResult> {

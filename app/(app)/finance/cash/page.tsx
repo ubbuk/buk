@@ -1,241 +1,223 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, Landmark, ListChecks, Users, Wallet } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Landmark, Settings2, Wallet } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
-import { ErrorNote, FinanceShell, NUM, money } from "@/components/finance/FinanceShell";
-import { GranularChart } from "@/components/finance/GranularChart";
-import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
-import { useDocDrawer } from "@/components/finance/docs/DocDrawer";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
+import { DailyBarChart } from "@/components/finance/DailyBarChart";
+import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
+import { Amount } from "@/components/finance/cash/Amount";
+import { CategoryPanel } from "@/components/finance/cash/CategoryPanel";
+import { CashEntries, NO_FILTER, type CashEntryFilter } from "@/components/finance/cash/CashEntries";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
-import { RefreshButton, todayUb } from "@/components/finance/useOnecRefresh";
-import { useYm } from "@/components/finance/useYm";
-import { formatNumber } from "@/lib/utils";
-import type { CashAccount, CashCounterpart, CashEntry, CashResult } from "@/lib/onec/cash";
+import { RefreshButton } from "@/components/finance/useOnecRefresh";
+import { useIsAdmin, useYm } from "@/components/finance/useYm";
+import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
+import type { CashReport, CategoryRow } from "@/lib/onec/cash-report";
 
-// 1С-ийн OData-аас шууд (5 минутын cache); 1С холбогдохгүй бол сүүлд хадгалсныг харуулна
-type CashResponse = CashResult & { meta: OdataMeta };
+type ReportResponse = CashReport & { meta: OdataMeta };
+interface Trend {
+  year: string;
+  months: { month: string; inflow: number; outflow: number; internal: number }[];
+  failed: string[];
+}
 
-const accountColumns: DataTableColumn<CashAccount>[] = [
-  // дансны КОД биш НЭР (код нь зөвхөн tooltip-д)
-  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.code}`, render: (r) => <span className="text-text" title={r.code ? `Данс ${r.code}` : undefined}>{r.name}</span> },
-  { key: "opening", header: "Эхний үлдэгдэл", sortable: true, accessor: (r) => r.opening, className: NUM, render: (r) => money(r.opening) },
-  { key: "inflow", header: "Орлого", sortable: true, accessor: (r) => r.inflow, className: NUM, render: (r) => money(r.inflow) },
-  { key: "outflow", header: "Зарлага", sortable: true, accessor: (r) => r.outflow, className: NUM, render: (r) => money(r.outflow) },
-  { key: "transfers", header: "Шилжүүлэг (орсон − гарсан)", sortable: true, accessor: (r) => r.transfersIn - r.transfersOut, className: NUM, render: (r) => money(r.transfersIn - r.transfersOut) },
-  { key: "closing", header: "Эцсийн үлдэгдэл", sortable: true, accessor: (r) => r.closing, className: NUM, render: (r) => <span className="text-text">{money(r.closing)}</span> },
-];
+const MN_MONTH = (ym: string) => `${ym.slice(0, 4)} оны ${Number(ym.slice(5, 7))}-р сар`;
+const OTHER_WARN = 0.1; // «Бусад» 10%-иас их бол ангиллын дүрэм дутуу гэж сануулна
 
-const counterpartColumns: DataTableColumn<CashCounterpart>[] = [
-  { key: "name", header: "Харилцагч / харьцсан данс", sortable: true, accessor: (r) => `${r.name} ${r.account}`, render: (r) => <span className="text-text" title={r.account ? `Данс ${r.account}` : undefined}>{r.name}</span> },
-  { key: "inflow", header: "Орлого", sortable: true, accessor: (r) => r.inflow, className: NUM, render: (r) => (r.inflow ? <span className="text-success">{money(r.inflow)}</span> : "—") },
-  { key: "outflow", header: "Зарлага", sortable: true, accessor: (r) => r.outflow, className: NUM, render: (r) => (r.outflow ? <span className="text-danger">{money(r.outflow)}</span> : "—") },
-];
-
-const entryColumns = (transfer: boolean): DataTableColumn<CashEntry>[] => [
-  { key: "date", header: "Огноо", sortable: true, accessor: (r) => r.date, render: (r) => <span className="ng-num">{r.date}</span> },
-  { key: "account", header: transfer ? "Зарлагадсан данс" : "Данс", accessor: (r) => r.account, render: (r) => r.account },
-  { key: "counterpart", header: transfer ? "Хүлээн авсан данс" : "Харилцагч / гүйлгээний утга", accessor: (r) => `${r.counterpart} ${r.memo} ${r.article} ${r.document}`, render: (r) => (
-      <div>
-        <p className="text-text">{r.counterpart}</p>
-        <p className="max-w-md truncate text-[11px] text-text-muted" title={r.memo}>{[r.document, r.article, r.memo].filter(Boolean).join(" · ")}</p>
-      </div>
-    ) },
-  { key: "amount", header: "Дүн", sortable: true, accessor: (r) => (r.type === "outflow" ? -r.amount : r.amount), className: NUM, render: (r) =>
-      r.type === "inflow" ? <span className="text-success">+{money(r.amount)}</span> : r.type === "outflow" ? <span className="text-danger">−{money(r.amount)}</span> : <span className="text-text-muted">{money(r.amount)}</span> },
-];
-
-const ALL = "";
+/** 12 сарын орлого, зарлага. Хөнгөн хүсэлт тул карт тусдаа ачаалагдана; нэг сар татагдаагүй бол үлдсэн нь харагдаж, тэр сар тэмдэглэгдэнэ. */
+function useTrend(year: string, version: string) {
+  const [state, setState] = useState<{ data: Trend | null; error: string | null }>({ data: null, error: null });
+  useEffect(() => {
+    const c = new AbortController();
+    setState((s) => ({ ...s, error: null }));
+    fetch(`/api/dashboard/cash/trend?year=${year}`, { signal: c.signal })
+      .then(async (res) => {
+        // уншиж дундаа таслагдсан (шинэ хүсэлт эхэлсэн) хариуг хэзээ ч хадгалахгүй: хоосон `{}` нь хуудсыг унагадаг байсан
+        const body = await res.json().catch(() => null);
+        if (c.signal.aborted) return;
+        if (!res.ok || !body || !Array.isArray(body.months)) throw new Error(body?.error ?? `Алдаа ${res.status}`);
+        setState({ data: body as Trend, error: null });
+      })
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setState((s) => ({ data: s.data, error: e instanceof Error ? e.message : "12 сарын мэдээлэл татаж чадсангүй" }));
+      });
+    return () => c.abort();
+  }, [year, version]);
+  return state;
+}
 
 export default function CashPage() {
-  const { ym, isCurrent } = useYm();
-  const { data, error, loading, retryAt, refresh } = useOdataData<CashResponse>(`/api/dashboard/cash?month=${ym}`);
-  const [account, setAccount] = useState(ALL);
-  // Дарж задлах: орлого/зарлага (KPI), харилцагч (хүснэгт) -> доорх гүйлгээний жагсаалт -> баримтын drawer
-  const [flow, setFlow] = useState<"" | "inflow" | "outflow">("");
-  const [party, setParty] = useState("");
-  const { openDoc } = useDocDrawer();
-  const jump = () => requestAnimationFrame(() => document.getElementById("cash-entries")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  const [mode, setMode] = useState<ViewMode>("chart");
-  const empty = data && data.totals.entries === 0 && data.accounts.length === 0;
+  const { ym } = useYm();
+  const isAdmin = useIsAdmin();
+  const { data, error, loading, retryAt, refresh } = useOdataData<ReportResponse>(`/api/dashboard/cash/report?month=${ym}`);
+  const trend = useTrend(ym.slice(0, 4), data?.meta.fetchedAt ?? "");
+  const [filter, setFilter] = useState<CashEntryFilter>(NO_FILTER);
+  const [showTransfers, setShowTransfers] = useState(false);
+  const empty = data && data.totals.entries === 0;
   const diff = data ? Math.abs(data.totals.difference) : 0;
 
-  // «Бүх данс» шүүлтүүр: дансны хүснэгт, гүйлгээ, шилжүүлгийн жагсаалтад (дүн, график нь нийт хэвээр)
-  const accountName = useMemo(() => data?.accounts.find((a) => a.key === account)?.name ?? "", [data, account]);
-  const accounts = useMemo(() => (data ? data.accounts.filter((a) => !account || a.key === account) : []), [data, account]);
-  const recent = useMemo(() => (data ? data.recent.filter((e) => (!account || e.account === accountName) && (!flow || e.type === flow) && (!party || e.counterpart === party)) : []), [data, account, accountName, flow, party]);
-  const transfers = useMemo(() => (data ? data.transfers.filter((e) => !account || e.account === accountName || e.counterpart === accountName) : []), [data, account, accountName]);
-  const spark = useMemo(() => {
-    let acc = 0;
-    return (data?.daily ?? []).filter((d) => !isCurrent || d.date <= todayUb()).map((d) => (acc += d.inflow));
-  }, [data, isCurrent]);
-  const counterpartCols = useMemo(() => (data ? [rankColumn(data.byCounterpart), ...counterpartColumns] : counterpartColumns), [data]);
+  // сар солигдоход шүүлт арилна
+  useEffect(() => setFilter(NO_FILTER), [ym]);
+
+  const jump = () => requestAnimationFrame(() => document.getElementById("cash-entries")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  const pickCategory = (flow: "inflow" | "outflow") => (c: CategoryRow) => {
+    setFilter({ ...NO_FILTER, flow, category: c.id, categoryLabel: c.label });
+    jump();
+  };
+  const pickParty = (flow: "inflow" | "outflow") => (c: CategoryRow, party: string) => {
+    setFilter({ ...NO_FILTER, flow, category: c.id, categoryLabel: c.label, party });
+    jump();
+  };
+  const otherHint = (share: number) =>
+    share >= OTHER_WARN && isAdmin ? (
+      <p className="px-2 py-1 text-[11px] text-warning">
+        «Бусад» {Math.round(share * 100)}% байна. Харилцагч бүрийг{" "}
+        <Link href="/admin/cash-rules" className="underline">
+          ангиллын дүрэмд
+        </Link>{" "}
+        нэмбэл багасна.
+      </p>
+    ) : null;
 
   return (
     <FinanceShell
-      title={`Мөнгөн хөрөнгө`}
-      subtitle={data ? `1С-ээс татсан мөнгөн хөрөнгийн мэдээлэл · ${data.asOf}-ны үлдэгдэл` : "1С-ээс татсан мөнгөн хөрөнгийн мэдээлэл"}
+      title="Мөнгөн хөрөнгө"
+      subtitle={data ? `Мөнгө хаанаас орж, хаашаа гарсан · ${data.asOf}-ны үлдэгдэл` : "Мөнгө хаанаас орж, хаашаа гарсан"}
       icon={Wallet}
       lastSyncedAt={data?.meta.fetchedAt}
       connection={error || data?.meta.stale ? "offline" : data ? "ok" : null}
       refresh={<RefreshButton busy={loading} retryAt={retryAt} onClick={refresh} />}
-      controls={data && <FilterSelect icon={Banknote} label="Данс" value={account} onChange={setAccount} options={[{ value: ALL, label: "Бүх данс" }, ...data.accounts.map((a) => ({ value: a.key, label: a.name }))]} />}
-      trailing={<ViewToggle value={mode} onChange={setMode} />}
+      controls={
+        isAdmin ? (
+          <Link href="/admin/cash-rules" className="focus-ring inline-flex h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm text-text-muted hover:text-text">
+            <Settings2 className="size-4" /> Ангиллын дүрэм
+          </Link>
+        ) : undefined
+      }
     >
       {error && <ErrorNote message={data ? `${error}. Сүүлд татсан өгөгдлийг харуулж байна.` : error} />}
-      {data?.meta.stale && <ErrorNote message="1С холбогдохгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
+      {data?.meta.stale && <ErrorNote message="Мэдээлэл түр шинэчлэгдэхгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {loading && !data ? (
-          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
         ) : data ? (
           <>
-            <KpiCard featured spark={spark} label="Нийт орлого" value={money(data.totals.inflow)} icon={ArrowDownLeft} tone="accent" onClick={() => { setFlow("inflow"); jump(); }} />
-            <KpiCard label="Эхний үлдэгдэл" value={money(data.totals.opening)} icon={Wallet} hint={`${data.month}-01`} />
-            <KpiCard label="Нийт зарлага" value={money(data.totals.outflow)} icon={ArrowUpRight} tone="danger" onClick={() => { setFlow("outflow"); jump(); }} />
-            <KpiCard label="Дотоод шилжүүлэг" value={money(data.totals.internal)} icon={ArrowLeftRight} hint="Орлого, зарлагад тооцоогүй" />
-            <KpiCard label="Эцсийн үлдэгдэл" value={money(data.totals.closing)} icon={Landmark} tone="success" hint={diff < 1 ? "Эхний + орлого − зарлага таарсан" : `Тулгалтад ${money(data.totals.difference)} зөрүүтэй`} />
+            <KpiCard label="Эхний үлдэгдэл" value={<Amount value={data.totals.opening} />} valueText={formatMoneyShort(data.totals.opening)} icon={Wallet} hint={`${data.month}-01`} />
+            <KpiCard
+              featured
+              label="Орж ирсэн"
+              value={<Amount value={data.totals.inflow} />}
+              valueText={formatMoneyShort(data.totals.inflow)}
+              icon={ArrowDownLeft}
+              tone="accent"
+              onClick={() => {
+                setFilter({ ...NO_FILTER, flow: "inflow" });
+                jump();
+              }}
+            />
+            <KpiCard
+              label="Гарсан"
+              value={<Amount value={data.totals.outflow} />}
+              valueText={formatMoneyShort(data.totals.outflow)}
+              icon={ArrowUpRight}
+              tone="danger"
+              onClick={() => {
+                setFilter({ ...NO_FILTER, flow: "outflow" });
+                jump();
+              }}
+            />
+            <KpiCard
+              label="Эцсийн үлдэгдэл"
+              value={<Amount value={data.totals.closing} />}
+              valueText={formatMoneyShort(data.totals.closing)}
+              icon={Landmark}
+              tone="success"
+              hint={diff < 1 ? "Эхний + орсон − гарсан таарсан" : `Тулгалтад ${formatMoneyFull(data.totals.difference)} зөрүү байна`}
+            />
           </>
         ) : null}
       </div>
+
+      {data && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-white/[0.02] px-4 py-2.5 text-sm">
+          <ArrowLeftRight aria-hidden className="size-4 text-text-muted" />
+          <span className="text-text-muted">Дотоод шилжүүлэг (өөрийн данс хооронд, нийлбэрт орохгүй):</span>
+          <Amount value={data.internal.total} className="font-medium text-text" />
+          {data.internal.count > 0 && (
+            <button type="button" onClick={() => setShowTransfers((s) => !s)} className="focus-ring min-h-8 rounded-lg px-2 text-xs text-[#ffd56b] hover:underline">
+              {showTransfers ? "Нуух" : `${data.internal.count} шилжүүлэг харах`}
+            </button>
+          )}
+        </div>
+      )}
+      {data && showTransfers && (
+        <Card>
+          <ul className="divide-y divide-border">
+            {data.internal.items.map((t, i) => (
+              <li key={`${t.date}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                <span className="ng-num w-16 text-xs text-text-muted">{t.date.slice(5)}</span>
+                <span className="min-w-0 flex-1 truncate text-text">
+                  {t.from} → {t.to}
+                </span>
+                <Amount value={t.amount} className="text-text-muted" />
+              </li>
+            ))}
+            {data.internal.count > data.internal.items.length && <li className="px-4 py-2 text-xs text-text-muted">Хамгийн сүүлийн {data.internal.items.length} шилжүүлгийг харууллаа</li>}
+          </ul>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{ym.slice(0, 4)} оны сар бүрийн орсон, гарсан мөнгө</CardTitle>
+          {trend.data && trend.data.failed.length > 0 && <span className="text-xs text-warning">{trend.data.failed.map((m) => `${Number(m.slice(5))}-р сар`).join(", ")} татагдсангүй</span>}
+        </CardHeader>
+        <CardBody>
+          {trend.data ? (
+            <DailyBarChart
+              data={trend.data.months.map((m) => ({ date: m.month, inflow: m.inflow, outflow: m.outflow }))}
+              series={[
+                { key: "inflow", label: "Орж ирсэн", color: "rgb(var(--color-accent))" },
+                { key: "outflow", label: "Гарсан", color: "rgb(var(--color-danger))" },
+              ]}
+              label={(m) => `${Number(m.slice(5, 7))}`}
+              tooltipTitle={MN_MONTH}
+              unit="сараар"
+            />
+          ) : trend.error ? (
+            <p className="py-10 text-center text-sm text-text-muted">{trend.error}</p>
+          ) : (
+            <Skeleton className="h-56" />
+          )}
+        </CardBody>
+      </Card>
 
       {empty ? (
         <Card>
           <div className="px-6 py-12 text-center text-sm text-text-muted">Энэ сард мөнгөн хөрөнгийн гүйлгээ алга. Дээрээс өөр сар сонгоно уу.</div>
         </Card>
       ) : (
-        <>
-          {mode === "chart" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Өдөр бүрийн орлого, зарлага</CardTitle>
-              </CardHeader>
-              <CardBody>
-                {data ? (
-                  <GranularChart
-                    data={data.daily}
-                    keys={["inflow", "outflow"]}
-                    today={isCurrent ? todayUb() : undefined}
-                    series={[
-                      { key: "inflow", label: "Орлого", color: "rgb(var(--color-accent))" },
-                      { key: "outflow", label: "Зарлага", color: "rgb(var(--color-danger))" },
-                    ]}
-                  />
-                ) : (
-                  <Skeleton className="h-56" />
-                )}
-              </CardBody>
-            </Card>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {data ? (
+            <>
+              <CategoryPanel title="Хаанаас орж ирсэн" tone="in" flow={data.inflow} onPickCategory={pickCategory("inflow")} onPickParty={pickParty("inflow")} otherHint={otherHint(data.otherShare.inflow)} />
+              <CategoryPanel title="Хаашаа гарсан" tone="out" flow={data.outflow} onPickCategory={pickCategory("outflow")} onPickParty={pickParty("outflow")} otherHint={otherHint(data.otherShare.outflow)} />
+            </>
+          ) : (
+            <>
+              <Skeleton className="h-72 rounded-xl" />
+              <Skeleton className="h-72 rounded-xl" />
+            </>
           )}
-
-          <Card>
-            {data ? (
-              <DataTable
-                heading={
-                  <>
-                    <Banknote className="size-4 text-[#ffd56b]" />
-                    Данс, банкаар
-                    {diff >= 1 && <span className="text-xs font-normal text-warning">Тулгалтын зөрүү {formatNumber(data.totals.difference, 2)}₮</span>}
-                  </>
-                }
-                data={accounts}
-                columns={accountColumns}
-                getRowId={(r) => r.key}
-                onRowClick={(r) => {
-                  setAccount(r.key);
-                  jump();
-                }}
-                searchPlaceholder="Данс хайх..."
-              />
-            ) : (
-              <SkeletonTable rows={4} cols={6} />
-            )}
-          </Card>
-
-          <Card>
-            {data ? (
-              <DataTable
-                heading={
-                  <>
-                    <Users className="size-4 text-[#ffd56b]" />
-                    Харилцагч, харьцсан дансаар (эхний 20)
-                  </>
-                }
-                data={data.byCounterpart}
-                columns={counterpartCols}
-                getRowId={(r) => r.key}
-                onRowClick={(r) => {
-                  setParty(r.name);
-                  jump();
-                }}
-                searchPlaceholder="Харилцагч, данс хайх..."
-              />
-            ) : (
-              <SkeletonTable rows={6} cols={3} />
-            )}
-          </Card>
-
-          {data && transfers.length > 0 && (
-            <Card>
-              <DataTable
-                heading={
-                  <>
-                    <ArrowLeftRight className="size-4 text-[#ffd56b]" />
-                    Дотоод шилжүүлэг
-                  </>
-                }
-                data={transfers}
-                columns={entryColumns(true)}
-                getRowId={(r) => r.id}
-                onRowClick={(r) => openDoc(r.docType, r.ref)}
-                searchPlaceholder="Шилжүүлэг хайх..."
-              />
-            </Card>
-          )}
-
-          <Card>
-            {(flow || party || account) && (
-              <div id="cash-entries" className="flex flex-wrap items-center gap-2 px-4 pt-3 text-sm">
-                <span className="text-text-muted">Шүүлт:</span>
-                {flow && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{flow === "inflow" ? "Орлого" : "Зарлага"}</span>}
-                {account && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{accountName}</span>}
-                {party && <span className="rounded-full border border-[rgba(80,140,240,0.4)] px-2.5 py-0.5 text-xs text-text">{party}</span>}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFlow("");
-                    setParty("");
-                    setAccount(ALL);
-                  }}
-                  className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text"
-                >
-                  Шүүлт арилгах
-                </button>
-              </div>
-            )}
-            {!(flow || party || account) && <span id="cash-entries" />}
-            {data ? (
-              <DataTable
-                heading={
-                  <>
-                    <ListChecks className="size-4 text-[#ffd56b]" />
-                    Сүүлийн гүйлгээнүүд (сүүлийн 200) · дарвал баримт нээгдэнэ
-                  </>
-                }
-                data={recent}
-                columns={entryColumns(false)}
-                getRowId={(r) => r.id}
-                onRowClick={(r) => openDoc(r.docType, r.ref)}
-                searchPlaceholder="Харилцагч, утга, зүйлээр хайх..."
-              />
-            ) : (
-              <SkeletonTable rows={4} cols={4} />
-            )}
-          </Card>
-        </>
+        </div>
       )}
+
+      {!empty && <CashEntries month={ym} filter={filter} onFilter={setFilter} version={data?.meta.fetchedAt ?? ""} />}
     </FinanceShell>
   );
 }

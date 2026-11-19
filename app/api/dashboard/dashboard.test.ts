@@ -12,6 +12,9 @@ const session = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("next-auth", () => ({ getServerSession: async () => session.current }));
 
 import { GET as CASH } from "./cash/route";
+import { GET as CASH_ENTRIES } from "./cash/entries/route";
+import { GET as CASH_REPORT } from "./cash/report/route";
+import { GET as CASH_TREND } from "./cash/trend/route";
 import { GET as EXPENSES } from "./expenses/route";
 import { GET as HEALTH } from "./health/route";
 import { POST as REFRESH } from "./refresh/route";
@@ -106,6 +109,9 @@ const ROUTES = {
   yearSales: () => YEAR(get(`/api/dashboard/year?tab=sales&year=${YR}`)),
   yearExpenses: () => YEAR(get(`/api/dashboard/year?tab=expenses&year=${YR}`)),
   cash: () => CASH(get(`/api/dashboard/cash?month=${currentMonth()}`)),
+  cashReport: () => CASH_REPORT(get(`/api/dashboard/cash/report?month=${currentMonth()}`)),
+  cashEntries: () => CASH_ENTRIES(get(`/api/dashboard/cash/entries?month=${currentMonth()}`)),
+  cashTrend: () => CASH_TREND(get(`/api/dashboard/cash/trend?year=${currentMonth().slice(0, 4)}`)),
   syncStatus: () => SYNC_STATUS(get(`/api/dashboard/sync-status?month=${MONTH}`)),
   stockFreshness: () => STOCK_FRESHNESS(),
   refreshStock: () => REFRESH(post({ kind: "stock" })),
@@ -142,7 +148,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 

@@ -25,7 +25,9 @@ export const GET = withTiming("GET /api/dashboard/cash", async (req: Request) =>
     const { value: full, meta } = await loadCash(month, sp.get("refresh") === "1");
     // Цалингийн эрхгүй хүнд хүний нэр, утга гарахгүй: цалингийн харьцаатай бичилтүүд нэгтгэгдэнэ (нийт дүн ижил)
     const value = (await viewerCanSeePayroll()) ? full : redactCash(full);
-    return NextResponse.json({ ...value, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+    const { entries: _all, ...slim } = value; // бүх гүйлгээ энэ хариунд явахгүй (хуудаслалттай /entries-ээр)
+    void _all;
+    return NextResponse.json({ ...slim, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
     throw e;

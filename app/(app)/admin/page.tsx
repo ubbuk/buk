@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog } from "lucide-react";
+import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, Wallet } from "lucide-react";
 import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/components/admin/AuthorityGrantDialog";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
@@ -462,6 +462,12 @@ export default function AdminPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-text">Хэрэглэгч, эрхийн удирдлага</h2>
         <div className="flex flex-wrap gap-2">
+          <Link href="/admin/cash-rules">
+            <Button variant="secondary">
+              <Wallet className="size-4" />
+              Мөнгөний ангилал
+            </Button>
+          </Link>
           <Link href="/admin/audit">
             <Button variant="secondary">
               <FileClock className="size-4" />
