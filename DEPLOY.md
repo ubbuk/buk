@@ -199,3 +199,15 @@ JOIN "MaterialRequest" r ON r.id = q."requestId" WHERE q.status = 'PENDING';
 - [ ] Нэвтрэх хуудсанд demo жагсаалт **харагдахгүй**
 - [ ] Захиалга үүсгэж, файл хавсаргаад татаж үзэх (S3)
 - [ ] `/admin/monitoring` (ADMIN/DIRECTOR)
+
+## package-lock.json (Sync 1C, CI)
+
+Sync 1C ажил Linux дээр `npm ci --ignore-scripts` ажиллуулдаг (Node 22, npm 10). Windows дээрх шинэ npm (11) `npm install` хийхдээ lock-оос
+`@emnapi/core`, `@emnapi/runtime` (sharp-wasm32-ийн заавал биш хамаарал) мөрүүдийг хасдаг тул ажил "Missing: @emnapi/runtime from lock file" гэж
+секундэд унадаг (2026-11-13, 2026-11-19).
+
+- Dependency өөрчлөөгүй бол `package-lock.json`-г commit-д бүү оруул.
+- Өөрчилсөн бол `npm run check:lockfile` (npm 10-ээр `npm ci` шалгана) ногоон байх ёстой. Улаан бол `node_modules/@emnapi/core`, `node_modules/@emnapi/runtime`
+  (1.11.3, `"optional": true`) мөрүүдийг буцааж нэмнэ.
+- `.github/workflows/lockfile.yml` нь PR бүр дээр үүнийг Linux дээр шалгана.
+
