@@ -20,6 +20,7 @@ import { GET as HEALTH } from "./health/route";
 import { POST as REFRESH } from "./refresh/route";
 import { GET as RECEIVABLES } from "./receivables/route";
 import { GET as STOCK } from "./stock/route";
+import { GET as STOCK_TREND } from "./stock/trend/route";
 import { GET as SUMMARY } from "./summary/route";
 import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
@@ -100,6 +101,7 @@ afterEach(() => {
 
 const ROUTES = {
   stock: () => STOCK(get("/api/dashboard/stock")),
+  stockTrend: () => STOCK_TREND(get(`/api/dashboard/stock/trend?year=${currentMonth().slice(0, 4)}`)),
   usage: () => USAGE(get(`/api/dashboard/usage?month=${MONTH}`)),
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
   receivables: () => RECEIVABLES(get(`/api/dashboard/receivables?month=${currentMonth()}`)),
@@ -119,7 +121,7 @@ const ROUTES = {
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "stockTrend", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -148,7 +150,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "stockTrend", "usage", "sales", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -193,7 +195,7 @@ describe("/api/dashboard/stock-freshness: сүүлийн АМЖИЛТТАЙ stoc
     at("2026-11-16 11:30");
     const b = await call();
     expect(b).toMatchObject({ stale: true, never: false, lastSyncedLabel: "2026-11-16 09:10" });
-    expect(b.message).toBe("1С-ийн өгөгдөл 2 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
+    expect(b.message).toBe("Мэдээлэл 2 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
   });
   it("1 цагаас дотор бол анхааруулахгүй", async () => {
     await log("2026-11-16 11:00", true);
@@ -332,6 +334,18 @@ describe("/api/dashboard/stock: нярвын бүлэг → 1С склад → �
   it("нийт дүн = 14xx Balance (142x-гүй): 0 зөрүү; 142x тусдаа", async () => {
     const b = await body();
     expect(b.reconciliation).toEqual({ balance: 6160, table: 6160, difference: 0, wip: 777 });
+  });
+
+  it("удирдлагын харагдац: бүлэг, агуулахаар нийт дүн хүснэгттэй таарна; нэгж хүнийхээр; 1С-ийн техникийн нэр, комментар гарахгүй", async () => {
+    const b = await body();
+    const total = b.groups.reduce((s: number, g: { amount: number }) => s + g.amount, 0);
+    expect(b.view.groups.reduce((s: number, g: { amount: number }) => s + g.amount, 0)).toBeCloseTo(total, 2);
+    expect(b.view.warehouses.reduce((s: number, w: { amount: number }) => s + w.amount, 0)).toBeCloseTo(total, 2);
+    expect(b.view.top.length).toBeGreaterThan(0);
+    expect(b.view.top.length).toBeLessThanOrEqual(10);
+    const json = JSON.stringify(b.view);
+    expect(json).not.toContain("Catalog_");
+    expect(json).not.toContain("Комментарий");
   });
 
   it("нярав оноогоогүй бүлэг/склад null; reservable=false склад тусад нь тэмдэглэгдэнэ", async () => {

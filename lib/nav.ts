@@ -48,7 +48,7 @@ export const FOREIGN_TRADE_ROLES: readonly string[] = ["BOSS", "MANAGER", "DIREC
 export const FOREIGN_TRADE_NAV_ITEM: NavItem = { href: "/foreign-trade", label: "Гадаад худалдаа", icon: Globe };
 // Нэг «1С» цэс: Агуулах, Борлуулалт, Зарцуулалт, Зардал, Мөнгөн хөрөнгө таб; ADMIN-д «Хөтөч» таб мөн дотор нь (lib/onec/roles.ts).
 // Нярав зөвхөн Агуулах, Зарцуулалт табтай тул шууд Агуулах руу орно.
-export const ONEC_NAV_ITEM: NavItem = { href: "/finance", label: "1С", icon: Banknote };
+export const ONEC_NAV_ITEM: NavItem = { href: "/finance", label: "Санхүү", icon: Banknote };
 export const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Хэрэглэгч, эрх", icon: ShieldCheck };
 
 // EMPLOYEE only creates/tracks their own requests -- no approvals or
@@ -78,13 +78,13 @@ export const PAGE_TITLES: Record<string, string> = {
   "/foreign-trade/new": "Шинэ гадаад худалдааны захиалга",
   "/accounting": "Санхүүгийн бүртгэл",
   "/onec": "1С · Хөтөч",
-  "/finance": "1С",
-  "/finance/stock": "1С · Агуулах",
-  "/finance/sales": "1С · Борлуулалт",
-  "/finance/usage": "1С · Зарцуулалт",
-  "/finance/receivables": "1С · Авлага",
-  "/finance/expenses": "1С · Зардал",
-  "/finance/cash": "1С · Мөнгөн хөрөнгө",
+  "/finance": "Санхүү",
+  "/finance/stock": "Агуулах",
+  "/finance/sales": "Борлуулалт",
+  "/finance/usage": "Зарцуулалт",
+  "/finance/receivables": "Авлага",
+  "/finance/expenses": "Зардал",
+  "/finance/cash": "Мөнгөн хөрөнгө",
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",

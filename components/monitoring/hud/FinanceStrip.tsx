@@ -67,7 +67,7 @@ export function FinanceStrip({ tick, refresh, treasury = false }: { tick: number
           {d.stale && (
             <span role="status" className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-warning" data-testid="finance-stale">
               <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-              {d.staleMessage ?? "1С-ийн өгөгдөл хуучирсан байна."}
+              {d.staleMessage ?? "Мэдээлэл хуучирсан байна."}
             </span>
           )}
         </p>

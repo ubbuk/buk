@@ -13,6 +13,7 @@ import { requireFinanceAccess } from "@/lib/onec/access";
 import { isDate, today } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 import { loadStockLive } from "@/lib/onec/stock-live";
+import { buildStockView } from "@/lib/onec/stock-view";
 import { OFF_WAREHOUSE_KEY, buildStockTree, isOffWarehouse, leafWarehouses, type StockRow, type WarehouseRow } from "@/lib/onec/stock-tree";
 
 export const dynamic = "force-dynamic";
@@ -86,6 +87,7 @@ export const GET = withTiming("GET /api/dashboard/stock", async (req: Request) =
       date,
       totals,
       groups,
+      view: buildStockView(rows),
       filters,
       reconciliation: value.reconciliation,
       lastSyncedAt: new Date(meta.fetchedAt).toISOString(),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoneyFull, formatMoneyShort } from "./money-short";
+import { formatAxisValue, formatMoneyFull, formatMoneyShort } from "./money-short";
 
 describe("formatMoneyShort / formatMoneyFull", () => {
   it("сая, тэрбум, мянга хэлбэр", () => {
@@ -20,5 +20,12 @@ describe("formatMoneyShort / formatMoneyFull", () => {
     expect(formatMoneyFull(84_073_015.25)).toBe("84,073,015.25₮");
     expect(formatMoneyFull(-1_000_000_000)).toBe("−1,000,000,000₮");
     expect(formatMoneyFull(undefined)).toBe("—");
+  });
+});
+
+describe("formatAxisValue: график тэнхлэг", () => {
+  it("«40B» биш «40 тэрбум»", () => {
+    expect([40e9, 2.5e9, 250e6, 12e3, 0, 800].map(formatAxisValue)).toEqual(["40 тэрбум", "2.5 тэрбум", "250 сая", "12 мянга", "0", "800"]);
+    expect(formatAxisValue(-1.5e9)).toBe("−1.5 тэрбум");
   });
 });

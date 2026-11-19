@@ -53,7 +53,7 @@ function Tabs() {
   ];
   if (tabs.length === 0) return null;
   return (
-    <nav className="ng-panel flex gap-1 overflow-x-auto rounded-2xl p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="1С">
+    <nav className="ng-panel flex gap-1 overflow-x-auto rounded-2xl p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Санхүү">
       {tabs.map((t) => {
         const active = pathname === t.href.split("?")[0];
         return (

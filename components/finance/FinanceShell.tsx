@@ -75,7 +75,7 @@ export function FinanceShell({
           {connection && (
             <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium", connection === "ok" ? "border-success/40 bg-success/10 text-success" : "border-warning/40 bg-warning/10 text-warning")}>
               <span className="size-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]" />
-              {connection === "ok" ? "1С холбогдсон" : "1С холбогдохгүй"}
+              {connection === "ok" ? "Холбогдсон" : "Холбогдоогүй"}
             </span>
           )}
           <div className="text-right text-[11px] leading-tight text-text-muted">

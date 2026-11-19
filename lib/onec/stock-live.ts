@@ -54,7 +54,7 @@ export interface StockNames {
 export function buildStockLive(asOf: string, balances: Row[], book: AccountBook, names: StockNames): StockLive {
   let balance = 0;
   let wip = 0;
-  const merged = new Map<string, { whCode: string; whName: string; itemKey: string; accounts: Set<string>; qty: number; amount: number }>();
+  const merged = new Map<string, { whCode: string; whName: string; itemKey: string; accounts: Set<string>; byAccount: Map<string, number>; qty: number; amount: number }>();
 
   for (const r of balances) {
     const acc = book.byKey.get(text(r.Account_Key).toLowerCase());
@@ -76,10 +76,11 @@ export function buildStockLive(asOf: string, balances: Row[], book: AccountBook,
     // Агуулахгүй мөр: нэр нь дансны нэр; агуулахын талбар байгаа ч 1С-д бөглөөгүй бол тэмдэглэнэ
     const whName = whKey ? (wh?.name ?? "") : `${acc.name || "Данс"}${text(r.ExtDimension2_Type).endsWith(WAREHOUSE_TYPE) ? " · 1С-д агуулах заагаагүй" : ""}`;
     const key = `${whCode}|${itemKey}`;
-    const cur = merged.get(key) ?? { whCode, whName, itemKey, accounts: new Set<string>(), qty: 0, amount: 0 };
+    const cur = merged.get(key) ?? { whCode, whName, itemKey, accounts: new Set<string>(), byAccount: new Map<string, number>(), qty: 0, amount: 0 };
     cur.qty += qty;
     cur.amount += amount;
     cur.accounts.add(acc.name || "Данс");
+    cur.byAccount.set(acc.name || "Данс", (cur.byAccount.get(acc.name || "Данс") ?? 0) + Math.abs(amount));
     merged.set(key, cur);
   }
 
@@ -93,6 +94,7 @@ export function buildStockLive(asOf: string, balances: Row[], book: AccountBook,
       item: item?.name || (m.itemKey ? "Бараа" : "Бараа тодорхойгүй"),
       unit: item?.unit ?? "",
       account: [...m.accounts].sort().join(", "),
+      group: [...m.byAccount].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "",
       qty: round2(m.qty),
       amount: round2(m.amount),
       unit_cost: m.qty !== 0 ? round2(m.amount / m.qty) : null,
