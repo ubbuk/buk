@@ -23,6 +23,7 @@ import { ResubmitShortfallModal } from "@/components/workflow/ResubmitShortfallM
 import { isStepAssignedTo } from "@/lib/approval-queue";
 import { useRequestStore } from "@/lib/store";
 import { USER_ROLE_LABEL } from "@/lib/types";
+import { warehouseOutcome } from "@/lib/warehouse-outcome";
 import { formatDateTime, formatNumber, formatPriceOrPending } from "@/lib/utils";
 
 const RETURNED_STATUSES = new Set(["RETURNED_BY_DEPARTMENT", "RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_MANAGER_PRICING", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"]);
@@ -127,10 +128,10 @@ export default function RequestDetailPage() {
           requestItemId: i.id,
           availableQuantity: i.id === markingUnavailableItemId ? 0 : i.warehouseBalance ?? 0,
         }));
-        await warehouseCheck(request.id, items, pendingStep.assignedUserName, pin, request.version);
+        const checked = await warehouseCheck(request.id, items, pendingStep.assignedUserName, pin, request.version);
         setPinOpen(false);
         setMarkingUnavailableItemId(null);
-        push({ kind: "success", title: "Агуулахын шалгалт баталгаажлаа", description: "Дутуу материал дараагийн шатанд шилжлээ" });
+        push(warehouseOutcome(checked));
         return;
       }
       if (pendingStep.type === "DEPARTMENT_HEAD") {

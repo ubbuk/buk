@@ -17,6 +17,7 @@ import {
   warehouseCheck,
 } from "./workflow";
 import { completeProcurement, getProcurementDetail, recordPurchase } from "./procurement";
+import { warehouseOutcome } from "./warehouse-outcome";
 
 const DEPT_ID = "vitest-dept"; // FACTORY -> branch goes to ENGINEERING
 const OFFICE_DEPT_ID = "vitest-office-dept"; // OFFICE -> branch goes to OPERATIONS_DIRECTOR (a DIRECTOR)
@@ -325,6 +326,31 @@ describe("warehouseCheck (Stage 3 — Storekeeper)", () => {
     expect(result.request.status).toBe("PENDING_BRANCH_APPROVAL");
     expect(result.request.items[0].allocatedQuantity).toBe(0);
     expect(result.request.items[0].missingQuantity).toBe(5);
+  });
+
+  it("D. a hand-typed line (no catalog material) gets nothing from the warehouse whatever count is typed, and the outcome says so", async () => {
+    await setBalance(50); // stock exists for the catalog material, but this line is not linked to it
+    const request = await createTestRequest(15);
+    await prisma.materialRequestItem.update({ where: { id: request.items[0].id }, data: { materialId: null, manualMaterialName: "Dewter" } });
+    await departmentApprove(request.id, HEAD_ID, PIN, 1);
+    const result = await warehouseCheck(request.id, STOREKEEPER_ID, [{ requestItemId: request.items[0].id, availableQuantity: 15 }], PIN, 2);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.request.status).toBe("PENDING_BRANCH_APPROVAL");
+    expect(result.request.items[0]).toMatchObject({ materialId: null, allocatedQuantity: 0, missingQuantity: 15 });
+    expect(warehouseOutcome(result.request)).toMatchObject({
+      kind: "warning",
+      title: "1 мөр дутуу — худалдан авалт руу явлаа",
+      description: "1 мөр каталогт холбогдоогүй тул агуулахаас олгох боломжгүй",
+    });
+  });
+
+  it("E. the outcome of a fully covered request is 'done'", async () => {
+    await setBalance(50);
+    const request = await createTestRequest(10);
+    await departmentApprove(request.id, HEAD_ID, PIN, 1);
+    const result = await warehouseCheck(request.id, STOREKEEPER_ID, [{ requestItemId: request.items[0].id, availableQuantity: 10 }], PIN, 2);
+    expect(result.ok && warehouseOutcome(result.request)).toMatchObject({ kind: "success", title: "Бүгд олгогдлоо, дууслаа" });
   });
 });
 
