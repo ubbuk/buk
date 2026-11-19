@@ -157,7 +157,7 @@ export function DocumentList({
         </div>
 
         {error && <OnecError message={error} onRetry={refresh} />}
-        {data?.meta.stale && <p className="text-xs text-warning">1С холбогдохгүй байгаа тул сүүлд татсан мэдээллийг харуулж байна.</p>}
+        {data?.meta.stale && <p className="text-xs text-warning">Холбогдохгүй байгаа тул сүүлд татсан мэдээллийг харуулж байна.</p>}
 
         {loading && !data ? (
           <div className="space-y-2" aria-busy="true">

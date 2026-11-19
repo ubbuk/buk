@@ -36,6 +36,8 @@ export interface StockRow {
   item: string;
   unit: string;
   account: string;
+  /** барааны бүлэг (хүнийхээр): мөрийн хамгийн их дүнтэй дансны нэр. Хуучин мөрд байхгүй байж болно. */
+  group?: string;
   qty: number;
   amount: number;
   unit_cost: number | null;

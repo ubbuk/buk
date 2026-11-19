@@ -87,7 +87,7 @@ export function StockRefreshNote({ phase, lastSyncedAt }: { phase: StockPhase; l
   if (phase === "offline") {
     return (
       <Note tone="warning" icon={<CloudOff className="size-4" />}>
-        1С холбогдохгүй, сүүлийн өгөгдөл: {formatHm(lastSyncedAt)}
+        Холбогдохгүй, сүүлийн өгөгдөл: {formatHm(lastSyncedAt)}
       </Note>
     );
   }
@@ -255,7 +255,7 @@ export function MonthRefreshNote({ phase, retryAt }: { phase: MonthPhase; retryA
   if (phase === "running" || phase === "starting") {
     return (
       <Note tone="muted" icon={<Loader2 className="size-4 animate-spin" />}>
-        1С-ээс шинэчилж байна… Одоогийн өгөгдлөөр харуулж байна.
+        Шинэчилж байна… Одоогийн өгөгдлөөр харуулж байна.
       </Note>
     );
   }
@@ -269,7 +269,7 @@ export function MonthRefreshNote({ phase, retryAt }: { phase: MonthPhase; retryA
   if (phase === "failed") {
     return (
       <Note tone="warning" icon={<CloudOff className="size-4" />}>
-        1С-ээс зарим өгөгдлийг татаж чадсангүй. Сүүлд хадгалсан өгөгдлийг харуулж байна.
+        Зарим өгөгдлийг татаж чадсангүй. Сүүлд хадгалсан өгөгдлийг харуулж байна.
       </Note>
     );
   }

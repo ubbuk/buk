@@ -44,12 +44,12 @@ describe("evaluateStockFreshness", () => {
     expect(evaluateStockFreshness(ub("2026-11-16 09:30"), ub("2026-11-16 10:30")).stale).toBe(false); // яг 1 цаг
     const f = evaluateStockFreshness(ub("2026-11-16 09:20"), ub("2026-11-16 10:30"));
     expect(f.stale).toBe(true);
-    expect(f.message).toBe("1С-ийн өгөгдөл 1 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
+    expect(f.message).toBe("Мэдээлэл 1 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
   });
   it("Даваа өглөө хуваарь эхэлсэн мөчид өмнөх Бямбын өгөгдөл хуучин: анхааруулна", () => {
     const f = evaluateStockFreshness(ub("2026-11-14 19:45"), ub("2026-11-16 09:05"));
     expect(f.stale).toBe(true);
-    expect(f.message).toBe("1С-ийн өгөгдөл 37 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
+    expect(f.message).toBe("Мэдээлэл 37 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
   });
   it("хуваарийн бус цагт, өмнөх цонхны сүүлд (19:45) шинэчлэгдсэн бол анхааруулахгүй", () => {
     expect(evaluateStockFreshness(ub("2026-11-16 19:45"), ub("2026-11-16 23:30")).stale).toBe(false); // орой

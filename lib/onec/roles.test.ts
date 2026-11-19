@@ -32,12 +32,12 @@ describe("1С самбарын табуудын эрх", () => {
 });
 
 describe("цэс: нэг «1С» цэс", () => {
-  const onec = (role: string) => resolveNavItems(role).filter((i) => i.label.startsWith("1С"));
+  const onec = (role: string) => resolveNavItems(role).filter((i) => i.label === "Санхүү");
 
   it("самбар харах эрхтэй дүр бүрд яг нэг «1С» цэс, хуучин «1С санхүүгийн самбар», «1С хөтөч» цэс байхгүй", () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS", "ENGINEERING", "STOREKEEPER"]) {
       const items = onec(role);
-      expect(items.map((i) => i.label), role).toEqual(["1С"]);
+      expect(items.map((i) => i.label), role).toEqual(["Санхүү"]);
       expect(items[0].href).toBe("/finance");
     }
     for (const role of ["ADMIN", "STOREKEEPER"]) {

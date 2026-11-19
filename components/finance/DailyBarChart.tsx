@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { formatAxisValue } from "@/lib/money-short";
 import { money } from "./FinanceShell";
 
 export interface BarSeries {
@@ -13,7 +14,7 @@ export interface BarSeries {
 type Point = { date: string } & Record<string, number | string>;
 
 const H = 230;
-const PAD = { top: 14, right: 8, bottom: 26, left: 56 };
+const PAD = { top: 14, right: 8, bottom: 26, left: 72 };
 
 function niceMax(v: number): number {
   if (v <= 0) return 1;
@@ -21,7 +22,7 @@ function niceMax(v: number): number {
   return Math.ceil(v / p) * p;
 }
 
-const compact = (v: number) => new Intl.NumberFormat("mn-MN", { notation: "compact", maximumFractionDigits: 1 }).format(v);
+const compact = formatAxisValue; // «40 тэрбум», «250 сая» (өмнө нь «40B»)
 
 /** Алтан (accent) цуваа нь алтан градиент, бусад нь өөрийн өнгөний градиент */
 const isGold = (color: string) => color.includes("--color-accent");

@@ -65,12 +65,12 @@ export interface StockFreshness {
  */
 export function evaluateStockFreshness(lastSyncedAt: Date | null, now: Date): StockFreshness {
   if (!lastSyncedAt) {
-    return { stale: true, never: true, ageMs: null, message: "1С-ийн өгөгдөл хараахан шинэчлэгдээгүй байна. Тоо хуучирсан байж магадгүй." };
+    return { stale: true, never: true, ageMs: null, message: "Мэдээлэл хараахан шинэчлэгдээгүй байна. Тоо хуучирсан байж магадгүй." };
   }
   const ageMs = Math.max(0, now.getTime() - lastSyncedAt.getTime());
   const reference = lastScheduledMoment(now).getTime();
   const stale = lastSyncedAt.getTime() < reference - STALE_AFTER_MS;
-  return { stale, never: false, ageMs, message: stale ? `1С-ийн өгөгдөл ${formatAgo(ageMs)} шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.` : null };
+  return { stale, never: false, ageMs, message: stale ? `Мэдээлэл ${formatAgo(ageMs)} шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.` : null };
 }
 
 /** «3 цагийн өмнө»; 48 цагаас дээш бол «3 өдрийн өмнө» */
