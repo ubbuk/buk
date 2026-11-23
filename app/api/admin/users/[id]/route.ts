@@ -1,6 +1,5 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions, userSessionCacheKey } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -14,6 +13,7 @@ import { invalidate } from "@/lib/cache";
 import { sessionRevocation } from "@/lib/session-revocation";
 import { orphanableWork } from "@/lib/procurement-handover";
 import { USER_ROLES } from "@/lib/types";
+import { removeUser } from "@/lib/user-removal";
 
 const patchSchema = z.object({
   role: z.enum(USER_ROLES).optional(),
@@ -38,7 +38,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
+  if (!user || user.deletedAt) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
 
   if (parsed.data.departmentId && !(await prisma.department.findUnique({ where: { id: parsed.data.departmentId }, select: { id: true } }))) {
     return NextResponse.json({ error: "Сонгосон цех, тасаг олдсонгүй. Жагсаалтыг шинэчлээд дахин сонгоно уу", code: "DEPARTMENT_NOT_FOUND" }, { status: 400 });
@@ -148,69 +148,33 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return NextResponse.json({ id: updated.id, role: updated.role, title: updated.title, departmentId: updated.departmentId, isActive: updated.isActive });
 }
 
-// A row that is still referenced blocks the delete. Postgres reports a RESTRICT foreign key (what Prisma generates for a
-// required relation) as SQLSTATE 23001, which Prisma does not map to P2003: it arrives as an *unknown* request error whose
-// text says "violates RESTRICT setting of foreign key". Catching only P2003 turned every delete of a user with history
-// into a bare 500 ("Устгаж чадсангүй" with no reason).
-function isForeignKeyBlock(e: unknown): boolean {
-  if (e instanceof Prisma.PrismaClientKnownRequestError) return e.code === "P2003";
-  return e instanceof Prisma.PrismaClientUnknownRequestError && /violates (RESTRICT setting of )?foreign key/i.test(e.message);
-}
+const deleteSchema = z.object({
+  // the administrator's OWN password (re-authentication)
+  adminPassword: z.string().min(1),
+  // one answer per responsibility: a user id (take over) or null (leave empty on purpose)
+  transfers: z.record(z.string(), z.string().min(1).nullable()).default({}),
+  // who takes the approval steps that wait on the person and that no specific answer covers
+  pendingReceiverId: z.string().min(1).nullable().optional(),
+});
 
-// Hard delete is only possible for accounts with no history (no requests,
-// approvals, stock or audit entries, not a department head). The foreign keys
-// enforce that: the transaction rolls back and we answer 409, pointing the admin
-// at deactivation instead so existing records keep a valid author.
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+// Removes a user after the responsibilities were handed over (lib/user-removal.ts): without history the account is deleted for
+// good, with history it is marked deleted (hidden, cannot sign in, e-mail released, records keep the name). The ADMIN confirms
+// with their own password; everything is audited and nothing is written when a step fails.
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!requireAdmin(session)) return NextResponse.json({ error: "Эрхгүй үйлдэл" }, { status: 403 });
 
   const { id } = await params;
-  if (id === session.user.id) return NextResponse.json({ error: "Өөрийгөө устгах боломжгүй" }, { status: 400 });
+  if (id === session.user.id) return NextResponse.json({ error: "Өөрийгөө устгах боломжгүй", code: "SELF_DELETE" }, { status: 400 });
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
+  const parsed = deleteSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Админы нууц үгээ оруулна уу", code: "PASSWORD_REQUIRED" }, { status: 400 });
 
-  const activeAssignment = await prisma.approvalRoleAssignment.findFirst({ where: { userId: id, isActive: true } });
-  if (activeAssignment) {
-    return NextResponse.json(
-      { error: "Энэ хэрэглэгч батлагчаар томилогдсон тул устгах боломжгүй. Эхлээд батлагчийг солих эсвэл хэрэглэгчийг идэвхгүй болгоно уу", code: "IS_APPROVER" },
-      { status: 409 }
-    );
+  const result = await removeUser({ adminId: session.user.id, adminPassword: parsed.data.adminPassword, targetId: id, ip: clientIp(req.headers), transfers: parsed.data.transfers, pendingReceiverId: parsed.data.pendingReceiverId });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error, code: result.code }, { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined });
   }
-  const headed = await prisma.department.findMany({ where: { headId: id }, select: { name: true }, take: 3 });
-  if (headed.length > 0) {
-    return NextResponse.json(
-      { error: `Энэ хэрэглэгч «${headed.map((d) => d.name).join("», «")}» цех, тасгийн дарга тул устгах боломжгүй. Эхлээд даргыг солих эсвэл хэрэглэгчийг идэвхгүй болгоно уу`, code: "IS_DEPARTMENT_HEAD" },
-      { status: 409 }
-    );
-  }
-
-  try {
-    await prisma.$transaction([
-      prisma.notification.deleteMany({ where: { userId: id } }),
-      prisma.passwordRecoveryToken.deleteMany({ where: { userId: id } }),
-      prisma.approvalPinCredential.deleteMany({ where: { userId: id } }),
-      prisma.approvalRoleAssignment.deleteMany({ where: { userId: id } }),
-      prisma.user.delete({ where: { id } }),
-    ]);
-  } catch (e) {
-    if (isForeignKeyBlock(e)) {
-      return NextResponse.json(
-        { error: "Энэ хэрэглэгчтэй холбоотой түүх (хүсэлт, баталгаа, аудит г.м) байгаа тул устгах боломжгүй. Оронд нь идэвхгүй болгоно уу", code: "HAS_HISTORY" },
-        { status: 409 }
-      );
-    }
-    // an answer the screen can show (a bare 500 has no body, which is why the toast used to carry no reason); code only, no values
-    console.error(JSON.stringify({ route: "DELETE /api/admin/users/[id]", failed: e instanceof Prisma.PrismaClientKnownRequestError ? e.code : e instanceof Error ? e.name : "unknown" }));
-    return NextResponse.json({ error: "Устгах үед алдаа гарлаа. Юу ч устгагдаагүй. Идэвхгүй болгох боломжтой" }, { status: 500 });
-  }
-
-  await prisma.auditLog.create({
-    data: { entityType: "User", entityId: id, action: "UPDATE_USER", actorId: session.user.id },
-  });
   invalidate(userSessionCacheKey(id));
-
-  emitBroadcast({ type: "data-changed" });
+  // the screen only says "deleted": whether the record was erased or kept under a deleted mark is an internal matter
   return NextResponse.json({ ok: true });
 }

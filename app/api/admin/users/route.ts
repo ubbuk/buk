@@ -14,7 +14,7 @@ export async function GET() {
   if (!requireAdmin(session)) return NextResponse.json({ error: "Эрхгүй үйлдэл" }, { status: 403 });
 
   const [users, pinCredentials] = await Promise.all([
-    prisma.user.findMany({ include: { department: true }, orderBy: { createdAt: "asc" } }),
+    prisma.user.findMany({ where: { deletedAt: null }, include: { department: true }, orderBy: { createdAt: "asc" } }),
     prisma.approvalPinCredential.findMany({ select: { userId: true, lockedUntil: true } }),
   ]);
   const pinByUser = new Map(pinCredentials.map((p) => [p.userId, p]));
