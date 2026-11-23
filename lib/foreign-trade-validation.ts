@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { PIN_FORMAT_ERROR, PIN_PATTERN } from "@/lib/pin-format";
 
-const pin = z.string().regex(/^\d{4}$/, "PIN дөрөв оронтой тоо байх ёстой");
+const pin = z.string().regex(PIN_PATTERN, PIN_FORMAT_ERROR);
 const optionalText = (max: number) =>
   z
     .string()

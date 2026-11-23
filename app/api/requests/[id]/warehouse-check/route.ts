@@ -1,12 +1,13 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { PIN_FORMAT_ERROR, PIN_PATTERN } from "@/lib/pin-format";
 import { authOptions } from "@/lib/auth";
 import { warehouseCheck } from "@/lib/workflow";
 
 const bodySchema = z.object({
   items: z.array(z.object({ requestItemId: z.string().min(1), availableQuantity: z.number().min(0) })),
-  pin: z.string().regex(/^\d{4}$/, "PIN дөрөв оронтой тоо байх ёстой"),
+  pin: z.string().regex(PIN_PATTERN, PIN_FORMAT_ERROR),
   expectedVersion: z.number().int(),
 });
 

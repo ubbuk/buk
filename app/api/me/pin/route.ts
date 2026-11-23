@@ -3,14 +3,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { clientIp } from "@/lib/client-ip";
-import { hasPinSet, isValidPinFormat } from "@/lib/pin";
+import { hasPinSet } from "@/lib/pin";
+import { isValidPinFormat, PIN_FORMAT_ERROR } from "@/lib/pin-format";
+import { needsApprovalPin } from "@/lib/pin-need";
 import { setOwnPin } from "@/lib/pin-management";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Нэвтрээгүй байна" }, { status: 401 });
 
-  return NextResponse.json({ hasPin: await hasPinSet(session.user.id) });
+  // needsPin: this person decides with a PIN (approver / manager role, position, department head): drives the settings card and the banner
+  const [hasPin, needsPin] = await Promise.all([hasPinSet(session.user.id), needsApprovalPin(session.user.id)]);
+  return NextResponse.json({ hasPin, needsPin }, { headers: { "Cache-Control": "no-store" } });
 }
 
 const bodySchema = z.object({
@@ -34,7 +38,7 @@ export async function POST(req: Request) {
   const { pin, confirmPin, currentPassword } = parsed.data;
 
   if (!isValidPinFormat(pin)) {
-    return NextResponse.json({ error: "PIN яг дөрөв оронтой тоо байх ёстой" }, { status: 400 });
+    return NextResponse.json({ error: PIN_FORMAT_ERROR }, { status: 400 });
   }
   if (pin !== confirmPin) {
     return NextResponse.json({ error: "PIN хоёр удаа ижил байх ёстой" }, { status: 400 });

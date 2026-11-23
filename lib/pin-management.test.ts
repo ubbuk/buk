@@ -105,7 +105,7 @@ describe("setting and changing a PIN needs the account password", () => {
   it("a malformed PIN is refused before any password attempt or bcrypt work is spent", async () => {
     const u = await user();
     const compare = vi.spyOn(bcrypt, "compare");
-    for (const bad of ["123", "12345", "abcd", "12 4", "", "１２３４"]) expect(status(await setPin(u, bad, PASSWORD)), JSON.stringify(bad)).toBe(400);
+    for (const bad of ["123", "1234567", "abcd", "12 4", "", "１２３４"]) expect(status(await setPin(u, bad, PASSWORD)), JSON.stringify(bad)).toBe(400);
     expect(compare).not.toHaveBeenCalled();
     expect(await prisma.loginThrottle.count()).toBe(0);
     expect(await credential(u)).toBeNull();
@@ -371,12 +371,12 @@ describe("routes", () => {
   const body = (data: unknown, from = ip()) => new Request("http://localhost/x", { method: "POST", headers: { "x-forwarded-for": from }, body: JSON.stringify(data) });
   const ctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
 
-  it("GET /api/me/pin is unchanged: 401 without a session, otherwise {hasPin}", async () => {
+  it("GET /api/me/pin 401 without a session, otherwise {hasPin, needsPin}", async () => {
     as(null);
     expect((await PIN_GET()).status).toBe(401);
     const u = await user({ pin: true });
     as(u);
-    expect(await (await PIN_GET()).json()).toEqual({ hasPin: true });
+    expect(await (await PIN_GET()).json()).toEqual({ hasPin: true, needsPin: false });
   });
 
   it("POST /api/me/pin: 401 without a session; 400 for a missing password, a bad PIN or a mismatch; the user comes from the session only", async () => {

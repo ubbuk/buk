@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PIN_FORMAT_ERROR, PIN_PATTERN } from "./pin-format";
 
 export const materialRequestItemSchema = z.object({
   id: z.string(),
@@ -74,7 +75,7 @@ export type ApiCreateRequestInput = z.infer<typeof apiCreateRequestSchema>;
 
 // --- Decision endpoint payloads (approve/return/resubmit) -------------------
 export const approvalDecisionSchema = z.object({
-  pin: z.string().regex(/^\d{4}$/, "PIN дөрөв оронтой тоо байх ёстой"),
+  pin: z.string().regex(PIN_PATTERN, PIN_FORMAT_ERROR),
   expectedVersion: z.number().int(),
 });
 
@@ -126,7 +127,7 @@ export const executiveApproveSchema = approvalDecisionSchema.extend({
 export const executiveDecisionSchema = z
   .object({
     action: z.enum(["APPROVE", "RETURN"]),
-    pin: z.string().regex(/^\d{4}$/, "PIN дөрөв оронтой тоо байх ёстой").optional(),
+    pin: z.string().regex(PIN_PATTERN, PIN_FORMAT_ERROR).optional(),
     items: quantityItemsSchema.optional(),
     comment: z.string().trim().max(1000).optional(),
     deferredRequestId: z.string().min(1).optional(),

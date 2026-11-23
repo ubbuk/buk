@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { emitUserEvent } from "./events";
-import { isValidPinFormat } from "./pin";
+import { isValidPinFormat, PIN_FORMAT_ERROR } from "./pin-format";
 import { admit, passwordChangeBuckets, pinResetBuckets } from "./login-throttle";
 
 // Creating, changing and resetting the 4-digit approval PIN.
@@ -62,7 +62,7 @@ export interface SetPinInput {
 
 export async function setOwnPin(input: SetPinInput): Promise<{ ok: true; created: boolean } | PinFailure> {
   // the cheap checks first: a malformed PIN costs neither a password attempt nor any bcrypt work
-  if (!isValidPinFormat(input.pin)) return fail(400, "PIN яг дөрөв оронтой тоо байх ёстой");
+  if (!isValidPinFormat(input.pin)) return fail(400, PIN_FORMAT_ERROR);
 
   const denied = await verifyAccountPassword(input.userId, input.currentPassword, input.ip);
   if (denied) return denied;
