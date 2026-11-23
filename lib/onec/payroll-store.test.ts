@@ -5,7 +5,7 @@ import { candidateMonths, MAX_CONSECUTIVE_FAILURES, monthsToSync, payrollYears, 
 
 const YEAR = "2098";
 const NOW = "2098-04";
-const pm = (month: string, accrued = 100): PayrollMonth => ({ month, accrued, employerNdsh: 10, employeeNdsh: 8, hhoat: 5, paidBank: 90, paidCash: 1, closingPayable: 12.5, lines: 7 });
+const pm = (month: string, accrued = 100): PayrollMonth => ({ month, accrued, employerNdsh: 10, employeeNdsh: 8, hhoat: 5, paidBank: 90, paidCash: 1, closingPayable: 12.5, lines: 7, benefit: 4, sickPay: 2, board: 20, boardNdsh: 1.5, boardHhoat: 1, boardPaid: 12, otherDeductions: 3 });
 const clean = async () => {
   await prisma.$executeRaw`DELETE FROM onec_payroll_month WHERE month LIKE ${`${YEAR}-%`} OR month LIKE '2097-%'`;
   await prisma.onecSyncLog.deleteMany({ where: { kind: PAYROLL_LOG_KIND, period: { startsWith: "209" } } });
@@ -37,7 +37,20 @@ describe("цалингийн сарын агшин зураг (Postgres)", () =>
     await writePayrollMonth(pm("2098-01", 250.75));
     const rows = await readPayrollMonths(YEAR);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ month: "2098-01", accrued: 250.75, employerNdsh: 10, paidBank: 90, closingPayable: 12.5, lines: 7 });
+    expect(rows[0]).toMatchObject({ month: "2098-01", accrued: 250.75, employerNdsh: 10, paidBank: 90, closingPayable: 12.5, lines: 7, benefit: 4, sickPay: 2, board: 20, boardNdsh: 1.5, boardHhoat: 1, boardPaid: 12, otherDeductions: 3, breakdown: true });
+  });
+
+  it("задаргаагүй хуучин мөр (board IS NULL): breakdown=false, нийт дүн хэвээр; sync дахин татаж задаргааг бөглөнө", async () => {
+    await prisma.$executeRaw`INSERT INTO onec_payroll_month (month, accrued, employer_ndsh, employee_ndsh, hhoat, paid_bank, paid_cash, closing_payable, lines) VALUES ('2098-01', 500, 1, 1, 1, 1, 1, 1, 1), ('2098-02', 600, 1, 1, 1, 1, 1, 1, 1), ('2098-03', 700, 1, 1, 1, 1, 1, 1, 1)`;
+    const old = await readPayrollMonths(YEAR);
+    expect(old.map((r) => [r.month, r.accrued, r.breakdown, r.board])).toEqual([["2098-01", 500, false, 0], ["2098-02", 600, false, 0], ["2098-03", 700, false, 0]]);
+    const fetchMonth = vi.fn(async (m: string) => pm(m, 111));
+    await syncPayroll(fetchMonth, NOW);
+    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-04", "2098-03", "2098-02", "2098-01"]); // өнгөрсөн сар ч задаргаагүй бол дахин татагдана
+    expect((await readPayrollMonths(YEAR)).every((r) => r.breakdown && r.board === 20)).toBe(true);
+    fetchMonth.mockClear();
+    await syncPayroll(fetchMonth, NOW);
+    expect(fetchMonth.mock.calls.map((c) => c[0])).toEqual(["2098-04", "2098-03"]); // задаргаатай болсон тул хуучин сар дахин татагдахгүй
   });
 
   it("sync: байхгүй сарууд бичигдэнэ, sync_log-д ok; дахин ажиллуулахад зөвхөн сүүлийн 2 сар татагдана", async () => {
@@ -114,7 +127,7 @@ describe("цалингийн сарын агшин зураг (Postgres)", () =>
 
   it("ХҮН, ХЭЛТСИЙН мэдээлэл хадгалагдахгүй: хүснэгтэд зөвхөн нийт дүнгийн багана", async () => {
     const cols = await prisma.$queryRaw<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'onec_payroll_month' ORDER BY ordinal_position`;
-    expect(cols.map((c) => c.column_name)).toEqual(["id", "month", "accrued", "employer_ndsh", "employee_ndsh", "hhoat", "paid_bank", "paid_cash", "closing_payable", "lines", "synced_at"]);
+    expect(cols.map((c) => c.column_name)).toEqual(["id", "month", "accrued", "employer_ndsh", "employee_ndsh", "hhoat", "paid_bank", "paid_cash", "closing_payable", "lines", "synced_at", "benefit", "sick_pay", "board", "board_ndsh", "board_hhoat", "board_paid", "other_deductions"]);
     const tables = await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'onec_payroll%'`;
     expect(tables.map((t) => t.table_name)).toEqual(["onec_payroll_month"]); // ажилтан, хэлтсийн хүснэгт байхгүй
   });

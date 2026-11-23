@@ -45,7 +45,7 @@ describe("buildPayrollMonth: сарын нийт дүн", () => {
   ];
 
   it("бодсон, ажил олгогчийн НДШ, суутгасан НДШ, ХХОАТ, олгосон (банк, касс) тус тусад", () => {
-    expect(buildPayrollMonth("2026-09", lines, ctx, 250)).toEqual({ month: "2026-09", accrued: 1000, employerNdsh: 150, employeeNdsh: 110, hhoat: 90, paidBank: 800, paidCash: 20, closingPayable: 250, lines: lines.length });
+    expect(buildPayrollMonth("2026-09", lines, ctx, 250)).toEqual({ month: "2026-09", accrued: 1000, employerNdsh: 150, employeeNdsh: 110, hhoat: 90, paidBank: 800, paidCash: 20, closingPayable: 250, lines: lines.length, benefit: 0, sickPay: 0, board: 0, boardNdsh: 0, boardHhoat: 0, boardPaid: 0, otherDeductions: 40 });
   });
 
   it("хоосон сар: бүгд 0", () => {
