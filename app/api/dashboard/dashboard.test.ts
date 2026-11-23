@@ -525,6 +525,32 @@ describe("/api/dashboard/receivables: Postgres-ийн агшин зураг (1С
   });
   const today = () => asOfDate(currentMonth());
 
+  it("удирдлагын харагдац: нас (FIFO), өмнөх сартай харьцуулалт, сарын эцсийн график; 1С руу юу ч явахгүй", async () => {
+    const ASOF = "2020-06-30";
+    const PREV = "2020-05-31";
+    const sale = (date: string, amount: number) => ({ date: new Date(`${date}T00:00:00.000Z`), org: "", itemCode: "x", item: "x", unit: "", qty: 1, amount, vat: 0, cost: 0, clientCode: "K1", client: "Альфа ХХК", clientReg: "", dept: "", doc: "dash-ar-view", rowType: "sale" });
+    await prisma.onecSales.createMany({ data: [sale("2020-05-02", 1000), sale("2020-06-10", 300), sale("2020-06-25", 200)] });
+    try {
+      await writeStage(ASOF, "1201", [{ accountCode: "1201", accountName: "Авлага", customerKey: CUST_A, customer: "Альфа ХХК", balance: 600, customers: 1 }, { accountCode: "1201", accountName: "Авлага", customerKey: CUST_B, customer: "Банк ХХК", balance: 100, customers: 1 }]);
+      await writeStage(PREV, "1201", [{ accountCode: "1201", accountName: "Авлага", customerKey: CUST_A, customer: "Альфа ХХК", balance: 400, customers: 1 }]);
+      as("CHIEF_ACCOUNTANT");
+      const r = await (await RECEIVABLES(get(`/api/dashboard/receivables?month=2020-06`))).json();
+      const alpha = r.customers.find((c: { key: string }) => c.key === CUST_A);
+      // 600 = 200 (06-25, 5 хоног) + 300 (06-10, 20 хоног) + 100 (05-02, 59 хоног)
+      expect(alpha.aging).toMatchObject({ b0_30: 500, b31_60: 100, b61_90: 0, b90: 0, unknown: 0 });
+      expect(alpha).toMatchObject({ previousBalance: 400, change: 200 });
+      expect(r.customers.find((c: { key: string }) => c.key === CUST_B).aging).toMatchObject({ unknown: 100 }); // борлуулалтын баримтгүй
+      expect(r.previous).toMatchObject({ asOf: PREV, receivable: 400, change: 300, changePct: 75 });
+      expect(r.aging.over30).toBe(100);
+      expect(r.aging.buckets.reduce((s: number, b: { amount: number }) => s + b.amount, 0)).toBe(700);
+      expect(r.trend.map((t: { month: string }) => t.month)).toEqual(["2020-05", "2020-06"]);
+      expect(JSON.stringify(r)).not.toMatch(/Catalog_|Комментарий/);
+      expect(fetchCalls).not.toHaveBeenCalled();
+    } finally {
+      await prisma.onecSales.deleteMany({ where: { doc: "dash-ar-view" } });
+    }
+  });
+
   it("агшин зураггүй бол missing, 1С руу юу ч явахгүй", async () => {
     as("CHIEF_ACCOUNTANT");
     const r = await (await ROUTES.receivables()).json();
