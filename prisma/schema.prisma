@@ -1154,3 +1154,19 @@ model OnecCashCategoryRule {
   @@index([isActive, priority])
   @@map("onec_cash_category_rule")
 }
+
+model OnecExpenseCategoryRule {
+  id          String   @id @default(cuid())
+  field       String
+  pattern     String
+  category    String
+  priority    Int      @default(100)
+  isActive    Boolean  @default(true) @map("is_active")
+  note        String?
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([isActive, priority])
+  @@map("onec_expense_category_rule")
+}
