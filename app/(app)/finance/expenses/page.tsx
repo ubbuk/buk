@@ -1,116 +1,56 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, Layers, Minus, Receipt, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, BarChart3, FileText, Receipt, Trophy } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
-import { ErrorNote, FinanceShell, NUM, connectionFrom, money } from "@/components/finance/FinanceShell";
-import { FilterSelect, FinanceKpi as KpiCard, ViewToggle, rankColumn, type ViewMode } from "@/components/finance/NgParts";
+import { ErrorNote, FinanceShell, connectionFrom } from "@/components/finance/FinanceShell";
+import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
+import { Amount } from "@/components/finance/cash/Amount";
 import { DocumentList } from "@/components/finance/docs/DocumentList";
+import { CATEGORY_COLOR, ExpenseCategories } from "@/components/finance/expenses/ExpenseCategories";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { MonthRefreshNote, RefreshButton, useMonthRefresh } from "@/components/finance/useOnecRefresh";
 import { MissingMonth, YearSection } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
-import { cn, formatNumber } from "@/lib/utils";
+import { formatMoneyShort } from "@/lib/money-short";
+import type { ExpenseItemView, ExpenseView } from "@/lib/onec/expense-view";
+import { cn } from "@/lib/utils";
 
 // Зардал нь зөвхөн P&L-ийг ашиглана
 const EXPENSE_KINDS = ["pl"] as const;
+type ExpensesResponse = ExpenseView & { empty: boolean; lastSyncedAt: string | null };
 
-interface GroupRow {
-  group: string;
-  amount: number;
-  prevAmount: number;
-  changePct: number | null;
-  share: number;
-}
-interface AccountRow {
-  account: string;
-  name: string;
-  group: string;
-  amount: number;
-  share: number;
-}
-interface ExpensesResponse {
-  month: string;
-  prevMonth: string;
-  total: number;
-  prevTotal: number;
-  changePct: number | null;
-  groups: GroupRow[];
-  seriesGroups: string[];
-  months: { month: string; total: number; groups: Record<string, number> }[];
-  accounts: AccountRow[];
-  lastSyncedAt: string | null;
-}
-
-const PALETTE = ["rgb(var(--color-accent))", "#4f8ff0", "#34d399", "#f87171", "#a78bfa"];
-
-/** Өсөлт (зардал нэмэгдсэн) нь улаан, буурсан нь ногоон */
-function Change({ pct }: { pct: number | null }) {
-  if (pct === null) return <span className="text-text-muted">—</span>;
-  const up = pct > 0;
-  const Icon = pct === 0 ? Minus : up ? ArrowUpRight : ArrowDownRight;
-  return (
-    <span className={cn("inline-flex items-center gap-1", pct === 0 ? "text-text-muted" : up ? "text-danger" : "text-success")}>
-      <Icon className="size-3.5" />
-      {up ? "+" : ""}
-      {formatNumber(pct, 1)}%
-    </span>
-  );
-}
-
-const groupColumns: DataTableColumn<GroupRow>[] = [
-  { key: "group", header: "Бүлэг", sortable: true, accessor: (r) => r.group, render: (r) => <span className="text-text">{r.group}</span> },
-  { key: "amount", header: "Энэ сар", sortable: true, accessor: (r) => r.amount, className: NUM, render: (r) => money(r.amount) },
-  { key: "prev", header: "Өмнөх сар", sortable: true, accessor: (r) => r.prevAmount, className: NUM, render: (r) => money(r.prevAmount) },
-  { key: "change", header: "Өөрчлөлт", sortable: true, accessor: (r) => r.changePct, className: NUM, render: (r) => <Change pct={r.changePct} /> },
-  { key: "share", header: "Эзлэх хувь", sortable: true, accessor: (r) => r.share, className: NUM, render: (r) => `${formatNumber(r.share, 1)}%` },
-];
-
-const accountColumns: DataTableColumn<AccountRow>[] = [
-  // дансны КОД биш НЭР (1С-ийн дансны төлөвлөгөөнөөс); код нь зөвхөн tooltip-д
-  { key: "name", header: "Данс", sortable: true, accessor: (r) => `${r.name} ${r.account}`, render: (r) => <span className="text-text" title={`Данс ${r.account}`}>{r.name || "Нэргүй данс"}</span> },
-  { key: "group", header: "Бүлэг", sortable: true, accessor: (r) => r.group, render: (r) => r.group },
-  { key: "amount", header: "Дүн", sortable: true, accessor: (r) => r.amount, className: NUM, render: (r) => money(r.amount) },
-  { key: "share", header: "Эзлэх хувь", sortable: true, accessor: (r) => r.share, className: NUM, render: (r) => `${formatNumber(r.share, 1)}%` },
-];
-
-const ALL = "";
+const MN_MONTH = (ym: string) => `${ym.slice(0, 4)} оны ${Number(ym.slice(5, 7))}-р сар`;
 
 export default function ExpensesPage() {
   const { ym: month, isCurrent, view, year } = useYm();
   const isAdmin = useIsAdmin();
-  const [group, setGroup] = useState(ALL);
-  // Дарж задлах: бүлэг -> дансууд -> тухайн данс дээр бичилт хийсэн баримтууд -> баримтын drawer
-  const [account, setAccount] = useState<AccountRow | null>(null);
-  const jump = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  const [mode, setMode] = useState<ViewMode>("chart");
-  const { data, error, loading, reload } = useFinanceData<ExpensesResponse>(view === "month" ? `/api/dashboard/expenses?month=${month}` : null);
-  // Postgres-ээс шууд; 5 минутаас илүү хуучирсан бол ар талд 1С-ээс татаж, дуусмагц дахин ачаална (Борлуулалттай нэг татаалт)
+  // Графикт харуулах ангилал (null = нийт үйл ажиллагааны зардал)
+  const [series, setSeries] = useState<string | null>(null);
+  // Хамгийн доод drill-down: зардлын нэр -> нягтлангийн баримтууд -> баримтын drawer
+  const [docs, setDocs] = useState<ExpenseItemView | null>(null);
+  const { data, error, reload } = useFinanceData<ExpensesResponse>(view === "month" ? `/api/dashboard/expenses/report?month=${month}` : null);
+  // Postgres-ээс шууд; 5 минутаас илүү хуучирсан бол ар талд 1С-ээс татаж, дуусмагц дахин ачаална
   const sync = useMonthRefresh(month, reload, "month", EXPENSE_KINDS);
   const canRefresh = isCurrent || isAdmin; // өнгөрсөн сарыг зөвхөн админ татна
-  const empty = data && data.accounts.length === 0 && data.groups.length === 0;
 
-  // Сүүлийн 6 сарын нийт зардлын бодит цуваа: гол KPI-ийн sparkline
-  const spark = useMemo(() => (data ? data.months.map((m) => m.total) : []), [data]);
-  const accounts = useMemo(() => (data ? data.accounts.filter((a) => !group || a.group === group) : []), [data, group]);
-  const groupCols = useMemo(() => (data ? [rankColumn(data.groups), ...groupColumns] : groupColumns), [data]);
-  const accountCols = useMemo(() => (data ? [rankColumn(accounts), ...accountColumns] : accountColumns), [data, accounts]);
+  const cat = data?.categories.find((c) => c.id === series) ?? null;
+  const chart = useMemo(() => (data ? data.months.map((m, i) => ({ date: m.month, value: cat ? cat.series[i] : m.total })) : []), [data, cat]);
+  const missing = useMemo(() => (data ? data.months.filter((m) => !m.loaded).map((m) => `${Number(m.month.slice(5, 7))}-р сар`) : []), [data]);
 
   return (
     <FinanceShell
       title="Зардал"
-      subtitle="Зардлын бүлэг, дансаар задаргаа, өмнөх сартай харьцуулалт"
+      subtitle="Юунд хэдийг зарцуулсан бэ: ангиллаар, өмнөх сартай харьцуулан"
       icon={BarChart3}
       withView
       lastSyncedAt={data?.lastSyncedAt}
       connection={connectionFrom(data?.lastSyncedAt, sync.phase === "failed" || sync.phase === "error")}
       notice={view === "month" ? <MonthRefreshNote phase={sync.phase} retryAt={sync.retryAt} /> : undefined}
       refresh={view === "month" && canRefresh ? <RefreshButton busy={sync.busy} retryAt={sync.retryAt} onClick={sync.refresh} /> : undefined}
-      controls={view === "month" && data && <FilterSelect icon={Layers} label="Зардлын бүлэг" value={group} onChange={setGroup} options={[{ value: ALL, label: "Бүх бүлэг" }, ...data.groups.map((g) => ({ value: g.group, label: g.group }))]} />}
-      trailing={view === "month" ? <ViewToggle value={mode} onChange={setMode} /> : undefined}
     >
       {view === "year" ? (
         <YearSection tab="expenses" year={year} label="зардал" />
@@ -118,106 +58,149 @@ export default function ExpensesPage() {
         <>
           {error && <ErrorNote message={error} />}
 
-          {empty ? (
+          {data?.empty ? (
             <MissingMonth busy={sync.busy} onLoad={sync.refresh} />
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-                {loading && !data ? (
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {!data ? (
                   Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
-                ) : data ? (
+                ) : (
                   <>
-                    <KpiCard featured spark={spark} label="Нийт зардал" value={money(data.total)} icon={Receipt} tone="accent" delta={data.changePct} deltaCostLike hint={data.changePct === null ? undefined : "Өмнөх сараас"} />
-                    <KpiCard label="Өмнөх сар" value={money(data.prevTotal)} icon={Receipt} />
                     <KpiCard
-                      label="Өмнөх сартай харьцуулахад"
-                      value={data.changePct === null ? "—" : `${data.changePct > 0 ? "+" : ""}${formatNumber(data.changePct, 1)}%`}
-                      icon={TrendingUp}
-                      tone={data.changePct === null || data.changePct === 0 ? undefined : data.changePct > 0 ? "danger" : "success"}
+                      featured
+                      spark={data.months.map((m) => m.total)}
+                      label="Нийт үйл ажиллагааны зардал"
+                      value={<Amount value={data.total} />}
+                      valueText={formatMoneyShort(data.total)}
+                      icon={Receipt}
+                      tone="accent"
+                      delta={data.changePct}
+                      deltaCostLike
+                      hint={data.prevLoaded ? "Өмнөх сараас" : "Өмнөх сар татагдаагүй"}
                     />
+                    <KpiCard
+                      label={`Өмнөх сар (${Number(data.prevMonth.slice(5, 7))}-р сар)`}
+                      value={data.prevLoaded ? <Amount value={data.prevTotal} /> : "татагдаагүй"}
+                      valueText={data.prevLoaded ? formatMoneyShort(data.prevTotal) : "татагдаагүй"}
+                      icon={Receipt}
+                      hint={data.prevLoaded ? undefined : "Харьцуулах мэдээлэл алга"}
+                    />
+                    <Card className="col-span-2 min-w-0">
+                      <CardBody className="space-y-2 !py-3">
+                        <p className="flex items-center gap-2 text-xs font-medium text-text-muted">
+                          <Trophy className="size-4 text-[#ffd56b]" aria-hidden /> Хамгийн том 3 ангилал
+                        </p>
+                        {data.top.length === 0 && <p className="text-sm text-text-muted">Энэ сард зардал бүртгэгдээгүй</p>}
+                        {data.top.map((t, i) => (
+                          <div key={t.id} className="flex items-center gap-2 text-sm">
+                            <span className="w-4 text-xs text-text-muted">{i + 1}</span>
+                            <i className="size-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_COLOR[t.id] }} aria-hidden />
+                            <span className="min-w-0 flex-1 truncate text-text">{t.label}</span>
+                            <span className="text-[11px] text-text-muted">{t.share.toFixed(0)}%</span>
+                            <Amount value={t.amount} className="font-semibold text-text" />
+                          </div>
+                        ))}
+                      </CardBody>
+                    </Card>
                   </>
-                ) : null}
+                )}
               </div>
 
-              {mode === "chart" && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Сүүлийн 6 сарын зардал</CardTitle>
-                  </CardHeader>
-                  <CardBody>
-                    {data ? (
-                      <DailyBarChart
-                        data={data.months.map((m) => ({ date: m.month, ...m.groups }))}
-                        series={data.seriesGroups.map((g, i) => ({ key: g, label: g, color: PALETTE[i % PALETTE.length] }))}
-                        label={(d) => d.slice(5)}
-                        unit="сараар"
-                      />
+              {data && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-bg-surface px-4 py-2.5 text-sm">
+                  <span className="text-text-muted">Борлуулсан бүтээгдэхүүний өртөг</span>
+                  <Amount value={data.cogs.amount} className="font-semibold text-text" />
+                  <span className="text-[11px] text-text-muted">үйл ажиллагааны зардалд ороогүй ·</span>
+                  <Link href="/finance/sales" className="focus-ring text-xs text-[#ffd56b] hover:underline">
+                    Борлуулалт табд дэлгэрэнгүй
+                  </Link>
+                </div>
+              )}
+
+              {data?.otherWarn && (
+                <p role="alert" className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span>
+                    «Бусад» ангилал үйл ажиллагааны зардлын {data.otherShare.toFixed(0)}% байна: ангилал дутуу.{" "}
+                    {isAdmin ? (
+                      <Link href="/admin/expense-rules" className="underline">
+                        Ангиллын дүрэм нэмэх
+                      </Link>
                     ) : (
-                      <Skeleton className="h-56" />
+                      "Админд хэлж ангиллын дүрэм нэмүүлнэ үү."
                     )}
-                  </CardBody>
-                </Card>
+                  </span>
+                </p>
               )}
 
               <Card>
+                <CardHeader>
+                  <CardTitle>Сүүлийн 12 сарын зардал{cat ? ` · ${cat.label}` : ""}</CardTitle>
+                </CardHeader>
+                <CardBody className="space-y-3">
+                  {data ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Графикийн ангилал">
+                        {[{ id: null as string | null, label: "Бүгд" }, ...data.categories.map((c) => ({ id: c.id as string | null, label: c.label }))].map((c) => (
+                          <button
+                            key={c.id ?? "all"}
+                            type="button"
+                            aria-pressed={series === c.id}
+                            onClick={() => setSeries(c.id)}
+                            className={cn("focus-ring inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs text-text-muted hover:text-text", series === c.id ? "border-[rgba(255,213,107,0.6)] bg-white/[0.05] text-text" : "border-border")}
+                          >
+                            {c.id && <i className="size-2 rounded-full" style={{ background: CATEGORY_COLOR[c.id] }} aria-hidden />}
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                      <DailyBarChart
+                        data={chart}
+                        series={[{ key: "value", label: cat ? cat.label : "Үйл ажиллагааны зардал", color: cat ? CATEGORY_COLOR[cat.id] : "rgb(var(--color-accent))" }]}
+                        label={(m) => (m.slice(5, 7) === "01" ? `${m.slice(2, 4)}.${Number(m.slice(5, 7))}` : `${Number(m.slice(5, 7))}`)}
+                        tooltipTitle={MN_MONTH}
+                        unit="сараар"
+                      />
+                      {missing.length > 0 && <p className="text-[11px] text-text-muted">Татагдаагүй сар: {missing.join(", ")} (график дээр хоосон)</p>}
+                    </>
+                  ) : (
+                    <Skeleton className="h-56" />
+                  )}
+                </CardBody>
+              </Card>
+
+              <Card>
                 {data ? (
-                  <DataTable
-                    heading={
-                      <>
-                        <Layers className="size-4 text-[#ffd56b]" />
-                        Бүлгээр
-                      </>
-                    }
-                    data={data.groups}
-                    columns={groupCols}
-                    getRowId={(r) => r.group}
-                    onRowClick={(r) => {
-                      setGroup(r.group);
-                      setAccount(null);
-                      jump("expense-accounts");
+                  <ExpenseCategories
+                    categories={data.categories}
+                    onDocs={(i) => {
+                      setDocs(i);
+                      requestAnimationFrame(() => document.getElementById("expense-documents")?.scrollIntoView({ behavior: "smooth", block: "start" }));
                     }}
-                    searchPlaceholder="Бүлэг хайх..."
                   />
                 ) : (
-                  <SkeletonTable rows={4} cols={5} />
+                  <Skeleton className="m-4 h-64" />
                 )}
               </Card>
 
-              <Card id="expense-accounts">
-                {data ? (
-                  <DataTable
-                    heading={
-                      <>
-                        <Receipt className="size-4 text-[#ffd56b]" />
-                        Дансаар · дарвал баримтууд гарна
-                      </>
-                    }
-                    data={accounts}
-                    columns={accountCols}
-                    getRowId={(r) => `${r.account}|${r.group}`}
-                    onRowClick={(r) => {
-                      setAccount(r);
-                      jump("expense-documents");
-                    }}
-                    searchPlaceholder="Данс, нэрээр хайх..."
-                  />
-                ) : (
-                  <SkeletonTable rows={6} cols={5} />
-                )}
-              </Card>
-
-              {account && (
+              {docs && (
                 <div id="expense-documents" className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-text-muted">Данс:</span>
-                    <span className="font-medium text-text" title={`Данс ${account.account}`}>
-                      {account.name || "Нэргүй данс"}
-                    </span>
-                    <button type="button" onClick={() => setAccount(null)} className="focus-ring rounded-lg px-2 py-1 text-xs text-text-muted hover:text-text">
+                    <FileText className="size-4 text-[#ffd56b]" aria-hidden />
+                    <span className="font-medium text-text">{docs.name}</span>
+                    <span className="text-text-muted">· Нягтланд: {docs.account} данс</span>
+                    <button type="button" onClick={() => setDocs(null)} className="focus-ring min-h-9 rounded-lg px-2 text-xs text-text-muted hover:text-text">
                       Хаах
                     </button>
                   </div>
-                  <DocumentList key={`${account.account}:${month}`} url={`/api/dashboard/documents/account?account=${encodeURIComponent(account.account)}&month=${month}&side=debit`} title="Энэ данс дээр бичилт хийсэн баримтууд" hideWarehouseFilter emptyDescription="Энэ сард энэ дансны дебит талд баримт олдсонгүй." />
+                  <DocumentList
+                    key={`${docs.account}:${month}`}
+                    url={`/api/dashboard/documents/account?account=${encodeURIComponent(docs.account)}&month=${month}&side=debit`}
+                    title="Энэ дансны зардлын баримтууд"
+                    hideWarehouseFilter
+                    emptyDescription="Энэ сард энэ дансны дебит талд баримт олдсонгүй."
+                  />
                 </div>
               )}
             </>

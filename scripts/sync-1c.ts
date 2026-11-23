@@ -11,6 +11,7 @@
 //   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L
 //   npm run sync:1c -- recent                   -> энэ сар + өмнөх сар
 //   npm run sync:1c -- range 2026-01 2026-10    -> эхний удаа өнгөрсөн саруудыг татах
+//   npm run sync:1c -- expenses-backfill 2026-01 2026-10 [--pause=15] [--force]  -> өнгөрсөн сар бүрийн зардлыг (зөвхөн pl, сар бүр нэг татаалт, дараалан) нөхнө
 //   npm run sync:1c -- receivables-backfill 2026-01 2026-10 [--pause=15] [--force]  -> өнгөрсөн сар бүрийн эцсийн авлагын агшин зургийг нөхнө (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан)
 //   npm run sync:1c -- prune                    -> DRY-RUN: хуучин snapshot, sync_log-ийн хадгалалтын бодлогоор юу устахыг харуулна (lib/onec/retention.ts)
 //   npm run sync:1c -- prune --apply            -> үнэхээр устгана (max(snapshot_date)-ийг хэзээ ч устгахгүй)
@@ -22,6 +23,7 @@ import { closingTargets, multiYear } from "../lib/onec/bases";
 import { asOfDate } from "../lib/onec/dates";
 import { checkCurrentBase, STALE_MESSAGE } from "../lib/onec/health";
 import { describeImport, importMaterials } from "../lib/onec/material-import";
+import { backfillExpenses } from "../lib/onec/expenses-backfill";
 import { backfillReceivables } from "../lib/onec/receivables-backfill";
 import { syncReceivablesSnapshotLocked } from "../lib/onec/receivables-store";
 import { syncPayroll } from "../lib/onec/payroll-store";
@@ -110,6 +112,15 @@ async function main() {
     const r = await syncReceivablesSnapshotLocked(asOfDate(t.receivablesMonth)).catch(() => ({ ok: false }) as const);
     if (!r || !r.ok) ok = false;
     if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (mode === "expenses-backfill") {
+    // Өнгөрсөн сар бүрийн зардлыг (зөвхөн ашиг алдагдал) нөхнө, дараалан, завсарлагатай. --pause=<секунд> (анхдагч 15), --force
+    const pause = Number(flag("pause") ?? 15);
+    const r = await backfillExpenses({ from: a ?? "", to: b ?? a ?? "", pauseSeconds: Number.isFinite(pause) ? pause : 15, force });
+    console.log(`[expenses-backfill] татсан ${r.done.length}, алгассан ${r.skipped.length}, алдаатай ${r.failed.length}`);
+    if (r.failed.length) process.exitCode = 1;
     return;
   }
 

@@ -29,9 +29,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
+        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
         type: choice
-        options: [regular, recent, backfill, month, receivables, receivables-backfill, payroll, prune, import-materials]
+        options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, payroll, prune, import-materials]
         default: regular
       apply:
         description: "prune, import-materials: true бол үнэхээр устгана/бичнэ. Анхдагч (false) нь DRY-RUN: зөвхөн тайлан"
@@ -42,11 +42,11 @@ on:
         type: string
         required: false
       from:
-        description: "backfill, receivables-backfill: эхний сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill: эхний сар (YYYY-MM)"
         type: string
         required: false
       to:
-        description: "backfill, receivables-backfill: сүүлийн сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill: сүүлийн сар (YYYY-MM)"
         type: string
         required: false
 
@@ -172,6 +172,14 @@ jobs:
               if [ "$INPUT_APPLY" = "true" ]; then apply_flag="--apply"; fi
               if [ "$mode" = "prune" ] && [ -n "$EVENT_SCHEDULE" ] && [ "$PRUNE_APPLY" = "1" ]; then apply_flag="--apply"; fi
               run "$mode ${apply_flag:-dry-run}" 900 npm run sync:1c -- "$mode" $apply_flag
+              ;;
+            expenses-backfill)
+              # Нэг удаагийн нөхөлт: өнгөрсөн сар бүрийн зардал (Зардал таб, 12 сарын график). Зөвхөн pl, сар бүр 1 татаалт, 15 сек завсарлагатай дараалан;
+              # татагдсан сарыг алгасна (дахин ажиллуулахад 1С-д хүрэхгүй). Нэг удаад ≤ 24 сар.
+              if ! [[ "$INPUT_FROM" =~ $month_re && "$INPUT_TO" =~ $month_re ]]; then
+                echo "::error::expenses-backfill-д from, to нь YYYY-MM хэлбэртэй байх ёстой"; exit 1
+              fi
+              if odata_ready; then run "expenses-backfill $INPUT_FROM..$INPUT_TO" 1380 npm run sync:1c -- expenses-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15; fi
               ;;
             receivables-backfill)
               # Нэг удаагийн нөхөлт: өнгөрсөн сар бүрийн эцсийн авлага (12 сарын график). Зөвхөн 1201, сар бүр 1 хүсэлт, 15 сек завсарлагатай дараалан;

@@ -214,6 +214,19 @@ gh workflow run "Sync 1C" -f mode=receivables-backfill -f from=2026-01 -f to=202
 log-оос («татагдлаа / алгасав») болон ERP-ийн «Авлага» таб дээрх сар бүрийн графикаас харна. Локалд:
 `npm run sync:1c -- receivables-backfill 2026-01 2026-10 --pause=15` (DATABASE_URL нь тухайн DB-г заана).
 
+## Зардлын түүх нөхөх (нэг удаа)
+
+«Зардал» табын 12 сарын график, өмнөх сартай харьцуулалт нь сар бүрийн ашиг алдагдлын (pl) өгөгдлөөс гарна. Хуучин саруудыг нэг удаа нөхөхөд:
+
+```
+gh workflow run "Sync 1C" -f mode=expenses-backfill -f from=2026-01 -f to=2026-10
+```
+
+(эсвэл GitHub → Actions → Sync 1C → Run workflow → mode=expenses-backfill, from, to). Өнгөрсөн сар бүрт зөвхөн pl татаалтыг (борлуулалтын баримтгүй)
+ДАРААЛЛАН, 15 секундийн завсарлагатай татна. Аль хэдийн татагдсан сарыг алгасна, дахин ажиллуулахад 1С-д хүрэхгүй. Нэг удаад ≤ 24 сар, одоогийн сар орохгүй.
+Локалд: `npm run sync:1c -- expenses-backfill 2026-01 2026-10 --pause=15`.
+Миграци `20261123100000_expense_category_rule` (шинэ хүснэгт `onec_expense_category_rule`, зөвхөн нэмэлт) Neon дээр өмнө нь хийгдсэн байх ёстой.
+
 ## package-lock.json (Sync 1C, CI)
 
 Sync 1C ажил Linux дээр `npm ci --ignore-scripts` ажиллуулдаг (Node 22, npm 10). Windows дээрх шинэ npm (11) `npm install` хийхдээ lock-оос
