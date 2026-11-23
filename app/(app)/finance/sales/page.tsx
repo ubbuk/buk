@@ -16,7 +16,7 @@ import { MissingMonth, YearSection } from "@/components/finance/YearSection";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
 import { monthRange } from "@/lib/onec/dates";
-import type { SalesClient, SalesItem, SalesKpi } from "@/lib/onec/sales-view";
+import { reconcileSales, type SalesClient, type SalesItem, type SalesKpi } from "@/lib/onec/sales-view";
 
 // Борлуулалт нь зөвхөн борлуулалт, P&L-ийг ашиглана: мөнгөн хөрөнгийг татахгүй
 const SALES_KINDS = ["sales", "pl"] as const;
@@ -115,7 +115,7 @@ export default function SalesPage() {
               </Card>
 
               <Card>
-                {data ? <SalesLists clients={data.clients} items={data.items} onClientDocs={(cl) => setDocClient(cl)} /> : <Skeleton className="m-4 h-64" />}
+                {data ? <SalesLists clients={data.clients} items={data.items} onClientDocs={(cl) => setDocClient(cl)} reconciliation={reconcileSales(data)} /> : <Skeleton className="m-4 h-64" />}
               </Card>
 
               {docClient && (

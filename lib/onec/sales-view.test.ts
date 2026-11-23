@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { amountMatches, parseQuery } from "@/lib/query-parse";
-import { buildSalesView, type SalesLine } from "./sales-view";
+import { buildSalesView, reconcileSales, type SalesLine } from "./sales-view";
 import { formatQuantities } from "@/lib/units";
 
 const line = (over: Partial<SalesLine>): SalesLine => ({ client_code: "C1", client: "Альфа ХХК", item_code: "I1", item: "Цемент М400", unit: "тн", qty: 10, revenue: 1_000_000, cost: 700_000, direct: false, ...over });
@@ -42,6 +42,22 @@ describe("buildSalesView: орлого, өртөг, ашиг", () => {
 
   it("хоосон: ашгийн хувь null", () => {
     expect(buildSalesView([]).kpi).toEqual({ revenue: 0, cost: 0, costOfGoods: 0, costDirect: 0, profit: 0, margin: null });
+  });
+});
+
+describe("reconcileSales: жагсаалтын нийлбэр = дээд талын Ашиг", () => {
+  it("Σ харилцагчийн ашиг − хуваарилагдаагүй зардал = нийт ашиг", () => {
+    const v = buildSalesView([line({}), line({ client_code: "C2", client: "Бета ХХК", revenue: 500_000, cost: 400_000 }), line({ client_code: "", client: "", item_code: "", item: "", unit: "", qty: 0, revenue: 0, cost: 1_430_000, direct: true })]);
+    const r = reconcileSales(v);
+    expect(r).toEqual({ listProfit: 400_000, unassigned: -1_430_000, total: -1_030_000, matches: true });
+    expect(r.total).toBe(v.kpi.profit);
+  });
+
+  it("шууд өртөггүй бол хуваарилагдаагүй 0, нийлбэр ашигтай тэнцүү (бутархай дүнтэй ч)", () => {
+    const v = buildSalesView([line({ revenue: 100.1, cost: 33.3 }), line({ client_code: "C2", client: "Бета", revenue: 200.2, cost: 66.6 }), line({ client_code: "C3", client: "Гамма", revenue: 0.05, cost: 0.02 })]);
+    const r = reconcileSales(v);
+    expect(r.unassigned).toBe(0);
+    expect(r.matches).toBe(true);
   });
 });
 
