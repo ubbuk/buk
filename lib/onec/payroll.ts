@@ -5,6 +5,8 @@
 //   суутгасан НДШ       = Дт 3342, Кт 3450
 //   ХХОАТ               = Дт 3342, Кт 3462
 //   олгосон             = Дт 3342, Кт 11xx (банк) эсвэл 10xx (касс)
+// Бодсоны задаргаа (нийт нь өөрчлөгдөхгүй): өвчний тэтгэмж = баримтын төрөл Document_БольничныйЛист; тэтгэмж = нягтлангийн баримтын гарчигт «тэтгэмж»
+// (жишээ «2026 оны 9 сарын тэтгэмжийн мөнгө»); бусад нь үндсэн цалин. ТУЗ-ийн урамшуулал = Кт 3349 (Дт нь цалингийн данс БИШ), түүний суутгал Дт 3349.
 //   сарын эцсийн өглөг  = 3342-ийн Balance (Кт үлдэгдэл = өглөг; Дт үлдэгдэл бол сөрөг = урьдчилж олгосон / бодолт хараахан бүртгэгдээгүй)
 // Бодсон цалинг ажилтнаар 1С-д БҮРТГЭДЭГГҮЙ (бодолтын бичилт хэлтсээр нэгтгэгдсэн, ФизЛицо субконтогүй): ажилтнаар зөвхөн олгосон, үлдэгдэл.
 // ХҮНИЙ ТҮВШНИЙ мэдээлэл ERP баазад хадгалагдахгүй: нээх бүрд 1С-ээс шууд уншина (5 минутын санах ойн cache). Зөвхөн байгууллагын сарын нийт
@@ -24,6 +26,9 @@ const TOP = 100_000;
 const SALARY = "3342";
 const NDSH = "3450";
 const HHOAT = "3462";
+const BOARD = "3349";
+const SICK_DOC = "Document_БольничныйЛист";
+const JOURNAL_DOC = "Document_ОперацияБух";
 
 export { NO_DEPARTMENT, UNATTRIBUTED };
 
@@ -68,11 +73,30 @@ export interface PayrollMonth {
   /** сарын эцсийн өглөг (3342): эерэг = өглөг, сөрөг = урьдчилж олгосон */
   closingPayable: number;
   lines: number;
+  /** «бодсон»-д багтсан тэтгэмж (нийгмийн, нэг удаагийн) */
+  benefit: number;
+  /** «бодсон»-д багтсан ажил олгогчоос олгосон өвчний тэтгэмж */
+  sickPay: number;
+  /** ТУЗ-ийн урамшуулал (Кт 3349); «бодсон»-д ОРООГҮЙ */
+  board: number;
+  /** ТУЗ-ийн урамшуулалаас суутгасан НДШ, ХХОАТ */
+  boardNdsh: number;
+  boardHhoat: number;
+  /** ТУЗ-ийн урамшууллыг банк, кассаар олгосон */
+  boardPaid: number;
+  /** бусад суутгал: цалин, урамшуулал (Дт 3342/3349) мөнгө, НДШ, ХХОАТ, цалингийн данс биш рүү (авлага, зээл г.м.) */
+  otherDeductions: number;
 }
 
-/** Цэвэр (тестлэгдэнэ): цалингийн дансны бичилтүүдээс сарын нийт дүн */
-export function buildPayrollMonth(month: string, lines: readonly Row[], ctx: PayrollContext, closingPayable: number): PayrollMonth {
-  const t = { accrued: 0, employerNdsh: 0, employeeNdsh: 0, hhoat: 0, paidBank: 0, paidCash: 0 };
+/** «Тэтгэмж»-ийн нягтлангийн баримтыг баримтын гарчгаас таних (гарчиг нь ажилтны нэр агуулдаггүй, тайланд гаргахгүй) */
+export const isBenefitText = (text: unknown): boolean => /тэтгэмж/i.test(String(text ?? ""));
+
+const recorderOf = (r: Row) => lower(r.Recorder);
+const isSickLine = (r: Row) => String(r.Recorder_Type ?? "").endsWith(SICK_DOC);
+
+/** Цэвэр (тестлэгдэнэ): цалингийн дансны бичилтүүдээс сарын нийт дүн. `benefitDocs`: гарчигт «тэтгэмж» бүхий нягтлангийн баримтуудын GUID (жижиг үсгээр). */
+export function buildPayrollMonth(month: string, lines: readonly Row[], ctx: PayrollContext, closingPayable: number, benefitDocs: ReadonlySet<string> = new Set()): PayrollMonth {
+  const t = { accrued: 0, employerNdsh: 0, employeeNdsh: 0, hhoat: 0, paidBank: 0, paidCash: 0, benefit: 0, sickPay: 0, board: 0, boardNdsh: 0, boardHhoat: 0, boardPaid: 0, otherDeductions: 0 };
   for (const r of lines) {
     const drKey = lower(r.AccountDr_Key);
     const crKey = lower(r.AccountCr_Key);
@@ -80,7 +104,16 @@ export function buildPayrollMonth(month: string, lines: readonly Row[], ctx: Pay
     const cr = ctx.codeOf.get(crKey) ?? "";
     const amount = num(r["Сумма"]);
     const drPayroll = ctx.payroll.has(drKey);
-    if (cr === SALARY && !drPayroll && !isCashCode(dr)) t.accrued += amount;
+    if (cr === SALARY && !drPayroll && !isCashCode(dr)) {
+      t.accrued += amount;
+      if (isSickLine(r)) t.sickPay += amount;
+      else if (benefitDocs.has(recorderOf(r))) t.benefit += amount;
+    }
+    if (cr === BOARD && !drPayroll && !isCashCode(dr)) t.board += amount;
+    if (dr === BOARD && cr === NDSH) t.boardNdsh += amount;
+    if (dr === BOARD && cr === HHOAT) t.boardHhoat += amount;
+    if (dr === BOARD && isCashCode(cr)) t.boardPaid += amount;
+    if ((dr === SALARY || dr === BOARD) && cr !== "" && !isCashCode(cr) && ![SALARY, BOARD, NDSH, HHOAT].includes(cr)) t.otherDeductions += amount;
     if (cr === NDSH && !drPayroll) t.employerNdsh += amount;
     if (dr === SALARY && cr === NDSH) t.employeeNdsh += amount;
     if (dr === SALARY && cr === HHOAT) t.hhoat += amount;
@@ -97,6 +130,13 @@ export function buildPayrollMonth(month: string, lines: readonly Row[], ctx: Pay
     paidCash: round2(t.paidCash),
     closingPayable: round2(closingPayable),
     lines: lines.length,
+    benefit: round2(t.benefit),
+    sickPay: round2(t.sickPay),
+    board: round2(t.board),
+    boardNdsh: round2(t.boardNdsh),
+    boardHhoat: round2(t.boardHhoat),
+    boardPaid: round2(t.boardPaid),
+    otherDeductions: round2(t.otherDeductions),
   };
 }
 
@@ -110,8 +150,8 @@ async function fetchLines(ctx: PayrollContext, from: string, to: string, select:
   return rows;
 }
 
-/** Сарын нийт дүнд зөвхөн Дт, Кт данс, дүн хэрэгтэй (хэлтэс, хүний талбаргүй: хариу хамгийн хөнгөн) */
-const TOTALS_SELECT = "AccountDr_Key,AccountCr_Key,Сумма";
+/** Сарын нийт дүнд зөвхөн Дт, Кт данс, дүн, баримт (задаргаанд) хэрэгтэй (хэлтэс, хүний талбаргүй: хариу хамгийн хөнгөн) */
+const TOTALS_SELECT = "Recorder,Recorder_Type,AccountDr_Key,AccountCr_Key,Сумма";
 const LINE_SELECT = "Period,AccountDr_Key,AccountCr_Key,Сумма,ПодразделениеDr_Key";
 const PERSON_SELECT = `${LINE_SELECT},ExtDimensionDr1,ExtDimensionDr1_Type,ExtDimensionCr1,ExtDimensionCr1_Type`;
 
@@ -128,6 +168,20 @@ async function contextFor(year: string): Promise<PayrollContext> {
   const ctx = payrollContext(await withOneCYear(year, () => loadAccountBook()));
   if (ctx.payroll.size === 0 || ctx.salary.length === 0) throw new OdataError(502, "Цалингийн данс 1С-ээс олдсонгүй");
   return ctx;
+}
+
+/** Бодолтын бичилттэй нягтлангийн баримтуудын гарчгийг уншиж, «тэтгэмж»-ийн баримтуудыг олно (баримт бүрт 1 удаа, 1 цаг cache) */
+async function loadBenefitDocs(lines: readonly Row[], ctx: PayrollContext): Promise<Set<string>> {
+  const keys = new Set<string>();
+  for (const r of lines) {
+    const drKey = lower(r.AccountDr_Key);
+    if (ctx.codeOf.get(lower(r.AccountCr_Key)) !== SALARY || ctx.payroll.has(drKey) || isCashCode(ctx.codeOf.get(drKey) ?? "")) continue;
+    const doc = realKey(r.Recorder);
+    if (doc && String(r.Recorder_Type ?? "").endsWith(JOURNAL_DOC)) keys.add(doc);
+  }
+  if (keys.size === 0) return new Set();
+  const rows = await lookupRows(JOURNAL_DOC, [...keys], "Содержание");
+  return new Set([...rows].filter(([, row]) => isBenefitText(row?.["Содержание"])).map(([k]) => k));
 }
 
 /** Дт 3342 болон Кт 3342-ийн цэвэр хөдөлгөөн (Кт − Дт): өглөг нэмэгдэх нь эерэг. Хоёр тал нь 3342 бол тэг. */
@@ -167,8 +221,9 @@ export function fetchPayrollMonth(month: string, opts: { timeoutMs?: number } = 
     // Дарааллаар (зэрэг биш): 1С-д нэг дор нэг л хүсэлт
     const [lines, linesMs] = await timed(() => fetchLines(ctx, from, to, TOTALS_SELECT, timeoutMs));
     const [opening, balanceMs] = await timed(() => fetchSalaryBalance(ctx, `${from}T00:00:00`, "СуммаBalance", timeoutMs));
+    const [benefitDocs, docsMs] = await timed(() => loadBenefitDocs(lines, ctx));
     const closing = payable(opening) + salaryNetMovement(lines, ctx);
-    return { ...buildPayrollMonth(month, lines, ctx, closing), timings: { linesMs, balanceMs, totalMs: Date.now() - started } };
+    return { ...buildPayrollMonth(month, lines, ctx, closing, benefitDocs), timings: { linesMs: linesMs + docsMs, balanceMs, totalMs: Date.now() - started } };
   });
 }
 

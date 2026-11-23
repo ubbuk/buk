@@ -10,6 +10,7 @@ vi.mock("@/lib/onec/payroll", async (orig) => ({ ...(await orig<typeof import("@
 import { GET as access } from "./access/route";
 import { GET as departments } from "./departments/route";
 import { GET as employees } from "./employees/route";
+import { GET as report } from "./report/route";
 import { GET as summary } from "./summary/route";
 import { currentYear } from "@/lib/onec/dates";
 import { writePayrollMonth } from "@/lib/onec/payroll-store";
@@ -27,7 +28,7 @@ const setFlag = (role: string, v: boolean) => prisma.user.update({ where: { id: 
 beforeAll(async () => {
   for (const r of roles) await prisma.user.upsert({ where: { id: `${P}${r}` }, update: { role: r, canViewPayroll: false }, create: { id: `${P}${r}`, email: `${P}${r}@test.local`, name: r, role: r, passwordHash: "x" } });
   await prisma.$executeRaw`DELETE FROM onec_payroll_month WHERE month LIKE ${`${YEAR}-%`}`; // туршилтын DB: бусад тест, sync-ийн үлдсэн мөрөөс хамаарахгүй
-  await writePayrollMonth({ month: `${YEAR}-01`, accrued: 1000, employerNdsh: 100, employeeNdsh: 80, hhoat: 60, paidBank: 900, paidCash: 5, closingPayable: 20, lines: 4 });
+  await writePayrollMonth({ month: `${YEAR}-01`, accrued: 1000, employerNdsh: 100, employeeNdsh: 80, hhoat: 60, paidBank: 900, paidCash: 5, closingPayable: 20, lines: 4, benefit: 0, sickPay: 0, board: 0, boardNdsh: 0, boardHhoat: 0, boardPaid: 0, otherDeductions: 0 });
 });
 afterAll(async () => {
   await prisma.auditLog.deleteMany({ where: { actorId: { startsWith: P } } });
@@ -43,7 +44,7 @@ beforeEach(async () => {
   await prisma.auditLog.deleteMany({ where: { actorId: { startsWith: P } } });
 });
 
-const endpoints = { summary: () => summary(req("summary")), departments: () => departments(req("departments")), employees: () => employees(req("employees")) };
+const endpoints = { summary: () => summary(req("summary")), report: () => report(req("report")), departments: () => departments(req("departments")), employees: () => employees(req("employees")) };
 
 describe("«Цалин» API: эрх", () => {
   it("нэвтрээгүй бол 401", async () => {
@@ -106,6 +107,21 @@ describe("«Цалин» API: өгөгдөл", () => {
     if (body.months.length > 1) expect(body.months[1]).toMatchObject({ synced: false, accrualPosted: false });
     expect(JSON.stringify(body)).not.toMatch(/employees|name|person/i);
     expect(data.employees).not.toHaveBeenCalled(); // 1С руу хандаагүй
+  });
+
+  it("report: сарын задаргаа Postgres-оос (ажил олгогчийн НДШ орно), задаргаагүй сар pending; хүн, хэлтэс байхгүй; 1С руу хандахгүй", async () => {
+    await setFlag("DIRECTOR", true);
+    as("DIRECTOR");
+    const res = await report(req(`report?month=${YEAR}-01`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.month).toBe(`${YEAR}-01`);
+    expect(body.months).toHaveLength(12);
+    expect(body).toMatchObject({ ready: true, total: 1100, posted: true });
+    expect(body.parts.map((p: { id: string; amount: number }) => [p.id, p.amount])).toEqual([["main", 1000], ["benefit", 0], ["sick", 0], ["board", 0], ["employerNdsh", 100]]);
+    expect(JSON.stringify(body)).not.toMatch(/"employees"|department|person|"name"/i);
+    expect(data.employees).not.toHaveBeenCalled();
+    expect((await report(req("report?month=2026-13"))).status).toBe(400);
   });
 
   it("employees: нээх бүрд audit (хэн, аль он, хэзээ); audit бичигдэхгүй бол өгөгдөл өгөхгүй", async () => {

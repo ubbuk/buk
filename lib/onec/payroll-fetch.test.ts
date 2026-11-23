@@ -14,11 +14,13 @@ const ENV = { ONEC_ODATA_BASE_URL: "http://1c.test/b/odata/standard.odata", ONEC
 const json = (value: unknown[]) => new Response(JSON.stringify({ value }), { status: 200 });
 let calls: { url: string; init: RequestInit }[] = [];
 let lines: unknown[] = [];
+let headers: unknown[] = [];
 
 beforeEach(() => {
   resetAccountBook();
   resetNameCache();
   calls = [];
+  headers = [];
   Object.assign(process.env, ENV);
   vi.stubGlobal(
     "fetch",
@@ -28,6 +30,7 @@ beforeEach(() => {
       if (u.includes("ChartOfAccounts_")) return json([{ Ref_Key: SAL, Code: "3342.00", Description: "Цалингийн өглөг" }, { Ref_Key: NDSH, Code: "3450.00", Description: "НДШ" }, { Ref_Key: BANK, Code: "1101.00", Description: "Банк" }, { Ref_Key: WIP, Code: "1424.00", Description: "Үйлдвэрлэл" }, { Ref_Key: AP, Code: "3101.00", Description: "Өглөг" }]);
       if (u.includes("/Balance(")) return json([{ СуммаBalance: -500 }]); // Кт үлдэгдэл 500 = өглөг 500
       if (u.includes("RecordsWithExtDimensions")) return json(lines);
+      if (u.includes("Document_ОперацияБух?")) return json(headers);
       return json([]);
     })
   );
@@ -48,8 +51,7 @@ describe("fetchPayrollMonth: 1С-ийн ачаалал", () => {
     for (const c of calls) expect(c.init.method).toBe("GET");
     const [rec, bal] = d;
     expect(rec).toContain("RecordsWithExtDimensions(StartPeriod=datetime'2026-09-01T00:00:00',EndPeriod=datetime'2026-09-30T23:59:59'");
-    expect(rec).toContain("$select=AccountDr_Key,AccountCr_Key,Сумма"); // хэлтэс, хүн, огнооны талбаргүй
-    expect(rec.match(/\$select=([^&]*)/)?.[1]).toBe("AccountDr_Key,AccountCr_Key,Сумма");
+    expect(rec.match(/\$select=([^&]*)/)?.[1]).toBe("Recorder,Recorder_Type,AccountDr_Key,AccountCr_Key,Сумма"); // хэлтэс, хүн, огнооны талбаргүй
     expect(rec).toContain(`AccountDr_Key eq guid'${SAL}'`);
     expect(rec).toContain(`AccountCr_Key eq guid'${NDSH}'`);
     expect(rec).not.toContain(AP); // цалинтай хамааралгүй данс шүүлтэд ороогүй
@@ -61,6 +63,28 @@ describe("fetchPayrollMonth: 1С-ийн ачаалал", () => {
     // эхний өглөг 500 + (Кт 1000 − Дт 300) = 1200
     expect(r).toMatchObject({ month: "2026-09", accrued: 1000, employerNdsh: 120, paidBank: 300, closingPayable: 1200, lines: 3 });
     expect(r.timings.totalMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("тэтгэмж: нягтлангийн баримтын гарчгийг (Содержание) ГАНЦ нэг GET-ээр уншиж, «тэтгэмж» гарчигтай баримтыг тусад нь ялгана; нийт «бодсон» хэвээр", async () => {
+    const BEN = "b1b1b1b1-0000-0000-0000-000000000165";
+    const MAIN = "b2b2b2b2-0000-0000-0000-000000000179";
+    const J = "StandardODATA.Document_ОперацияБух";
+    lines = [
+      { AccountDr_Key: WIP, AccountCr_Key: SAL, Сумма: 1000, Recorder: MAIN, Recorder_Type: J },
+      { AccountDr_Key: WIP, AccountCr_Key: SAL, Сумма: 70, Recorder: BEN, Recorder_Type: J },
+      { AccountDr_Key: WIP, AccountCr_Key: SAL, Сумма: 5, Recorder: "b3b3b3b3-0000-0000-0000-000000000043", Recorder_Type: "StandardODATA.Document_БольничныйЛист" },
+    ];
+    headers = [{ Ref_Key: BEN, Содержание: "2026 оны 9 сарын тэтгэмжийн мөнгө" }, { Ref_Key: MAIN, Содержание: "2026 оны 9 сарын цалин" }];
+    const r = await fetchPayrollMonth("2026-09");
+    const d = data();
+    expect(d).toHaveLength(3); // бичилт, баримтын гарчиг, Balance
+    for (const c of calls) expect(c.init.method).toBe("GET");
+    const header = d.find((u) => u.includes("Document_ОперацияБух?"))!;
+    expect(header).toContain("$select=Ref_Key,Содержание"); // Комментарий (хүний нэр) уншихгүй
+    expect(header).not.toContain("Комментарий");
+    expect(header).toContain(`Ref_Key eq guid'${BEN}'`);
+    expect(header).not.toContain("b3b3b3b3"); // өвчний хуудас нь баримтын төрлөөр танигдана, гарчиг уншихгүй
+    expect(r).toMatchObject({ accrued: 1075, benefit: 70, sickPay: 5 });
   });
 
   it("одоогийн сард ч ирээдүйн агшинд Balance авахгүй", async () => {

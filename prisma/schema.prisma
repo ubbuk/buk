@@ -1106,17 +1106,25 @@ model OnecUsageMonth {
 }
 
 model OnecPayrollMonth {
-  id             BigInt   @id @default(autoincrement())
-  month          String   @unique
-  accrued        Decimal  @db.Decimal(18, 2)
-  employerNdsh   Decimal  @map("employer_ndsh") @db.Decimal(18, 2)
-  employeeNdsh   Decimal  @map("employee_ndsh") @db.Decimal(18, 2)
-  hhoat          Decimal  @db.Decimal(18, 2)
-  paidBank       Decimal  @map("paid_bank") @db.Decimal(18, 2)
-  paidCash       Decimal  @map("paid_cash") @db.Decimal(18, 2)
-  closingPayable Decimal  @map("closing_payable") @db.Decimal(18, 2)
-  lines          Int      @default(0)
-  syncedAt       DateTime @default(now()) @map("synced_at") @db.Timestamptz
+  id              BigInt   @id @default(autoincrement())
+  month           String   @unique
+  accrued         Decimal  @db.Decimal(18, 2)
+  employerNdsh    Decimal  @map("employer_ndsh") @db.Decimal(18, 2)
+  employeeNdsh    Decimal  @map("employee_ndsh") @db.Decimal(18, 2)
+  hhoat           Decimal  @db.Decimal(18, 2)
+  paidBank        Decimal  @map("paid_bank") @db.Decimal(18, 2)
+  paidCash        Decimal  @map("paid_cash") @db.Decimal(18, 2)
+  closingPayable  Decimal  @map("closing_payable") @db.Decimal(18, 2)
+  lines           Int      @default(0)
+  // Задаргаа (null = хуучин мөр, дараагийн sync-ээр бөглөгдөнө)
+  benefit         Decimal? @db.Decimal(18, 2)
+  sickPay         Decimal? @map("sick_pay") @db.Decimal(18, 2)
+  board           Decimal? @db.Decimal(18, 2)
+  boardNdsh       Decimal? @map("board_ndsh") @db.Decimal(18, 2)
+  boardHhoat      Decimal? @map("board_hhoat") @db.Decimal(18, 2)
+  boardPaid       Decimal? @map("board_paid") @db.Decimal(18, 2)
+  otherDeductions Decimal? @map("other_deductions") @db.Decimal(18, 2)
+  syncedAt        DateTime @default(now()) @map("synced_at") @db.Timestamptz
 
   @@map("onec_payroll_month")
 }
