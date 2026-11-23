@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
+import { signOut } from "next-auth/react";
 import { CheckCircle2, KeyRound, Lock, ShieldAlert } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import { APPROVER_ROLES } from "@/lib/types";
+import { PIN_MAX, PIN_MIN } from "@/lib/pin-format";
 
 interface DepartmentOption {
   id: string;
@@ -14,13 +14,11 @@ interface DepartmentOption {
   type: "OFFICE" | "FACTORY";
 }
 
-const APPROVER_ROLE_SET = new Set<string>(APPROVER_ROLES);
 const inputClass =
   "focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
 
 export default function SettingsPage() {
   const { push } = useToast();
-  const { data: session } = useSession();
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [hasPin, setHasPin] = useState<boolean | null>(null);
   const [pin, setPin] = useState("");
@@ -45,8 +43,6 @@ export default function SettingsPage() {
       .then((data: { hasPin: boolean } | null) => setHasPin(data?.hasPin ?? null))
       .catch(() => setHasPin(null));
   }, []);
-
-  const canHoldApproval = !!session?.user?.role && APPROVER_ROLE_SET.has(session.user.role);
 
   async function savePin() {
     setSubmitting(true);
@@ -151,79 +147,77 @@ export default function SettingsPage() {
         </CardBody>
       </Card>
 
-      {canHoldApproval && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <KeyRound className="size-4 text-accent" />
-              <CardTitle>Миний баталгаажуулах PIN</CardTitle>
+      <Card id="pin" className="scroll-mt-20">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <KeyRound className="size-4 text-accent" />
+            <CardTitle>Баталгаажуулах PIN</CardTitle>
+          </div>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <p className="text-xs text-text-muted">
+            Захиалга батлахдаа энэ PIN-ээр (4-6 оронтой тоо) баталгаажуулна. Хэн ч, админ ч, таны PIN-ийг харах
+            боломжгүй — зөвхөн та мэднэ.
+          </p>
+
+          {hasPin !== null && (
+            <div
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                hasPin ? "border-success/30 bg-success/10 text-success" : "border-warning/30 bg-warning/10 text-warning"
+              }`}
+            >
+              {hasPin ? <CheckCircle2 className="size-3.5" /> : <ShieldAlert className="size-3.5" />}
+              {hasPin ? "PIN тохируулагдсан" : "PIN тохируулаагүй байна"}
             </div>
-          </CardHeader>
-          <CardBody className="space-y-4">
-            <p className="text-xs text-text-muted">
-              Захиалга батлахдаа энэ дөрвөн оронтой PIN-ээр баталгаажуулна. Хэн ч, админ ч, таны PIN-ийг харах
-              боломжгүй — зөвхөн та мэднэ.
-            </p>
+          )}
 
-            {hasPin !== null && (
-              <div
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-                  hasPin ? "border-success/30 bg-success/10 text-success" : "border-warning/30 bg-warning/10 text-warning"
-                }`}
-              >
-                {hasPin ? <CheckCircle2 className="size-3.5" /> : <ShieldAlert className="size-3.5" />}
-                {hasPin ? "PIN тохируулагдсан" : "PIN тохируулаагүй байна"}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-text-muted">Шинэ PIN (4 орон)</span>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  className={inputClass}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-text-muted">PIN давтах</span>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  className={inputClass}
-                />
-              </label>
-            </div>
-
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-text-muted">Одоогийн нууц үг (PIN тохируулах, солиход заавал)</span>
+              <span className="mb-1.5 block text-xs font-medium text-text-muted">Шинэ PIN (4-6 орон)</span>
               <input
                 type="password"
-                autoComplete="current-password"
-                value={pinPassword}
-                onChange={(e) => setPinPassword(e.target.value)}
+                inputMode="numeric"
+                maxLength={PIN_MAX}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, PIN_MAX))}
                 className={inputClass}
               />
             </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-text-muted">PIN давтах</span>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={PIN_MAX}
+                value={confirmPin}
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, PIN_MAX))}
+                className={inputClass}
+              />
+            </label>
+          </div>
 
-            <div className="flex justify-end">
-              <Button
-                onClick={savePin}
-                loading={submitting}
-                disabled={pin.length !== 4 || confirmPin.length !== 4 || pinPassword.length === 0}
-              >
-                {hasPin ? "PIN солих" : "PIN тохируулах"}
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-      )}
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-text-muted">Одоогийн нууц үг (PIN тохируулах, солиход заавал)</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={pinPassword}
+              onChange={(e) => setPinPassword(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={savePin}
+              loading={submitting}
+              disabled={pin.length < PIN_MIN || confirmPin !== pin || pinPassword.length === 0}
+            >
+              {hasPin ? "PIN солих" : "PIN тохируулах"}
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader>

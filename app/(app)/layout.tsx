@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { CommandBar } from "@/components/layout/CommandBar";
 import { FloatingOrderButton } from "@/components/layout/FloatingOrderButton";
+import { PinSetupBanner } from "@/components/layout/PinSetupBanner";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { ToastProvider } from "@/components/ui/Toast";
 import { RequestsLoader } from "@/components/requests/RequestsLoader";
@@ -25,6 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <CommandBar />
           <FloatingOrderButton />
         </div>
+        <PinSetupBanner />
         <main className="px-4 pb-24 pt-4 sm:px-6 md:pb-6">{children}</main>
         <div className="no-print">
           <MobileBottomNav />

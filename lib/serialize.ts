@@ -40,7 +40,7 @@ type ItemWithMaterial = Pick<
 };
 type StepWithUser = Pick<ApprovalStep, "type" | "status" | "assignedUserId" | "decidedAt" | "comment"> & {
   assignedUser: Pick<User, "name"> | null;
-  actions: (Pick<ApprovalAction, "documentHash"> & { actor: Pick<User, "role"> })[];
+  actions: (Pick<ApprovalAction, "documentHash"> & { actor: Pick<User, "role" | "name"> })[];
 };
 type AccountingRecordWithUser = Pick<AccountingRecord, "ledgerNumber" | "recordDate" | "note" | "recordedAt"> & { recordedBy: Pick<User, "name"> };
 // storageKey is deliberately left out of requestInclude's attachment
@@ -97,6 +97,15 @@ export function serializeAttachment(attachment: AttachmentMeta): AttachmentView 
   };
 }
 
+// Steps decided by a role, not by one assigned person (the price review and the procurement stage: any active manager).
+// Waiting: say so instead of a bare dash; decided: the person who actually decided.
+const POOL_STEPS = new Set<string>(["MANAGER_PRICING", "MANAGER_PROCUREMENT"]);
+function poolStepName(type: string, status: string, deciderName: string | undefined): string {
+  if (!POOL_STEPS.has(type)) return "—";
+  if (status === "PENDING") return "Аль ч менежер";
+  return deciderName ?? "Менежер";
+}
+
 export function serializeStep(step: StepWithUser): ApprovalStepView {
   // Latest action on this step — the electronic-approval record (actor,
   // role, decision, server timestamp, document hash) backing the
@@ -108,7 +117,7 @@ export function serializeStep(step: StepWithUser): ApprovalStepView {
     type: step.type,
     status: step.status,
     assignedUserId: step.assignedUserId,
-    assignedUserName: step.assignedUser?.name ?? "—",
+    assignedUserName: step.assignedUser?.name ?? poolStepName(step.type, step.status, latestAction?.actor.name),
     decidedAt: step.decidedAt?.toISOString(),
     comment: step.comment ?? undefined,
     decidedByRole: latestAction ? latestAction.actor.role : undefined,
@@ -222,7 +231,7 @@ export const requestListSelect = {
       decidedAt: true,
       comment: true,
       assignedUser: { select: { name: true } },
-      actions: { select: { documentHash: true, actor: { select: { role: true } } }, orderBy: { createdAt: "desc" as const }, take: 1 },
+      actions: { select: { documentHash: true, actor: { select: { role: true, name: true } } }, orderBy: { createdAt: "desc" as const }, take: 1 },
     },
   },
   attachments: { select: { id: true, fileName: true, mimeType: true, sizeBytes: true, thumbKey: true, uploadedAt: true, uploadedById: true } },

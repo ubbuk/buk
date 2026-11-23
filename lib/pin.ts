@@ -8,7 +8,7 @@ const LOCKOUT_MINUTES = 15;
 export type PinResult = { ok: true } | { ok: false; status: number; error: string };
 
 const GENERIC_WRONG_PIN = "PIN буруу байна";
-const NO_PIN_SET = "Та эхлээд баталгаажуулах дөрвөн оронтой PIN тохируулна уу";
+const NO_PIN_SET = "Эхлээд PIN тохируулна уу";
 const TOO_MANY_ATTEMPTS = "Хэт олон оролдлого хийсэн байна. Хэсэг хүлээгээд дахин оролдоно уу";
 
 function minutesRemaining(lockedUntil: Date): number {
@@ -105,6 +105,4 @@ export async function hasPinSet(userId: string): Promise<boolean> {
   return !!credential;
 }
 
-export function isValidPinFormat(pin: string): boolean {
-  return /^\d{4}$/.test(pin);
-}
+export { isValidPinFormat } from "./pin-format";
