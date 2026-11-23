@@ -40,7 +40,7 @@ interface RequestStore {
     actorName: string,
     pin: string,
     expectedVersion: number
-  ) => Promise<void>;
+  ) => Promise<MaterialRequestView>;
   branchApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
   branchReturn: (requestId: string, actorName: string, reason: string, expectedVersion: number) => Promise<void>;
   managerPricingApprove: (requestId: string, actorName: string, pin: string, expectedVersion: number) => Promise<void>;
@@ -222,6 +222,7 @@ export const useRequestStore = create<RequestStore>((set) => ({
         type: "approve",
       }),
     }));
+    return updated;
   },
 
   branchApprove: async (requestId, actorName, pin, expectedVersion) => {

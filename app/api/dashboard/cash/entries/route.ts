@@ -6,6 +6,7 @@ import { withTiming } from "@/lib/api-timing";
 import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
 import { categoryLabel, isCategoryId } from "@/lib/onec/cash-categories";
+import { feeInfoOf, feeMatches, isFeeFilter, linkFees } from "@/lib/onec/cash-fees";
 import { filterEntries, paginate, withCategories, type ReportEntry } from "@/lib/onec/cash-report";
 import { loadCashRules } from "@/lib/onec/cash-rules-store";
 import { currentMonth, isMonth } from "@/lib/onec/dates";
@@ -51,10 +52,18 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
   try {
     const [{ value: cash }, rules, canSeePayroll] = await Promise.all([loadCash(month), loadCashRules(), viewerCanSeePayroll()]);
     const all = withCategories(cash.entries, rules, canSeePayroll);
-    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined });
-    const pageOf = paginate(filtered, page, size);
+    // шимтгэлийн холбоо БҮХ гүйлгээн дээр (шүүлтээс өмнө): шүүсэн жагсаалтад үндсэн гүйлгээ байхгүй ч шимтгэл холбоотой хэвээр
+    const links = linkFees(all);
+    const byId = new Map(all.map((e) => [e.id, e]));
+    const feeRaw = sp.get("fee");
+    const fee = isFeeFilter(feeRaw) ? feeRaw : undefined;
+    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined }).filter((e) => !fee || feeMatches(fee, e, links, byId));
+    // нэг үндсэн гүйлгээ ба түүний шимтгэлүүд (ангиллын «аль гүйлгээнд хамаарах» жагсаалтаас)
+    const main = sp.get("main");
+    const scoped = main ? filtered.filter((e) => e.id === main || links.mainOf.get(e.id) === main) : filtered;
+    const pageOf = paginate(scoped, page, size);
     const numbers = await documentNumbers(month, pageOf.items);
-    const net = filtered.reduce((s, e) => s + (e.type === "inflow" ? e.amount : -e.amount), 0);
+    const net = scoped.reduce((s, e) => s + (e.type === "inflow" ? e.amount : -e.amount), 0);
     return NextResponse.json(
       {
         ...pageOf,
@@ -71,6 +80,7 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
           category: e.category,
           categoryLabel: categoryLabel(e.category, e.type),
           payroll: e.payroll === true,
+          ...feeInfoOf(e, links, byId),
           // хамгийн доод drill-down: нягтлангийн лавлагаа (цалингийн нэгтгэсэн мөрөнд байхгүй)
           accounting: e.payroll && !canSeePayroll ? null : { document: e.document, documentNumber: numbers.get(e.ref) ?? null, account: e.counterAccount ?? "", accountName: e.counterAccountName ?? "" },
         })),

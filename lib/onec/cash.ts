@@ -35,6 +35,8 @@ export type CashEntryType = "inflow" | "outflow" | "internal";
 export interface CashEntry {
   id: string;
   date: string;
+  /** баримтын цаг («15:32:49»): шимтгэлийг үндсэн гүйлгээтэй холбоход (lib/onec/cash-fees.ts). Нэгтгэсэн цалингийн мөрөнд байхгүй. */
+  time?: string;
   type: CashEntryType;
   /** мөнгөний данс (банкны данс); шилжүүлгийн хувьд зарлагадсан тал */
   account: string;
@@ -179,7 +181,7 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     const date = String(r.Period ?? "").slice(0, 10);
     const id = `${String(r.Recorder ?? "")}:${String(r.LineNumber ?? "")}`;
     const article = (names.flows.get(dim(r, dr ? "ExtDimensionDr" : "ExtDimensionCr", FLOW) ?? "") ?? "") || "";
-    const base = { id, date, article, memo: String(r["Содержание"] ?? "").trim(), document: documentLabel(r.Recorder_Type), docType: entityOfRecorderType(r.Recorder_Type), ref: lower(r.Recorder), amount: round2(amount) };
+    const base = { id, date, time: String(r.Period ?? "").slice(11, 19), article, memo: String(r["Содержание"] ?? "").trim(), document: documentLabel(r.Recorder_Type), docType: entityOfRecorderType(r.Recorder_Type), ref: lower(r.Recorder), amount: round2(amount) };
 
     if (dr && cr) {
       const to = keyOf(dr, dim(r, "ExtDimensionDr", BANK));

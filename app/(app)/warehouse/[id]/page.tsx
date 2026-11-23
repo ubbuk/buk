@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { AllocationBar } from "@/components/workflow/AllocationBar";
 import { PinModal } from "@/components/workflow/PinModal";
 import { useRequestStore } from "@/lib/store";
+import { isUnlinkedLine, UNLINKED_LINE_NOTE, warehouseOutcome } from "@/lib/warehouse-outcome";
 import { USER_ROLE_LABEL } from "@/lib/types";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 
@@ -31,30 +32,26 @@ export default function WarehouseCheckPage() {
 
   if (!request) return null;
 
-  const hasMissing = request.items.some(
-    (item) => Math.min(available[item.id] ?? 0, item.requestedQuantity) < item.requestedQuantity
-  );
+  // What can really be issued: a line not linked to the catalog has no stock, whatever is typed for it.
+  const effective = (item: (typeof request.items)[number]) => (isUnlinkedLine(item) ? 0 : available[item.id] ?? 0);
+  const unlinkedCount = request.items.filter(isUnlinkedLine).length;
+  const hasMissing = request.items.some((item) => Math.min(effective(item), item.requestedQuantity) < item.requestedQuantity);
 
   async function confirmCheck(pin: string) {
     setSubmitting(true);
     setPinError(null);
     try {
-      await warehouseCheck(
+      const checked = await warehouseCheck(
         request!.id,
-        request!.items.map((item) => ({ requestItemId: item.id, availableQuantity: available[item.id] ?? 0 })),
+        request!.items.map((item) => ({ requestItemId: item.id, availableQuantity: effective(item) })),
         session?.user?.name ?? "Нярав",
         pin,
         request!.version
       );
       setConfirmed(true);
       setPinOpen(false);
-      push({
-        kind: "success",
-        title: "Агуулахын шалгалт баталгаажлаа",
-        description: hasMissing
-          ? "Дутуу материал худалдан авалтын баталгаажуулах дараагийн шатанд шилжлээ"
-          : "Бүх материал бэлэн байгаа тул захиалга дуусгавар боллоо",
-      });
+      // the server's answer, not the numbers typed here
+      push(warehouseOutcome(checked));
     } catch (err) {
       setPinError(err instanceof Error ? err.message : "Баталгаажуулж чадсангүй");
     } finally {
@@ -77,8 +74,14 @@ export default function WarehouseCheckPage() {
           </span>
         </CardHeader>
         <CardBody className="space-y-5">
+          {unlinkedCount > 0 && (
+            <p role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-text">
+              {unlinkedCount} мөр каталогт холбогдоогүй (гараар бичсэн) тул агуулахаас олгох боломжгүй. Эдгээр нь шууд худалдан авалтын шатанд явна.
+            </p>
+          )}
           {request.items.map((item) => {
-            const avail = available[item.id] ?? 0;
+            const unlinked = isUnlinkedLine(item);
+            const avail = effective(item);
             return (
               <div key={item.id} className="rounded-lg border border-border bg-bg-elevated/40 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -94,7 +97,7 @@ export default function WarehouseCheckPage() {
                       type="number"
                       min={0}
                       step="any"
-                      disabled={confirmed}
+                      disabled={confirmed || unlinked}
                       value={avail}
                       onChange={(e) =>
                         setAvailable((prev) => ({ ...prev, [item.id]: Number(e.target.value) || 0 }))
@@ -104,6 +107,7 @@ export default function WarehouseCheckPage() {
                     <span>{item.unit}</span>
                   </label>
                 </div>
+                {unlinked && <p className="mt-2 text-xs text-warning">{UNLINKED_LINE_NOTE}</p>}
                 <div className="mt-4">
                   <AllocationBar
                     requested={item.requestedQuantity}
@@ -120,7 +124,7 @@ export default function WarehouseCheckPage() {
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-bg-surface p-4">
         <div className="flex items-center gap-2 text-xs text-text-muted">
           <PackageCheck className="size-3.5" />
-          Байгаа хэмжээ агуулахаас олгогдож, дутуу хэсэг худалдан авалтын батлах хүсэлт болно.
+          {hasMissing ? "Байгаа хэмжээ агуулахаас олгогдож, дутуу хэсэг худалдан авалтын батлах хүсэлт болно." : "Бүх материал агуулахаас олгогдож, захиалга дуусна."}
         </div>
         {confirmed ? (
           <Button variant="secondary" onClick={() => router.push("/warehouse")}>

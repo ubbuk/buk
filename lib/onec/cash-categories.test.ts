@@ -32,6 +32,13 @@ describe("categorize: анхдагч дүрмүүд (бодит дансны б�
     expect(categorize(e({ counterAccount: "3101", memo: "Зээлийн эргэн төлөлт" }))).toBe("loan");
   });
 
+  it("«Банкны шимтгэл» зүйл ба данс хөтөлсний хураамж = банкны шимтгэл; «гаалийн хураамж» нь банкны шимтгэл БИШ (татвар)", () => {
+    expect(categorize(e({ counterAccount: "7000", article: "Банкны шимтгэл", memo: "Гадаад гүйлгээний шимтгэл" }))).toBe("bankfee");
+    expect(categorize(e({ counterAccount: "7000", memo: "данс хөтөлсний хураамж" }))).toBe("bankfee");
+    expect(categorize(e({ counterAccount: "3101", article: "Татварын төлбөр", memo: "гаалийн хураамж Нэхэмжлэх:0221" }))).toBe("tax");
+    expect(categorize(e({ counterAccount: "3101", memo: "гаалийн хураамж" }))).toBe("suppliers");
+  });
+
   it("татвар/цалингийн данс утгаас хүчтэй: «НДШ шимтгэл» гэсэн утга банкны шимтгэл биш", () => {
     expect(categorize(e({ counterAccount: "3450", memo: "НДШ шимтгэл" }))).toBe("tax");
   });

@@ -4,6 +4,7 @@
 // дүн, ангилал өөрчлөгдөхгүй), нэгтгэсэн мөрөнд баримт, данс байхгүй.
 import type { CashEntry, CashResult } from "./cash";
 import { categorize, categoryLabel, type CashRule, type CategoryId } from "./cash-categories";
+import type { FeeReport } from "./cash-fees";
 import { PAYROLL_LABEL } from "./payroll-guard";
 import { parseQuery } from "@/lib/query-parse";
 
@@ -81,6 +82,8 @@ export interface CashReport {
   /** «Бусад»-ын хувь (0..1): өндөр бол ангиллын дүрэм дутуу */
   otherShare: { inflow: number; outflow: number };
   internal: { total: number; count: number; items: { date: string; from: string; to: string; amount: number }[] };
+  /** банкны шимтгэл: нийт, гадаад гүйлгээний, холбогдсон/холбогдоогүй, аль гүйлгээнд хамаарах (ангиллын нийлбэр өөрчлөгдөхгүй) */
+  fees: FeeReport | null;
 }
 
 function flowReport(entries: readonly ReportEntry[], type: "inflow" | "outflow"): FlowReport {
@@ -117,7 +120,7 @@ function flowReport(entries: readonly ReportEntry[], type: "inflow" | "outflow")
   return { total: round2(total), categories };
 }
 
-export function buildCashReport(cash: CashResult, entries: readonly ReportEntry[]): CashReport {
+export function buildCashReport(cash: CashResult, entries: readonly ReportEntry[], fees: FeeReport | null = null): CashReport {
   const inflow = flowReport(entries, "inflow");
   const outflow = flowReport(entries, "outflow");
   const other = (f: FlowReport) => f.categories.find((c) => c.id === "other")?.share ?? 0;
@@ -128,6 +131,7 @@ export function buildCashReport(cash: CashResult, entries: readonly ReportEntry[
     inflow,
     outflow,
     otherShare: { inflow: other(inflow), outflow: other(outflow) },
+    fees,
     internal: {
       total: cash.totals.internal,
       count: cash.transfers.length,

@@ -7,7 +7,7 @@ import { signatureMatches, SIGNATURE_BYTES } from "./file-signature";
 import {
   discardObjects,
   discardUploads,
-  presignUploads,
+  presignUploadsSafe,
   validateDeclared,
   verifyUploads,
   type DeclaredFile,
@@ -172,7 +172,7 @@ export async function presignAttachments(requestId: string, actorId: string, fil
     const problem = validateDeclared(f);
     if (problem) return { ok: false, status: 400, error: problem };
   }
-  return { ok: true, data: await presignUploads({ prefix: prefixOf(requestId), actorId }, files) };
+  return presignUploadsSafe({ prefix: prefixOf(requestId), actorId }, files);
 }
 
 /** Step 3: the files are in the bucket; check them there and register the metadata. */

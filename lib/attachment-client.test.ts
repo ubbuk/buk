@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { checkPickedFile, guessMime, UploadError, withRetry } from "./attachment-client";
+import { describe, expect, it, vi } from "vitest";
+import { checkPickedFile, finalizeUploads, guessMime, isTransientStatus, UploadError, withRetry } from "./attachment-client";
 import { fitWithin, jpegName } from "./image-compress";
 
 const file = (name: string, type: string, size = 100) => ({ name, type, size }) as File;
@@ -83,5 +83,36 @@ describe("withRetry", () => {
       )
     ).rejects.toThrow("Зөвшөөрөлгүй");
     expect(calls).toBe(1);
+  });
+});
+
+describe("which failures are retried", () => {
+  it("only timeouts, throttling and a briefly unavailable service; a plain 500 is shown at once", () => {
+    for (const s of [408, 429, 502, 503, 504]) expect(isTransientStatus(s), String(s)).toBe(true);
+    for (const s of [400, 401, 403, 404, 409, 413, 500]) expect(isTransientStatus(s), String(s)).toBe(false);
+  });
+
+  it("a storage setting/key fault (500 with its message) is not retried and keeps its sentence; an unreachable store (503) and a dropped network are", async () => {
+    const answer = (status: number, error: string) => vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ error }), { status }));
+    answer(500, "Файл хадгалах сангийн тохиргоо буруу байна. Системийн админд мэдэгдэнэ үү");
+    const config = await finalizeUploads<never>("/x", []).catch((e: UploadError) => e);
+    expect(config).toBeInstanceOf(UploadError);
+    expect(config.message).toBe("Файл хадгалах сангийн тохиргоо буруу байна. Системийн админд мэдэгдэнэ үү");
+    expect(config.retryable).toBe(false);
+
+    answer(503, "Файл хадгалах сантай холбогдож чадсангүй. Дахин оролдоно уу");
+    expect((await finalizeUploads<never>("/x", []).catch((e: UploadError) => e)).retryable).toBe(true);
+
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect((await finalizeUploads<never>("/x", []).catch((e: UploadError) => e)).retryable).toBe(true);
+
+    // and through withRetry: the config fault is attempted exactly once
+    answer(500, "x");
+    let calls = 0;
+    await withRetry(async () => { calls++; return finalizeUploads("/x", []); }, () => undefined, [0, 0, 0]).catch(() => undefined);
+    expect(calls).toBe(1);
+    vi.unstubAllGlobals();
   });
 });

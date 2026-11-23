@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build:wasm": "bash native/timeline-engine/build.sh",
+    "check:lockfile": "npx -y npm@10 ci --ignore-scripts --dry-run",
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",

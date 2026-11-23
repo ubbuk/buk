@@ -34,20 +34,41 @@ export type FieldErrors = Partial<Record<string, string>>;
 // --- API payload schema (POST /api/requests) --------------------------------
 // Branch (ENGINEERING vs OPERATIONS_DIRECTOR, stage 4) is resolved from the
 // department's own type at approval time -- no requester-chosen route.
+// Every rule carries its own message: the route turns the first failure into the sentence the user sees
+// (describeApiIssue), so "Хүчингүй өгөгдөл" alone never reaches the screen.
 export const apiCreateRequestItemSchema = z.object({
   materialId: z.string().nullable().optional(),
-  materialName: z.string().trim().min(1),
-  unit: z.string().trim().min(1),
-  requestedQuantity: z.number().positive(),
-  unitPrice: z.number().min(0).nullable().optional(),
-  note: z.string().optional(),
+  materialName: z.string({ required_error: "Материалын нэрийг оруулна уу", invalid_type_error: "Материалын нэр буруу байна" }).trim().min(1, "Материалын нэрийг оруулна уу"),
+  unit: z.string({ required_error: "Нэгжийг оруулна уу", invalid_type_error: "Нэгж буруу байна" }).trim().min(1, "Нэгжийг оруулна уу"),
+  requestedQuantity: z
+    .number({ required_error: "Тоо хэмжээг оруулна уу", invalid_type_error: "Тоо хэмжээ тоо байх ёстой" })
+    .positive("Тоо хэмжээ 0-с их байх ёстой"),
+  unitPrice: z.number({ invalid_type_error: "Нэгж үнэ тоо байх ёстой" }).min(0, "Нэгж үнэ сөрөг байж болохгүй").nullable().optional(),
+  note: z.string({ invalid_type_error: "Тайлбар буруу байна" }).optional(),
 });
 
 export const apiCreateRequestSchema = z.object({
-  departmentId: z.string().min(1),
+  departmentId: z.string({ required_error: "Цех, тасаг сонгогдоогүй байна", invalid_type_error: "Цех, тасаг буруу байна" }).min(1, "Цех, тасаг сонгогдоогүй байна. Хуудсаа дахин ачаалж цех, тасгаа сонгоно уу"),
   note: z.string().optional(),
-  items: z.array(apiCreateRequestItemSchema).min(1),
+  items: z.array(apiCreateRequestItemSchema, { required_error: "Материалын жагсаалт хоосон байна", invalid_type_error: "Материалын жагсаалт буруу байна" }).min(1, "Хамгийн багадаа нэг мөр нэмнэ үү"),
 });
+
+const FIELD_LABEL: Record<string, string> = {
+  departmentId: "Цех, тасаг",
+  items: "Материалын жагсаалт",
+  materialName: "Материалын нэр",
+  unit: "Нэгж",
+  requestedQuantity: "Тоо хэмжээ",
+  unitPrice: "Нэгж үнэ",
+  note: "Тайлбар",
+};
+
+/** "2-р мөр · Тоо хэмжээ: Тоо хэмжээ 0-с их байх ёстой" -- names the row and field of one zod issue. */
+export function describeApiIssue(issue: { path: (string | number)[]; message: string }): string {
+  const row = issue.path[0] === "items" && typeof issue.path[1] === "number" ? `${issue.path[1] + 1}-р мөр` : null;
+  const field = FIELD_LABEL[String(issue.path[issue.path.length - 1])];
+  return [row, field ? `${field}: ${issue.message}` : issue.message].filter(Boolean).join(" · ");
+}
 
 export type ApiCreateRequestInput = z.infer<typeof apiCreateRequestSchema>;
 
