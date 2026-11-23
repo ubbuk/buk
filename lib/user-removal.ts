@@ -70,7 +70,7 @@ export interface Responsibility {
 export interface RemovalInspection {
   user: { id: string; name: string; email: string; role: string; isActive: boolean };
   responsibilities: Responsibility[];
-  pending: { requests: number; executiveRequests: number; candidates: Candidate[] };
+  pending: { requests: number; executiveRequests: number; /** requests that can be cancelled instead of handed over (their step is still undecided) */ cancellable: number; candidates: Candidate[] };
   /** unfinished procurement items of kinds the person does not hold the position for: nobody takes them over */
   strayItems: number;
 }
@@ -147,6 +147,7 @@ export async function inspectRemoval(userId: string, db: Db = prisma): Promise<R
     pending: {
       requests: new Set(steps.map((s) => s.requestId)).size,
       executiveRequests: new Set(steps.filter((s) => s.type === "EXECUTIVE_APPROVAL").map((s) => s.requestId)).size,
+      cancellable: new Set(steps.filter((s) => s.status === "PENDING").map((s) => s.requestId)).size,
       candidates: steps.length > 0 ? await usersWithRole(db, user.role, userId) : [],
     },
     strayItems: allItems.filter((i) => !heldKinds.has(i.kind)).length,
@@ -162,17 +163,21 @@ export interface RemovalInput {
   transfers: Record<string, string | null>;
   /** who takes the waiting approval steps that no specific answer covers */
   pendingReceiverId?: string | null;
+  /** instead of handing the waiting orders over: cancel them (status CANCELLED, reason, audit, the requester is told) */
+  cancelPending?: boolean;
 }
 
 export interface RemovalSummary {
   mode: "HARD" | "SOFT";
-  moved: { responsibilities: number; emptied: number; approvalSteps: number; procurementItems: number };
+  moved: { responsibilities: number; emptied: number; approvalSteps: number; cancelledRequests: number; procurementItems: number };
 }
 
 /** An unusable credential: random, never disclosed, so the account cannot be signed into even if it were re-activated by mistake. */
 async function unusablePasswordHash(): Promise<string> {
   return bcrypt.hash(randomBytes(32).toString("hex"), 10);
 }
+
+export const CANCEL_REASON = "Хэрэглэгч устгагдсан (админ)";
 
 export const releasedEmail = (userId: string) => `deleted+${userId}@deleted.invalid`;
 
@@ -293,7 +298,23 @@ export async function removeUser(input: RemovalInput): Promise<RemovalFailure | 
         }
 
         // the waiting approval steps (read after the responsibilities moved, under row locks)
-        const steps = await pendingSteps(tx, input.targetId);
+        const allSteps = await pendingSteps(tx, input.targetId);
+        // cancelling covers the orders still waiting for a decision; an executive's already-approved order that is only open for deferred quantities is handed over
+        const cancelled = input.cancelPending ? allSteps.filter((s) => s.status === "PENDING") : [];
+        const cancelledRequestIds = [...new Set(cancelled.map((s) => s.requestId))].sort();
+        if (cancelledRequestIds.length > 0) {
+          await tx.$queryRaw`SELECT id FROM "MaterialRequest" WHERE id = ANY(${cancelledRequestIds}::text[]) ORDER BY id FOR UPDATE`;
+          const now = new Date();
+          const upd = await tx.materialRequest.updateMany({ where: { id: { in: cancelledRequestIds }, status: { notIn: [...FINISHED] } }, data: { status: "CANCELLED", cancelledAt: now, cancelReason: CANCEL_REASON } });
+          if (upd.count !== cancelledRequestIds.length) throw new Abort(fail(409, "Захиалгын төлөв зэрэг өөрчлөгдсөн тул устгал цуцлагдлаа. Дахин оролдоно уу", "WORK_CHANGED"));
+          // nothing is waiting any more: the open steps of those requests are skipped (decided ones are history)
+          await tx.approvalStep.updateMany({ where: { requestId: { in: cancelledRequestIds }, status: "PENDING" }, data: { status: "SKIPPED" } });
+          const reqs = await tx.materialRequest.findMany({ where: { id: { in: cancelledRequestIds } }, select: { id: true, requestNumber: true, requestedById: true, status: true } });
+          await tx.auditLog.createMany({ data: reqs.map((r) => ({ entityType: "MaterialRequest", entityId: r.id, action: "CANCEL" as const, actorId: input.adminId, beforeJson: JSON.stringify({ status: cancelled.find((s) => s.requestId === r.id)?.request.status }), afterJson: JSON.stringify({ status: "CANCELLED", reason: CANCEL_REASON, cancelledAssigneeId: input.targetId }) })) });
+          await tx.notification.createMany({ data: reqs.filter((r) => r.requestedById !== input.targetId).map((r) => ({ userId: r.requestedById, type: "GENERIC" as const, title: "Захиалга цуцлагдлаа", body: `№${r.requestNumber} захиалга цуцлагдлаа. Шалтгаан: ${CANCEL_REASON}`, relatedRequestId: r.id })) });
+          for (const r of reqs) if (r.requestedById !== input.targetId) notify.push(r.requestedById);
+        }
+        const steps = allSteps.filter((s) => !cancelled.includes(s));
         if (steps.length > 0) {
           await tx.$queryRaw`SELECT id FROM "ApprovalStep" WHERE id = ANY(${steps.map((s) => s.id)}::text[]) ORDER BY id FOR UPDATE`;
           const headReceiver = (departmentId: string) => input.transfers[`head:${departmentId}`] ?? null;
@@ -362,10 +383,10 @@ export async function removeUser(input: RemovalInput): Promise<RemovalFailure | 
             actorId: input.adminId,
             ipAddress: input.ip,
             beforeJson: JSON.stringify({ name: target.name, email: target.email, role: target.role, isActive: target.isActive }),
-            afterJson: JSON.stringify({ kind: "USER_DELETE", mode, responsibilities: Object.fromEntries(Object.entries(input.transfers)), pendingReceiverId: input.pendingReceiverId ?? null, movedApprovalSteps: steps.length, movedProcurementItems: procurementItems }),
+            afterJson: JSON.stringify({ kind: "USER_DELETE", mode, responsibilities: Object.fromEntries(Object.entries(input.transfers)), pendingReceiverId: input.pendingReceiverId ?? null, cancelledRequests: cancelledRequestIds.length, movedApprovalSteps: steps.length, movedProcurementItems: procurementItems }),
           },
         });
-        return { mode, moved: { responsibilities: moved, emptied, approvalSteps: steps.length, procurementItems } } satisfies RemovalSummary;
+        return { mode, moved: { responsibilities: moved, emptied, approvalSteps: steps.length, cancelledRequests: cancelledRequestIds.length, procurementItems } } satisfies RemovalSummary;
       },
       { timeout: 30_000, maxWait: 10_000 }
     );

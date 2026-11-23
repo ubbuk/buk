@@ -10,6 +10,7 @@ import type { RemovalInspection } from "@/lib/user-removal";
 const selectClass = "focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text";
 const inputClass = "focus-ring h-9 w-full rounded-lg border border-border bg-bg-elevated px-3 text-sm text-text placeholder:text-text-muted";
 const EMPTY = "__empty__";
+const CANCEL = "__cancel__";
 
 interface Props {
   user: { id: string; name: string; email: string } | null;
@@ -74,7 +75,7 @@ export function DeleteUserDialog({ user, onClose, onDone }: Props) {
       const res = await fetch(`/api/admin/users/${user.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, transfers, pendingReceiverId: pendingReceiver || null }),
+        body: JSON.stringify({ adminPassword: password, transfers, pendingReceiverId: pendingReceiver && pendingReceiver !== CANCEL ? pendingReceiver : null, cancelPending: pendingReceiver === CANCEL }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -140,7 +141,13 @@ export function DeleteUserDialog({ user, onClose, onDone }: Props) {
                     {c.name}
                   </option>
                 ))}
+                <option value={CANCEL}>Захиалгыг цуцлах</option>
               </select>
+              {pendingReceiver === CANCEL && (
+                <p role="alert" className="text-xs font-medium text-warning">
+                  {info.pending.cancellable} захиалга цуцлагдана (шалтгаан: «Хэрэглэгч устгагдсан (админ)», захиалагчид мэдэгдэнэ).
+                </p>
+              )}
               {info.pending.candidates.length === 0 && <p className="text-xs text-text-muted">Шилжүүлэх боломжтой ижил эрхтэй идэвхтэй хэрэглэгч алга.</p>}
             </div>
           )}

@@ -252,3 +252,43 @@ describe("executive approvals", () => {
     expect(await prisma.executiveApprovalReassignment.count({ where: { requestId: r.id, fromUserId: id("ex1"), toUserId: id("ex2"), reassignedById: ADMIN } })).toBe(1);
   });
 });
+
+describe("waiting orders: cancel them instead of handing over", () => {
+  it("with nobody to hand over to, the orders are cancelled (reason, audit, requester told), open steps skipped, and the person can be removed", async () => {
+    const dept = await prisma.department.create({ data: { name: `${P}${TAG}-dept4`, type: "FACTORY" } });
+    await mk("boss5", "BOSS");
+    await mk("emp5", "EMPLOYEE", { departmentId: dept.id });
+    await prisma.department.update({ where: { id: dept.id }, data: { headId: id("boss5") } });
+    const waiting = await mkRequest(dept.id, id("emp5"), "PENDING_DEPARTMENT_APPROVAL", { type: "DEPARTMENT_HEAD", to: id("boss5") });
+    const key = `head:${dept.id}`;
+
+    const info = await (await REMOVAL_GET(req("GET"), ctx(id("boss5")))).json();
+    expect(info.pending).toMatchObject({ requests: 1, cancellable: 1 });
+
+    const noAnswer = await del(id("boss5"), { transfers: { [key]: null } });
+    expect(noAnswer.status).toBe(400); // still needs an explicit answer for the orders
+
+    const ok = await del(id("boss5"), { transfers: { [key]: null }, cancelPending: true });
+    expect(ok.status).toBe(200);
+    const r = await prisma.materialRequest.findUniqueOrThrow({ where: { id: waiting.id } });
+    expect(r).toMatchObject({ status: "CANCELLED", cancelReason: "Хэрэглэгч устгагдсан (админ)" });
+    expect(r.cancelledAt).toBeInstanceOf(Date);
+    expect((await prisma.approvalStep.findFirstOrThrow({ where: { requestId: waiting.id } })).status).toBe("SKIPPED");
+    const audit = await prisma.auditLog.findFirst({ where: { entityType: "MaterialRequest", entityId: waiting.id, action: "CANCEL", actorId: ADMIN } });
+    expect(JSON.parse(audit!.afterJson!)).toMatchObject({ status: "CANCELLED", reason: "Хэрэглэгч устгагдсан (админ)" });
+    expect(await prisma.notification.count({ where: { userId: id("emp5"), relatedRequestId: waiting.id } })).toBe(1);
+    expect((await prisma.department.findUniqueOrThrow({ where: { id: dept.id } })).headId).toBeNull();
+  });
+
+  it("an executive's pending order can be cancelled even with the position left empty", async () => {
+    const dept = await prisma.department.create({ data: { name: `${P}${TAG}-dept5`, type: "OFFICE" } });
+    await mk("ex3", "DIRECTOR");
+    await mk("emp6", "EMPLOYEE", { departmentId: dept.id });
+    await prisma.approvalRoleAssignment.create({ data: { role: "EXECUTIVE_DIRECTOR", userId: id("ex3") } });
+    const r = await mkRequest(dept.id, id("emp6"), "PENDING_EXECUTIVE_APPROVAL", { type: "EXECUTIVE_APPROVAL", to: id("ex3") });
+    const ok = await del(id("ex3"), { transfers: { "position:EXECUTIVE_DIRECTOR": null }, cancelPending: true });
+    expect(ok.status).toBe(200);
+    expect((await prisma.materialRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("CANCELLED");
+    expect(await prisma.approvalRoleAssignment.count({ where: { role: "EXECUTIVE_DIRECTOR", isActive: true } })).toBe(0);
+  });
+});
