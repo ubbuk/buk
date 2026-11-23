@@ -11,6 +11,7 @@ import { addMonths, currentMonth, isMonth, today } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 import { loadUsage } from "@/lib/onec/usage";
 import { compareUsage, usageByWarehouse } from "@/lib/onec/usage-compare";
+import { buildUsageView } from "@/lib/onec/usage-view";
 import type { WarehouseRow } from "@/lib/onec/stock-tree";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,9 @@ export const GET = withTiming("GET /api/dashboard/usage", async (req: Request) =
     ]);
     const warehouses: WarehouseRow[] = warehouseRows.map((w) => ({ id: w.id, name: w.name, onecCode: w.onecCode, parentId: w.parentId, reservable: w.reservable, keeperId: w.keeperId, keeperName: w.keeper?.name ?? null }));
     const { comparison, daily } = compareUsage(value, previous, month === currentMonth() ? today() : null);
-    return NextResponse.json({ ...value, daily, comparison, byWarehouse: usageByWarehouse(value.documents, warehouses), meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+    // Олголтын баримтын «Комментарий» (зориулалт) хэзээ ч гарахгүй: хүний нэр агуулж болно
+    const documents = value.documents.map((d) => ({ ...d, purpose: "" }));
+    return NextResponse.json({ ...value, documents, view: buildUsageView(value.byDepartment, value.byMaterial, value.deptMaterials), daily, comparison, byWarehouse: usageByWarehouse(value.documents, warehouses), meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
     throw e;

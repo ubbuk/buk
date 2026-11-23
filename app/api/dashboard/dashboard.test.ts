@@ -26,6 +26,7 @@ import { GET as SUMMARY } from "./summary/route";
 import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
 import { GET as USAGE } from "./usage/route";
+import { GET as USAGE_TREND } from "./usage/trend/route";
 import { GET as WIP } from "./wip/route";
 import { GET as YEAR } from "./year/route";
 
@@ -103,6 +104,7 @@ afterEach(() => {
 const ROUTES = {
   stock: () => STOCK(get("/api/dashboard/stock")),
   stockTrend: () => STOCK_TREND(get(`/api/dashboard/stock/trend?year=${currentMonth().slice(0, 4)}`)),
+  usageTrend: () => USAGE_TREND(get(`/api/dashboard/usage/trend?year=${currentMonth().slice(0, 4)}`)),
   usage: () => USAGE(get(`/api/dashboard/usage?month=${MONTH}`)),
   salesView: () => SALES(get(`/api/dashboard/sales?month=${MONTH}`)),
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
@@ -123,7 +125,7 @@ const ROUTES = {
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "stockTrend", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "stockTrend", "usage", "usageTrend", "syncStatus", "stockFreshness", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -152,7 +154,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "stockTrend", "usage", "sales", "salesView", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "stockTrend", "usage", "usageTrend", "sales", "salesView", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -456,6 +458,15 @@ describe("/api/dashboard/usage: 5 минутын cache", () => {
     expect(fetchCalls.mock.calls.length).toBe(callsAfterFirst);
   });
 
+  it("удирдлагын харагдац: цех → материал, материал → цех; олголтын «зориулалт» (Комментарий) хэзээ ч гарахгүй", async () => {
+    as("DIRECTOR");
+    const r = await (await ROUTES.usage()).json();
+    expect(Array.isArray(r.view.departments)).toBe(true);
+    expect(Array.isArray(r.view.materials)).toBe(true);
+    for (const d of r.documents) expect(d.purpose).toBe("");
+    expect(JSON.stringify(r.view)).not.toMatch(/Catalog_|Комментарий/);
+  });
+
   it("1С унтарвал ойлгомжтой алдаа (нууц, URL-гүй)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 500 })));
     as("ADMIN");
@@ -513,6 +524,32 @@ describe("/api/dashboard/receivables: Postgres-ийн агшин зураг (1С
     await cleanLog();
   });
   const today = () => asOfDate(currentMonth());
+
+  it("удирдлагын харагдац: нас (FIFO), өмнөх сартай харьцуулалт, сарын эцсийн график; 1С руу юу ч явахгүй", async () => {
+    const ASOF = "2020-06-30";
+    const PREV = "2020-05-31";
+    const sale = (date: string, amount: number) => ({ date: new Date(`${date}T00:00:00.000Z`), org: "", itemCode: "x", item: "x", unit: "", qty: 1, amount, vat: 0, cost: 0, clientCode: "K1", client: "Альфа ХХК", clientReg: "", dept: "", doc: "dash-ar-view", rowType: "sale" });
+    await prisma.onecSales.createMany({ data: [sale("2020-05-02", 1000), sale("2020-06-10", 300), sale("2020-06-25", 200)] });
+    try {
+      await writeStage(ASOF, "1201", [{ accountCode: "1201", accountName: "Авлага", customerKey: CUST_A, customer: "Альфа ХХК", balance: 600, customers: 1 }, { accountCode: "1201", accountName: "Авлага", customerKey: CUST_B, customer: "Банк ХХК", balance: 100, customers: 1 }]);
+      await writeStage(PREV, "1201", [{ accountCode: "1201", accountName: "Авлага", customerKey: CUST_A, customer: "Альфа ХХК", balance: 400, customers: 1 }]);
+      as("CHIEF_ACCOUNTANT");
+      const r = await (await RECEIVABLES(get(`/api/dashboard/receivables?month=2020-06`))).json();
+      const alpha = r.customers.find((c: { key: string }) => c.key === CUST_A);
+      // 600 = 200 (06-25, 5 хоног) + 300 (06-10, 20 хоног) + 100 (05-02, 59 хоног)
+      expect(alpha.aging).toMatchObject({ b0_30: 500, b31_60: 100, b61_90: 0, b90: 0, unknown: 0 });
+      expect(alpha).toMatchObject({ previousBalance: 400, change: 200 });
+      expect(r.customers.find((c: { key: string }) => c.key === CUST_B).aging).toMatchObject({ unknown: 100 }); // борлуулалтын баримтгүй
+      expect(r.previous).toMatchObject({ asOf: PREV, receivable: 400, change: 300, changePct: 75 });
+      expect(r.aging.over30).toBe(100);
+      expect(r.aging.buckets.reduce((s: number, b: { amount: number }) => s + b.amount, 0)).toBe(700);
+      expect(r.trend.map((t: { month: string }) => t.month)).toEqual(["2020-05", "2020-06"]);
+      expect(JSON.stringify(r)).not.toMatch(/Catalog_|Комментарий/);
+      expect(fetchCalls).not.toHaveBeenCalled();
+    } finally {
+      await prisma.onecSales.deleteMany({ where: { doc: "dash-ar-view" } });
+    }
+  });
 
   it("агшин зураггүй бол missing, 1С руу юу ч явахгүй", async () => {
     as("CHIEF_ACCOUNTANT");

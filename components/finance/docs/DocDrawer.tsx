@@ -143,12 +143,6 @@ function DocView({ type, refKey, onOpen }: { type: string; refKey: string; onOpe
           ))}
         </dl>
       )}
-      {data.comment && (
-        <div className="ng-panel rounded-xl p-4 text-sm">
-          <p className="text-[11px] uppercase tracking-wide text-text-muted">Тайлбар</p>
-          <p className="mt-0.5 whitespace-pre-wrap break-words text-text">{data.comment}</p>
-        </div>
-      )}
 
       {data.lines.length > 0 && (
         <section aria-label="Мөрүүд" className="ng-panel overflow-hidden rounded-xl">

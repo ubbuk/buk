@@ -200,6 +200,20 @@ JOIN "MaterialRequest" r ON r.id = q."requestId" WHERE q.status = 'PENDING';
 - [ ] Захиалга үүсгэж, файл хавсаргаад татаж үзэх (S3)
 - [ ] `/admin/monitoring` (ADMIN/DIRECTOR)
 
+## Авлагын түүх нөхөх (нэг удаа)
+
+«Авлага» табын сар бүрийн график, өмнөх сартай харьцуулалт нь сар бүрийн эцсийн агшин зургаас гарна. Хуучин саруудыг нэг удаа нөхөхөд:
+
+```
+gh workflow run "Sync 1C" -f mode=receivables-backfill -f from=2026-01 -f to=2026-10
+```
+
+(эсвэл GitHub → Actions → Sync 1C → Run workflow → mode=receivables-backfill, from, to). Өнгөрсөн сар бүрт зөвхөн толгой данс 1201-ийн Balance
+(Period = сарын эцсийн дараагийн өдрийн 00:00) НЭГ хүсэлтийг ДАРААЛЛАН, 15 секундийн завсарлагатай татна (10 сар ≈ 3 минут). Аль хэдийн
+татагдсан сарыг алгасна, тиймээс дахин ажиллуулахад 1С-д хүрэхгүй. Нэг удаад ≤ 24 сар, одоогийн сар орохгүй. Үр дүнг workflow-ийн
+log-оос («татагдлаа / алгасав») болон ERP-ийн «Авлага» таб дээрх сар бүрийн графикаас харна. Локалд:
+`npm run sync:1c -- receivables-backfill 2026-01 2026-10 --pause=15` (DATABASE_URL нь тухайн DB-г заана).
+
 ## package-lock.json (Sync 1C, CI)
 
 Sync 1C ажил Linux дээр `npm ci --ignore-scripts` ажиллуулдаг (Node 22, npm 10). Windows дээрх шинэ npm (11) `npm install` хийхдээ lock-оос

@@ -39,11 +39,22 @@ export interface UsageDocument {
   purpose: string;
   amount: number;
 }
+/** Хэлтэс, цех бүрийн материал (шаардах хуудасны бичилтээс): цех → материал харагдацад */
+export interface UsageDeptMaterial {
+  department: string;
+  key: string;
+  name: string;
+  unit: string;
+  quantity: number;
+  amount: number;
+}
 export interface UsageResult {
   month: string;
   totals: { amount: number; documents: number; materials: number };
   byMaterial: UsageMaterial[];
   byDepartment: UsageDepartment[];
+  /** хэлтэс × материал: тоо, дүн (нийлбэр нь byMaterial, byDepartment-тэй таарна) */
+  deptMaterials: UsageDeptMaterial[];
   daily: { date: string; amount: number }[];
   documents: UsageDocument[];
 }
@@ -74,6 +85,10 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
   const perDoc = new Map<string, number>();
   const perItem = new Map<string, { quantity: number; amount: number; docs: Set<string> }>();
   const perDay = new Map<string, number>();
+  const perDeptItem = new Map<string, { department: string; item: string; quantity: number; amount: number }>();
+  const docDept = new Map(
+    docs.map((d) => [String(d.Ref_Key).toLowerCase(), nameOf(names.departments, realKey(d["ПодразделениеЗатрат_Key"]) ?? d["ПодразделениеОрганизации_Key"])] as const)
+  );
   const docDate = new Map(docs.map((d) => [String(d.Ref_Key).toLowerCase(), day(d.Date)]));
   for (const r of records) {
     if (!String(r.ExtDimensionCr1_Type ?? "").endsWith(ITEM_TYPE)) continue;
@@ -86,6 +101,11 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
     cur.amount += amount;
     cur.docs.add(doc);
     perItem.set(item, cur);
+    const department = docDept.get(doc) ?? UNKNOWN;
+    const di = perDeptItem.get(`${department}|${item}`) ?? { department, item, quantity: 0, amount: 0 };
+    di.quantity += num(r["КоличествоCr"]);
+    di.amount += amount;
+    perDeptItem.set(`${department}|${item}`, di);
     perDoc.set(doc, (perDoc.get(doc) ?? 0) + amount);
     const d = docDate.get(doc) ?? day(r.Period);
     perDay.set(d, (perDay.get(d) ?? 0) + amount);
@@ -122,6 +142,11 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
   });
   byMaterial.sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "mn"));
 
+  const deptMaterials: UsageDeptMaterial[] = [...perDeptItem.values()].map((v) => {
+    const item = names.items.get(v.item);
+    return { department: v.department, key: v.item, name: item?.name || UNKNOWN, unit: item?.unit ?? "", quantity: round2(v.quantity), amount: round2(v.amount) };
+  });
+
   const { from, to } = monthRange(month);
   const daily: { date: string; amount: number }[] = [];
   for (let d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d = new Date(d.getTime() + 86_400_000)) {
@@ -134,6 +159,7 @@ export function buildUsage({ month, docs, records, names }: UsageInputs): UsageR
     totals: { amount: round2(sumBy(documents, (d) => d.amount)), documents: documents.length, materials: byMaterial.length },
     byMaterial,
     byDepartment: [...byDept.values()].map((d) => ({ ...d, amount: round2(d.amount) })).sort((a, b) => b.amount - a.amount),
+    deptMaterials,
     daily,
     documents,
   };
