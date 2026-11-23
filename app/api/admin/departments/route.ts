@@ -3,9 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-auth";
-import { emitBroadcast } from "@/lib/events";
-import { prisma } from "@/lib/prisma";
-import { invalidate } from "@/lib/cache";
+import { createDepartment } from "@/lib/department-admin";
 
 const bodySchema = z.object({
   name: z.string().trim().min(1),
@@ -20,17 +18,7 @@ export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
 
-  const existing = await prisma.department.findFirst({ where: { name: parsed.data.name } });
-  if (existing) return NextResponse.json({ error: "Энэ нэртэй цех, тасаг бүртгэлтэй байна" }, { status: 409 });
-
-  const department = await prisma.department.create({ data: parsed.data });
-  await prisma.auditLog.create({
-    data: { entityType: "Department", entityId: department.id, action: "CREATE", actorId: session.user.id },
-  });
-  invalidate("departments:list");
-
-  // Admin edits change what other open sessions show (user lists, department
-  // heads, approvers) -- tell them to refetch instead of waiting for a reload.
-  emitBroadcast({ type: "data-changed" });
-  return NextResponse.json({ id: department.id, name: department.name, type: department.type }, { status: 201 });
+  const result = await createDepartment({ adminId: session.user.id, ...parsed.data });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json({ id: result.department.id, name: result.department.name, type: result.department.type }, { status: 201 });
 }

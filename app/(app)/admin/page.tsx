@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, Receipt, UserCog, Wallet } from "lucide-react";
+import { Check, Copy, FileClock, KeyRound, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Receipt, UserCog, Wallet } from "lucide-react";
 import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/components/admin/AuthorityGrantDialog";
 import { DeleteUserDialog } from "@/components/admin/DeleteUserDialog";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
+import { DeleteDepartmentDialog, DepartmentFormDialog } from "@/components/admin/DepartmentDialogs";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
 import { ExecutiveHandoverDialog } from "@/components/admin/ExecutiveHandoverDialog";
 import { WarehouseSettings } from "@/components/admin/WarehouseSettings";
@@ -100,6 +101,8 @@ export default function AdminPage() {
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deptForm, setDeptForm] = useState<{ open: boolean; department: DepartmentOption | null }>({ open: false, department: null });
+  const [deptDelete, setDeptDelete] = useState<DepartmentOption | null>(null);
   const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
   const [executiveHandoverOpen, setExecutiveHandoverOpen] = useState(false);
 
@@ -680,7 +683,12 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Цех, тасгийн дарга</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Цех, тасгийн дарга</CardTitle>
+            <Button size="sm" onClick={() => setDeptForm({ open: true, department: null })}>
+              <Plus className="size-3.5" /> Шинэ цех нэмэх
+            </Button>
+          </div>
         </CardHeader>
         <CardBody className="space-y-3">
           <p className="text-xs text-text-muted">
@@ -712,10 +720,21 @@ export default function AdminPage() {
                   </option>
                 ))}
               </select>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="secondary" onClick={() => setDeptForm({ open: true, department: d })} title="Нэр, төрөл засах" aria-label={`${d.name}: засах`}>
+                  <Pencil className="size-3.5" />
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setDeptDelete(d)} title="Устгах" aria-label={`${d.name}: устгах`}>
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
             </div>
           ))}
         </CardBody>
       </Card>
+
+      <DepartmentFormDialog open={deptForm.open} department={deptForm.department} onClose={() => setDeptForm({ open: false, department: null })} onDone={() => void load()} />
+      <DeleteDepartmentDialog department={deptDelete} onClose={() => setDeptDelete(null)} onDone={() => void load()} />
 
       <WarehouseSettings />
 

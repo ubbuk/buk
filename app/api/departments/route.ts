@@ -13,6 +13,7 @@ export async function GET() {
   // sensitive, safe to cache briefly.
   const payload = await cached("departments:list", 30000, async () => {
     const departments = await prisma.department.findMany({
+      where: { archivedAt: null },
       include: { head: true },
       orderBy: { name: "asc" },
     });

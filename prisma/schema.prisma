@@ -114,6 +114,8 @@ model Department {
   name   String
   type   DepartmentType
   headId String?
+  // Archived (had request history, so it cannot be erased): hidden from lists, not selectable for users, history stays. lib/department-admin.ts
+  archivedAt DateTime?
 
   head               User?               @relation("DepartmentHead", fields: [headId], references: [id])
   members            User[]              @relation("DepartmentMembers")
