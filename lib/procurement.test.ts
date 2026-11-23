@@ -12,7 +12,6 @@ import {
   warehouseCheck,
 } from "./workflow";
 import {
-  completeProcurement,
   getProcurementDetail,
   listProcurement,
   parseSearchNumber,
@@ -20,6 +19,7 @@ import {
   recordPurchase,
   voidPurchase,
 } from "./procurement";
+import { completeProcurement } from "./purchase-receipt-test-support";
 
 // Manager procurement (Stage 7) against the isolated test database, driven
 // through the real workflow: a request is taken from the department head, past

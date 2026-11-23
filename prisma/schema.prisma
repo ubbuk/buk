@@ -76,6 +76,8 @@ model User {
   attachments                Attachment[]
   approvalPinCredential      ApprovalPinCredential?
   procurementPurchases       ProcurementPurchase[]           @relation("PurchaseBy")
+  purchaseReceipts           PurchaseReceipt[]
+  purchaseReceiptWaivers     PurchaseReceiptWaiver[]
   procurementVoids           ProcurementPurchase[]           @relation("PurchaseVoidedBy")
   procurementAssignments     ProcurementItemAssignment[]     @relation("ProcurementAssignee")
   procurementClassifications ProcurementClassification[]     @relation("ClassificationConfirmedBy")
@@ -110,10 +112,10 @@ model ApprovalPinCredential {
 }
 
 model Department {
-  id     String         @id @default(cuid())
-  name   String
-  type   DepartmentType
-  headId String?
+  id         String         @id @default(cuid())
+  name       String
+  type       DepartmentType
+  headId     String?
   // Archived (had request history, so it cannot be erased): hidden from lists, not selectable for users, history stays. lib/department-admin.ts
   archivedAt DateTime?
 
@@ -255,6 +257,8 @@ model MaterialRequest {
   attachments               Attachment[]
   notifications             Notification[]
   accountingRecord          AccountingRecord?
+  purchaseReceipts          PurchaseReceipt[]
+  purchaseReceiptWaivers    PurchaseReceiptWaiver[]
   procurementClassification ProcurementClassification?
   executiveDecisions        ExecutiveApprovalDecision[]
   deferredApprovalRequests  DeferredApprovalRequest[]
@@ -285,6 +289,8 @@ model MaterialRequestItem {
   warehouseCheckItems   WarehouseCheckItem[]
   reservations          StockReservation[]
   purchases             ProcurementPurchase[]
+  purchaseReceipts      PurchaseReceipt[]
+  purchaseReceiptWaiver PurchaseReceiptWaiver?
   procurementAssignment ProcurementItemAssignment?
   executiveAllocations  ExecutiveApprovalAllocation[]
   deferredRequestItems  DeferredApprovalRequestItem[]
@@ -447,6 +453,60 @@ model ProcurementPurchase {
   @@unique([requestItemId, clientRequestId])
   @@index([requestItemId, voidedAt])
   @@index([purchasedAt])
+}
+
+// Stage 7: proof of purchase (delivery note, invoice, VAT receipt, cash receipt) attached by the buying Manager. A receipt
+// belongs to one request item, or to the whole purchase (requestItemId null, covers every item). Editable (add / remove by
+// its uploader) only while the request is in procurement; once the Chief Accountant has it the rows are locked. The file is
+// stored like a request attachment (R2, optional thumbnail). Supplier, number, date and amount are optional.
+enum PurchaseReceiptKind {
+  WAYBILL
+  INVOICE
+  VAT_RECEIPT
+  CASH_RECEIPT
+  OTHER
+}
+
+model PurchaseReceipt {
+  id            String              @id @default(cuid())
+  requestId     String
+  requestItemId String?
+  kind          PurchaseReceiptKind
+  supplierName  String?
+  receiptNumber String?
+  receiptDate   DateTime?
+  amount        Decimal?            @db.Decimal(14, 2)
+  fileName      String
+  storageKey    String
+  thumbKey      String?
+  mimeType      String
+  sizeBytes     Int
+  uploadedById  String
+  uploadedAt    DateTime            @default(now())
+
+  request     MaterialRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestItem MaterialRequestItem? @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  uploadedBy  User                 @relation(fields: [uploadedById], references: [id])
+
+  @@index([requestId])
+  @@index([requestItemId])
+}
+
+// The exception to "every purchased row has a receipt": the Manager says why there is none. Shown to the Chief
+// Accountant in red and audited (PURCHASE_RECEIPT_WAIVE).
+model PurchaseReceiptWaiver {
+  id            String   @id @default(cuid())
+  requestId     String
+  requestItemId String   @unique
+  reason        String
+  waivedById    String
+  waivedAt      DateTime @default(now())
+
+  request     MaterialRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestItem MaterialRequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  waivedBy    User                @relation(fields: [waivedById], references: [id])
+
+  @@index([requestId])
 }
 
 // Stage 7 coordination. When a request reaches procurement the International
@@ -725,6 +785,10 @@ enum AuditAction {
   ONEC_ODATA_VIEW
   ONEC_ODATA_DENIED
   ONEC_PAYROLL_ACCESS
+  PURCHASE_RECEIPT_ADD
+  PURCHASE_RECEIPT_REMOVE
+  PURCHASE_RECEIPT_WAIVE
+  PROCUREMENT_RETURN
 }
 
 model AuditLog {

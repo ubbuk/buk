@@ -12,7 +12,8 @@ import { POST as DECIDE_ROUTE } from "@/app/api/requests/[id]/executive-approval
 import { POST as HANDOVER_ROUTE, GET as HANDOVER_PREVIEW_ROUTE } from "@/app/api/admin/executive-handover/route";
 import { POST as ROLES_ROUTE } from "@/app/api/admin/approval-roles/route";
 import { branchApprove, departmentApprove, executiveApprove, financeApprove, warehouseCheck } from "./workflow";
-import { completeProcurement, getProcurementDetail, recordPurchase, voidPurchase } from "./procurement";
+import { getProcurementDetail, recordPurchase, voidPurchase } from "./procurement";
+import { completeProcurement } from "./purchase-receipt-test-support";
 import { createDeferredRequest, decideAdditionalApproval, getApprovalSummary } from "./executive-approval";
 
 // Executive partial approval & deferred procurement against the isolated test

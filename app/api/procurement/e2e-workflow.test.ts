@@ -1,7 +1,8 @@
 import bcrypt from "bcrypt";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { classifyProcurement, completeProcurement, getProcurementManagers, recordPurchase } from "@/lib/procurement";
+import { classifyProcurement, getProcurementManagers, recordPurchase } from "@/lib/procurement";
+import { completeProcurement } from "@/lib/purchase-receipt-test-support";
 import { branchApprove, departmentApprove, executiveApprove, financeApprove, managerPricingApprove, recordAccountingEntry, warehouseCheck } from "@/lib/workflow";
 import { getPending } from "@/lib/monitoring/queries";
 import { getProcurementList, getProcurementRequestDetail } from "@/lib/monitoring/procurement";
@@ -18,6 +19,7 @@ import { GET as REQUESTS_LIST, POST as REQUESTS_CREATE } from "../requests/route
 import { GET as REQUEST_ONE } from "../requests/[id]/route";
 import { POST as CLASSIFY } from "../requests/[id]/procurement/classify/route";
 import { POST as PURCHASE } from "../requests/[id]/procurement/purchases/route";
+import { ensureReceipt } from "@/lib/purchase-receipt-test-support";
 import { POST as COMPLETE } from "../requests/[id]/procurement/complete/route";
 import { GET as BADGE } from "./badge/route";
 import { GET as PREVIEW, POST as HANDOVER } from "../admin/procurement-handover/route";
@@ -255,6 +257,7 @@ describe("workflow: Employee -> BOSS -> Warehouse -> Directors -> CEO -> Procure
     expect(await prisma.accountingRecord.count({ where: { requestId: r.id } })).toBe(0);
 
     as("mgrA2");
+    await ensureReceipt(r.id, uid("mgrA2"));
     expect((await COMPLETE(json({}), ctx(r.id))).status).toBe(200);
     expect((await prisma.materialRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("PENDING_ACCOUNTING");
     expect(await prisma.notification.count({ where: { userId: uid("acct"), relatedRequestId: r.id } })).toBe(1);

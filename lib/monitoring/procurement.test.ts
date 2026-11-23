@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { eventBus } from "@/lib/events";
-import { classifyProcurement, completeProcurement, recordPurchase, voidPurchase } from "@/lib/procurement";
+import { classifyProcurement, recordPurchase, voidPurchase } from "@/lib/procurement";
+import { completeProcurement } from "@/lib/purchase-receipt-test-support";
 import { executeHandover } from "@/lib/procurement-handover";
 import { recordAccountingEntry } from "@/lib/workflow";
 import { getProcurementList, getProcurementOverview, getProcurementRequestDetail, type ProcurementListOptions } from "./procurement";

@@ -16,7 +16,8 @@ import {
   resubmitPositionStepReturn,
   warehouseCheck,
 } from "./workflow";
-import { completeProcurement, getProcurementDetail, recordPurchase } from "./procurement";
+import { getProcurementDetail, recordPurchase } from "./procurement";
+import { completeProcurement } from "./purchase-receipt-test-support";
 import { warehouseOutcome } from "./warehouse-outcome";
 
 const DEPT_ID = "vitest-dept"; // FACTORY -> branch goes to ENGINEERING
