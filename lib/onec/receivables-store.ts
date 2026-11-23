@@ -93,11 +93,11 @@ export async function startReceivablesRefresh(asOf: string, schedule: (job: () =
  * бусдыг үргэлжлүүлнэ; алдаатай дансны хуучин мөр хэвээр. Vercel-ийн route биш GitHub Actions (scripts/sync-1c.ts) дээр ажиллана;
  * Vercel-ээс гадуур (dev, staging) startReceivablesRefresh-ээр ар талд ажиллана. `renew`: түрээсийг сунгана.
  */
-export async function syncReceivablesSnapshot(asOf: string, renew: () => Promise<void> = async () => {}): Promise<{ ok: boolean; rows: number; failed: string[] }> {
+export async function syncReceivablesSnapshot(asOf: string, renew: () => Promise<void> = async () => {}, stages: readonly string[] = STAGES): Promise<{ ok: boolean; rows: number; failed: string[] }> {
   const startedAt = new Date();
   const failed: string[] = [];
   let total = 0;
-  for (const code of STAGES) {
+  for (const code of stages) {
     try {
       const rows = await fetchStage(asOf, code);
       if (rows) {
@@ -117,11 +117,11 @@ export async function syncReceivablesSnapshot(asOf: string, renew: () => Promise
 }
 
 /** Агшин зургийн ажлыг түрээстэй (өөр ажилтай зэрэг ажиллахгүй) ажиллуулна: GitHub Actions-ийн CLI. Түрээс завгүй бол null. */
-export async function syncReceivablesSnapshotLocked(asOf: string): Promise<{ ok: boolean; rows: number; failed: string[] } | null> {
+export async function syncReceivablesSnapshotLocked(asOf: string, stages: readonly string[] = STAGES): Promise<{ ok: boolean; rows: number; failed: string[] } | null> {
   const holder = randomUUID();
   if (!(await acquireLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK))) return null;
   try {
-    return await syncReceivablesSnapshot(asOf, () => renewLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK).catch(() => {}));
+    return await syncReceivablesSnapshot(asOf, () => renewLock(holder, LOCK_TTL_MS, RECEIVABLES_LOCK).catch(() => {}), stages);
   } finally {
     await releaseLock(holder, RECEIVABLES_LOCK).catch(() => {});
   }
