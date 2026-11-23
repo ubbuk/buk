@@ -1,4 +1,5 @@
 # 1С → ERP (Postgres) sync. 1С өөрөө үе үе унтардаг тул нэг команд амжилтгүй болсон ч дараагийнх нь үргэлжилнэ.
+# 1С-тэй холбогдож чадаагүй (fetch failed, timeout) алхмыг 2 минутын дараа нэг удаа автоматаар дахин оролдоно (scripts/ci/sync-run.sh); код, эрхийн алдаанд үгүй.
 # Алдааг GitHub-ийн анхааруулга (warning) болгон харуулна; дэлгэрэнгүй нь ERP-ийн onec_sync_log хүснэгтэд.
 #
 # Хуваарь нь UTC: Улаанбаатар = UTC+8.
@@ -124,17 +125,8 @@ jobs:
           done
 
           failed=()
-          run() { # run <нэр> <секунд> <команд...>
-            local name=$1 secs=$2; shift 2
-            echo "::group::$name"
-            timeout "$secs" "$@"
-            local code=$?
-            echo "::endgroup::"
-            if [ $code -ne 0 ]; then
-              echo "::warning title=1С sync: $name::код $code (1С унтарсан байж магадгүй; onec_sync_log-ийг үзнэ үү)"
-              failed+=("$name")
-            fi
-          }
+          # run <нэр> <секунд> <команд...>: 1С-тэй холбогдож чадаагүй алхмыг 2 минутын дараа НЭГ удаа дахин оролдоно (бусад алдаанд үгүй): scripts/ci/sync-run.sh
+          source scripts/ci/sync-run.sh
 
           odata_ready() {
             if [ -n "$ONEC_BASES" ]; then return 0; fi
