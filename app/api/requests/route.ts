@@ -76,7 +76,7 @@ export const POST = withTiming("POST /api/requests", async (req: Request) => {
     where: { id: input.departmentId },
     include: { head: { select: { role: true, isActive: true } } },
   });
-  if (!department) {
+  if (!department || department.archivedAt) {
     return NextResponse.json({ error: "Цех, тасаг олдсонгүй" }, { status: 400 });
   }
   if (!department.headId) {

@@ -197,7 +197,7 @@ export async function createUserAsAdmin(input: UserCreateInput): Promise<{ ok: t
   if (!admission.ok) return fail(429, TOO_MANY, admission.retryAfterSeconds);
 
   // A stale or invented department id would be an FK error (a bare 500): say so instead, and store nothing.
-  if (input.data.departmentId && !(await prisma.department.findUnique({ where: { id: input.data.departmentId }, select: { id: true } }))) {
+  if (input.data.departmentId && !(await prisma.department.findFirst({ where: { id: input.data.departmentId, archivedAt: null }, select: { id: true } }))) {
     return fail(400, "Сонгосон цех, тасаг олдсонгүй. Жагсаалтыг шинэчлээд дахин сонгоно уу", undefined, "DEPARTMENT_NOT_FOUND");
   }
   // Accounts created before addresses were lower-cased may hold capitals: compare without regard to case.

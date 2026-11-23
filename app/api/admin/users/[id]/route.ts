@@ -40,7 +40,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.deletedAt) return NextResponse.json({ error: "Хэрэглэгч олдсонгүй" }, { status: 404 });
 
-  if (parsed.data.departmentId && !(await prisma.department.findUnique({ where: { id: parsed.data.departmentId }, select: { id: true } }))) {
+  if (parsed.data.departmentId && !(await prisma.department.findFirst({ where: { id: parsed.data.departmentId, archivedAt: null }, select: { id: true } }))) {
     return NextResponse.json({ error: "Сонгосон цех, тасаг олдсонгүй. Жагсаалтыг шинэчлээд дахин сонгоно уу", code: "DEPARTMENT_NOT_FOUND" }, { status: 400 });
   }
 

@@ -7,12 +7,16 @@ import { announce, authorizeGrant, grantFailureResponse, type GrantContext } fro
 import { clientIp } from "@/lib/client-ip";
 import { departmentHeadError } from "@/lib/department-access";
 import { assignDepartmentHead } from "@/lib/department-head";
+import { inspectDepartment, removeDepartment, updateDepartment } from "@/lib/department-admin";
 import { prisma } from "@/lib/prisma";
 import { emitBroadcast, emitUserEvent } from "@/lib/events";
 import { invalidate } from "@/lib/cache";
 
 const bodySchema = z.object({
-  headId: z.string().nullable(),
+  headId: z.string().nullable().optional(),
+  // rename / change type (no step-up: no authority is granted)
+  name: z.string().trim().min(1).optional(),
+  type: z.enum(["OFFICE", "FACTORY"]).optional(),
   // Step-up: naming a (different) head grants approval authority (lib/authority-grant.ts)
   adminPassword: z.string().optional(),
   reason: z.string().optional(),
@@ -28,6 +32,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!parsed.success) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
 
   const { id } = await params;
+
+  if (parsed.data.name !== undefined || parsed.data.type !== undefined) {
+    const updated = await updateDepartment({ adminId: session.user.id, id, name: parsed.data.name, type: parsed.data.type });
+    if (!updated.ok) return NextResponse.json({ error: updated.error }, { status: updated.status });
+    if (parsed.data.headId === undefined) return NextResponse.json({ id, name: updated.department.name, type: updated.department.type });
+  }
+  if (parsed.data.headId === undefined) return NextResponse.json({ error: "Хүчингүй өгөгдөл" }, { status: 400 });
 
   // Only naming a different head GRANTS authority; clearing the head or repeating the current one does not.
   let grant: GrantContext | undefined;
@@ -73,4 +84,30 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (result.headId) emitUserEvent(result.headId, { type: "notification" });
   }
   return NextResponse.json({ id: result.id, headId: result.headId, reassignedRequests: result.reassignedRequests });
+}
+
+// GET: what removing the department would touch (members, requests) and where the members can go.
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!requireAdmin(session)) return NextResponse.json({ error: "Эрхгүй үйлдэл" }, { status: 403 });
+  const info = await inspectDepartment((await params).id);
+  if (!info) return NextResponse.json({ error: "Цех, тасаг олдсонгүй" }, { status: 404 });
+  return NextResponse.json(info, { headers: { "Cache-Control": "no-store" } });
+}
+
+const deleteSchema = z.object({
+  adminPassword: z.string().min(1),
+  // a department id, or null for no department; a missing key is refused when the department has members
+  moveTo: z.string().min(1).nullable().optional(),
+});
+
+// Delete (no history) or archive (has request history): needs the administrator own password; see lib/department-admin.ts.
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!requireAdmin(session)) return NextResponse.json({ error: "Эрхгүй үйлдэл" }, { status: 403 });
+  const parsed = deleteSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Админы нууц үгээ оруулна уу", code: "PASSWORD_REQUIRED" }, { status: 400 });
+  const result = await removeDepartment({ adminId: session.user.id, adminPassword: parsed.data.adminPassword, id: (await params).id, ip: clientIp(req.headers), moveTo: parsed.data.moveTo });
+  if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined });
+  return NextResponse.json({ ok: true, mode: result.mode, moved: result.moved });
 }
