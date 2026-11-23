@@ -26,6 +26,7 @@ import { GET as SUMMARY } from "./summary/route";
 import { GET as STOCK_FRESHNESS } from "./stock-freshness/route";
 import { GET as SYNC_STATUS } from "./sync-status/route";
 import { GET as USAGE } from "./usage/route";
+import { GET as USAGE_TREND } from "./usage/trend/route";
 import { GET as WIP } from "./wip/route";
 import { GET as YEAR } from "./year/route";
 
@@ -103,6 +104,7 @@ afterEach(() => {
 const ROUTES = {
   stock: () => STOCK(get("/api/dashboard/stock")),
   stockTrend: () => STOCK_TREND(get(`/api/dashboard/stock/trend?year=${currentMonth().slice(0, 4)}`)),
+  usageTrend: () => USAGE_TREND(get(`/api/dashboard/usage/trend?year=${currentMonth().slice(0, 4)}`)),
   usage: () => USAGE(get(`/api/dashboard/usage?month=${MONTH}`)),
   salesView: () => SALES(get(`/api/dashboard/sales?month=${MONTH}`)),
   sales: () => SUMMARY(get(`/api/dashboard/summary?month=${MONTH}`)),
@@ -123,7 +125,7 @@ const ROUTES = {
 } as const;
 
 /** Нярав харах: Агуулах, Зарцуулалт (+ зөвхөн цаг харуулдаг төлөв, агуулахын татаалт) */
-const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "stockTrend", "usage", "syncStatus", "stockFreshness", "refreshStock", "health"];
+const STOREKEEPER_OK: (keyof typeof ROUTES)[] = ["stock", "stockTrend", "usage", "usageTrend", "syncStatus", "stockFreshness", "refreshStock", "health"];
 
 describe("/api/dashboard/*: эрх табаар", () => {
   it("нэвтрээгүй бол бүх endpoint 401, 1С руу юу ч явахгүй", async () => {
@@ -152,7 +154,7 @@ describe("/api/dashboard/*: эрх табаар", () => {
   it("удирдлага бүх табыг авна", async () => {
     for (const role of ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS"]) {
       as(role);
-      for (const name of ["stock", "stockTrend", "usage", "sales", "salesView", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
+      for (const name of ["stock", "stockTrend", "usage", "usageTrend", "sales", "salesView", "receivables", "wip", "health", "expenses", "yearSales", "yearExpenses", "cash", "cashReport", "cashEntries", "cashTrend", "syncStatus", "stockFreshness"] as const) expect((await ROUTES[name]()).status, `${role} ${name}`).toBe(200);
     }
   });
 
@@ -454,6 +456,15 @@ describe("/api/dashboard/usage: 5 минутын cache", () => {
     expect(r.meta.cached).toBe(true);
     expect(r.meta.retryAfterSeconds).toBeGreaterThan(0);
     expect(fetchCalls.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("удирдлагын харагдац: цех → материал, материал → цех; олголтын «зориулалт» (Комментарий) хэзээ ч гарахгүй", async () => {
+    as("DIRECTOR");
+    const r = await (await ROUTES.usage()).json();
+    expect(Array.isArray(r.view.departments)).toBe(true);
+    expect(Array.isArray(r.view.materials)).toBe(true);
+    for (const d of r.documents) expect(d.purpose).toBe("");
+    expect(JSON.stringify(r.view)).not.toMatch(/Catalog_|Комментарий/);
   });
 
   it("1С унтарвал ойлгомжтой алдаа (нууц, URL-гүй)", async () => {

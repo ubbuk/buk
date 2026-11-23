@@ -35,7 +35,7 @@ export function DocCard({ doc, tone }: { doc: DocCardData; tone?: DocTone }) {
           {doc.number && <span className="ng-num text-xs text-text-muted">№ {doc.number}</span>}
           <span className="ng-num text-xs text-text-muted">{dayOf(doc.date)}</span>
         </span>
-        <span className="mt-0.5 block truncate text-sm text-text">{meta || doc.comment || "—"}</span>
+        <span className="mt-0.5 block truncate text-sm text-text">{meta || "—"}</span>
         {doc.lines != null && doc.lines > 0 && <span className="block text-xs text-text-muted">{doc.lines} мөр</span>}
       </span>
       <span className="ng-num shrink-0 text-right text-sm font-semibold text-text sm:text-base">{money2(doc.amount)}</span>
@@ -99,7 +99,7 @@ export function DocumentList({
       (d) =>
         (!wh || d.warehouseCode === wh || d.warehouseToCode === wh) &&
         (!kind || d.type === kind) &&
-        (!needle || `${d.number} ${d.party} ${d.warehouse} ${d.warehouseTo} ${d.comment} ${d.label}`.toLowerCase().includes(needle))
+        (!needle || `${d.number} ${d.party} ${d.warehouse} ${d.warehouseTo} ${d.label}`.toLowerCase().includes(needle))
     );
   }, [docs, wh, kind, q]);
   const total = filtered.reduce((s, d) => s + d.amount, 0);

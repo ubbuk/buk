@@ -24,7 +24,7 @@ export const GET = withTiming("GET /api/dashboard/documents/detail", async (req:
 
   try {
     const { value, meta } = await loadDocumentDetail(type, ref, { withPostings: canSeePostings(auth.viewer), hidePayroll: auth.viewer.canViewPayroll !== true });
-    return NextResponse.json({ ...value, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+    return NextResponse.json({ ...value, comment: "", meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
     throw e;

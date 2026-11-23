@@ -30,7 +30,8 @@ export const GET = withTiming("GET /api/dashboard/documents", async (req: Reques
     const { value, meta } = await loadDocuments({ from, to, kinds, partyCode: sp.get("party") }, sp.get("refresh") === "1");
     // Цалингийн эрхгүй хүнд цалингийн бичилттэй баримтууд өдөр, төрлөөр нэг «Цалин олголт (нэгтгэсэн)» мөр болно
     const documents = auth.viewer.canViewPayroll === true ? value : await hidePayrollInCards(value, from, to);
-    return NextResponse.json({ documents, kinds, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
+    // 1С-ийн баримтын «Комментарий» хэзээ ч гарахгүй (хүний нэр агуулж болно)
+    return NextResponse.json({ documents: documents.map((d) => ({ ...d, comment: "" })), kinds, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof OdataError) return NextResponse.json({ error: e.message }, { status: e.status, headers: NO_STORE });
     throw e;

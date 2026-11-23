@@ -21,6 +21,7 @@ const result = (month: string, days: number, docs: UsageDocument[]): UsageResult
   totals: { amount: docs.reduce((s, d) => s + d.amount, 0), documents: docs.length, materials: 0 },
   byMaterial: [],
   byDepartment: [],
+  deptMaterials: [],
   daily: Array.from({ length: days }, (_, i) => {
     const date = `${month}-${String(i + 1).padStart(2, "0")}`;
     return { date, amount: docs.filter((d) => d.date.startsWith(date)).reduce((s, d) => s + d.amount, 0) };
