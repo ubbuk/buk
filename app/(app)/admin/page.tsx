@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Check, Copy, FileClock, KeyRound, Plus, RotateCcw, ShieldCheck, Trash2, Receipt, UserCog, Wallet } from "lucide-react";
 import { AuthorityGrantDialog, type GrantRequest, type GrantStepUp } from "@/components/admin/AuthorityGrantDialog";
+import { DeleteUserDialog } from "@/components/admin/DeleteUserDialog";
 import { DepartmentCombobox } from "@/components/admin/DepartmentCombobox";
 import { ProcurementHandoverDialog } from "@/components/admin/ProcurementHandoverDialog";
 import { ExecutiveHandoverDialog } from "@/components/admin/ExecutiveHandoverDialog";
@@ -98,6 +99,7 @@ export default function AdminPage() {
   const [editDeptDraft, setEditDeptDraft] = useState<string | null>(null);
   const [editDeptType, setEditDeptType] = useState<"ALL" | "FACTORY" | "OFFICE">("ALL");
   const [submitting, setSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
   const [handover, setHandover] = useState<{ position: ProcurementPosition; label: string; managerId: string } | null>(null);
   const [executiveHandoverOpen, setExecutiveHandoverOpen] = useState(false);
 
@@ -284,18 +286,6 @@ export default function AdminPage() {
     }
   }
 
-  async function deleteUser(user: AdminUser) {
-    if (!window.confirm(`${user.name} (${user.email}) хэрэглэгчийг өгөгдлийн сангаас бүрмөсөн устгах уу?`)) return;
-    const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      push({ kind: "error", title: "Устгаж чадсангүй", description: body.error });
-      return;
-    }
-    push({ kind: "success", title: `${user.name} устгагдлаа` });
-    await load();
-  }
-
   async function setApprovalRole(role: string, userId: string) {
     if (isProcurementPosition(role)) {
       // procurement managers are replaced through the reviewed handover dialog, never blindly
@@ -443,7 +433,7 @@ export default function AdminPage() {
             <RotateCcw className="size-3.5" />
           </Button>
           {u.id !== session?.user?.id && (
-            <Button size="sm" variant="secondary" onClick={() => deleteUser(u)} title="Устгах">
+            <Button size="sm" variant="secondary" onClick={() => setDeleteTarget(u)} title="Устгах">
               <Trash2 className="size-3.5" />
             </Button>
           )}
@@ -662,6 +652,8 @@ export default function AdminPage() {
           </div>
         )}
       </Modal>
+
+      <DeleteUserDialog user={deleteTarget} onClose={() => setDeleteTarget(null)} onDone={() => void load()} />
 
       <ExecutiveHandoverDialog
         open={executiveHandoverOpen}

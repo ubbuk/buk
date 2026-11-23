@@ -3,12 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { ADMIN_TEST_HASH } from "@/app/api/procurement/step-up-support";
 
 // The administrator's user screen end to end at the API level, on the isolated test database: a department that is
-// created or chosen must end up in User.departmentId, show in the list, and a delete that cannot happen must say why.
+// created or chosen must end up in User.departmentId, show in the list, and a delete is covered separately.
 const session = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("next-auth", () => ({ getServerSession: async () => session.current }));
 
 import { GET as USERS_GET, POST as USERS_POST } from "./route";
-import { PATCH as USER_PATCH, DELETE as USER_DELETE } from "./[id]/route";
+import { PATCH as USER_PATCH } from "./[id]/route";
 import { POST as DEPT_POST } from "../departments/route";
 
 const P = "adm-dept-";
@@ -90,42 +90,4 @@ describe("a department given to a user is saved", () => {
   });
 });
 
-describe("deleting a user says why when it cannot be done", () => {
-  it("a plain user is deleted", async () => {
-    const { id } = await createUser("plain");
-    expect((await USER_DELETE(req("DELETE"), ctx(id))).status).toBe(200);
-    expect(await prisma.user.count({ where: { id } })).toBe(0);
-  });
-
-  it("an approver: 409 that names the reason and the way out", async () => {
-    const { id } = await createUser("approver");
-    await prisma.approvalRoleAssignment.create({ data: { userId: id, role: "FINANCE_DIRECTOR" } });
-    const r = await USER_DELETE(req("DELETE"), ctx(id));
-    expect(r.status).toBe(409);
-    const body = await r.json();
-    expect(body.code).toBe("IS_APPROVER");
-    expect(body.error).toBe("Энэ хэрэглэгч батлагчаар томилогдсон тул устгах боломжгүй. Эхлээд батлагчийг солих эсвэл хэрэглэгчийг идэвхгүй болгоно уу");
-    expect(await prisma.user.count({ where: { id } })).toBe(1);
-  });
-
-  it("a department head: 409 that names the department", async () => {
-    const dept = await createDept(`${P}${TAG}-headed`);
-    const { id } = await createUser("head");
-    await prisma.department.update({ where: { id: dept.id }, data: { headId: id } });
-    const r = await USER_DELETE(req("DELETE"), ctx(id));
-    expect(r.status).toBe(409);
-    const body = await r.json();
-    expect(body.code).toBe("IS_DEPARTMENT_HEAD");
-    expect(body.error).toContain(dept.name);
-    expect(await prisma.user.count({ where: { id } })).toBe(1);
-  });
-
-  it("a user with history: 409 pointing at deactivation, and the same user can then be deactivated", async () => {
-    const { id } = await createUser("history");
-    await prisma.auditLog.create({ data: { entityType: "Test", entityId: "x", action: "CREATE", actorId: id } });
-    const r = await USER_DELETE(req("DELETE"), ctx(id));
-    expect(r.status).toBe(409);
-    expect((await r.json()).code).toBe("HAS_HISTORY");
-    expect((await USER_PATCH(req("PATCH", { isActive: false }), ctx(id))).status).toBe(200);
-  });
-});
+// Deleting a user (responsibilities handed over, password, hard / soft delete) is covered in user-delete.test.ts.

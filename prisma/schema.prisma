@@ -57,6 +57,9 @@ model User {
   // and every older token stops being accepted (lib/session-revocation.ts).
   sessionVersion    Int       @default(0)
   passwordChangedAt DateTime?
+  // Soft delete (admin removed the account but its history stays): the account is inactive, cannot sign in, its e-mail is
+  // released and it is hidden from the user list. lib/user-removal.ts
+  deletedAt         DateTime?
 
   department                 Department?                     @relation("DepartmentMembers", fields: [departmentId], references: [id])
   headOfDepartments          Department[]                    @relation("DepartmentHead")
