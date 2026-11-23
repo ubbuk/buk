@@ -12,6 +12,7 @@ import {
   requiredOf as requiredFromChecks,
   type AuthorizationStatus,
 } from "./executive-authorization";
+import { itemsMissingReceipt, MIN_WAIVE_REASON } from "./purchase-receipt-core";
 
 // Stage 7 -- Manager procurement. The warehouse check (Stage 3) leaves a
 // per-item shortfall (WarehouseCheckItem.missingQuantity); this stage tracks
@@ -23,7 +24,7 @@ import {
 // on every read, so the checkbox can only reflect what the server has verified.
 
 type Tx = Prisma.TransactionClient;
-type Result<T> = ({ ok: true } & T) | { ok: false; status: number; error: string };
+type Result<T> = ({ ok: true } & T) | { ok: false; status: number; error: string; code?: string; missing?: string[] };
 
 export type PurchaseStatus = "NOT_STARTED" | "PARTIAL" | "COMPLETE";
 export type ProcurementKind = "DOMESTIC" | "INTERNATIONAL";
@@ -545,7 +546,7 @@ export async function voidPurchase(
  * step with a compare-and-swap, so a double click or two managers cannot
  * complete it twice.
  */
-export async function completeProcurement(requestId: string, actorId: string): Promise<Result<{ detail: ProcurementDetail }>> {
+export async function completeProcurement(requestId: string, actorId: string, opts: { noReceiptReason?: string } = {}): Promise<Result<{ detail: ProcurementDetail }>> {
   const outcome = await prisma.$transaction(async (tx) => {
     const status = await lockRequest(tx, requestId);
     if (!status) return fail(404, "Захиалга олдсонгүй");
@@ -572,6 +573,27 @@ export async function completeProcurement(requestId: string, actorId: string): P
     if (incomplete.length > 0) {
       const names = incomplete.map((i) => `${i.materialName} (${i.purchasedQuantity}/${i.requiredQuantity} ${i.unit})`).join(", ");
       return fail(409, `Дутуу худалдан авалттай материал байна: ${names}`);
+    }
+
+    // Every bought row needs at least one receipt. The exception is a stated reason ("no receipt - why"): it is recorded per
+    // row, audited and shown to the Chief Accountant in red.
+    const boughtItems = detail.items.filter((i) => i.requiredQuantity > 0);
+    const [receipts, waivers] = await Promise.all([
+      tx.purchaseReceipt.findMany({ where: { requestId }, select: { requestItemId: true } }),
+      tx.purchaseReceiptWaiver.findMany({ where: { requestId }, select: { requestItemId: true } }),
+    ]);
+    const missing = itemsMissingReceipt({ itemIds: boughtItems.map((i) => i.itemId), receiptItemIds: receipts.map((r) => r.requestItemId), waivedItemIds: waivers.map((w) => w.requestItemId) });
+    const noReceiptReason = opts.noReceiptReason?.trim() ?? "";
+    if (missing.length > 0) {
+      const names = boughtItems.filter((i) => missing.includes(i.itemId)).map((i) => i.materialName);
+      if (noReceiptReason.length < MIN_WAIVE_REASON) {
+        return { ok: false as const, status: 409, error: `Баримт хавсаргаагүй: ${names.join(", ")}`, code: "RECEIPTS_MISSING", missing: names };
+      }
+      if (noReceiptReason.length > 500) return fail(400, "Шалтгаан хэт урт байна");
+      await tx.purchaseReceiptWaiver.createMany({ data: missing.map((itemId) => ({ requestId, requestItemId: itemId, reason: noReceiptReason, waivedById: actorId })) });
+      await tx.auditLog.createMany({
+        data: missing.map((itemId) => ({ entityType: "MaterialRequest", entityId: requestId, action: "PURCHASE_RECEIPT_WAIVE" as const, actorId, afterJson: JSON.stringify({ itemId, reason: noReceiptReason }) })),
+      });
     }
 
     const step = await tx.approvalStep.findFirst({ where: { requestId, type: "MANAGER_PROCUREMENT" } });
@@ -607,6 +629,7 @@ export async function completeProcurement(requestId: string, actorId: string): P
         actorId,
         afterJson: JSON.stringify({
           items: detail.items.filter((i) => i.requiredQuantity > 0).map((i) => ({ itemId: i.itemId, purchased: i.purchasedQuantity, total: i.actualTotal })),
+          receiptsMissing: missing.length,
         }),
       },
     });

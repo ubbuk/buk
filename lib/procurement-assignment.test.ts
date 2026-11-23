@@ -3,7 +3,6 @@ import { prisma } from "./prisma";
 import { recordAccountingEntry } from "./workflow";
 import {
   classifyProcurement,
-  completeProcurement,
   getProcurementDetail,
   getProcurementManagers,
   listProcurement,
@@ -12,6 +11,7 @@ import {
   recordPurchase,
   voidPurchase,
 } from "./procurement";
+import { completeProcurement } from "./purchase-receipt-test-support";
 
 // Domestic / International assignment on top of Manager procurement, against the
 // isolated test database. Requests are built directly in PENDING_PROCUREMENT with

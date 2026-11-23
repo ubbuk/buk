@@ -12,6 +12,7 @@ import { GET as DETAIL } from "../requests/[id]/procurement/route";
 import { POST as PURCHASE } from "../requests/[id]/procurement/purchases/route";
 import { POST as VOID } from "../requests/[id]/procurement/purchases/[purchaseId]/void/route";
 import { POST as CORRECT } from "../requests/[id]/procurement/purchases/[purchaseId]/correct/route";
+import { ensureReceipt } from "@/lib/purchase-receipt-test-support";
 import { POST as COMPLETE } from "../requests/[id]/procurement/complete/route";
 import { POST as ACCOUNTING } from "../requests/[id]/accounting-record/route";
 import { POST as DEPT_APPROVE } from "../requests/[id]/department-approve/route";
@@ -235,6 +236,7 @@ describe("the MANAGER's purchase workflow through the API", () => {
     // a second manager finishes it
     as("mgr2");
     expect((await post1({ itemId: bearingId, quantity: 7, unitPrice: 1300 })).status).toBe(201);
+    await ensureReceipt(requestId, uid("mgr2")); // completing needs a receipt (see purchase-receipts.test.ts)
     const done = await COMPLETE(post(), ctx());
     expect(done.status).toBe(200);
     expect((await done.json()).requestStatus).toBe("PENDING_ACCOUNTING");

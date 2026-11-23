@@ -15,6 +15,7 @@ import type { ProcurementDetail, ProcurementItemView, ProcurementKind, PurchaseV
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { REQUEST_STATUS_LABEL, USER_ROLE_LABEL, type RequestStatus } from "@/lib/types";
 import { ExecutiveApprovalPanel } from "@/components/workflow/ExecutiveApprovalPanel";
+import { PurchaseReceiptsPanel } from "@/components/procurement/PurchaseReceiptsPanel";
 import { cn, formatDate, formatDateTime, formatNumber } from "@/lib/utils";
 
 const money = (v: number | null) => (v === null ? "—" : `${formatNumber(v, 2)}₮`);
@@ -28,10 +29,17 @@ const inputClass = "focus-ring h-9 w-full rounded-lg border border-border bg-bg-
 type Draft = { quantity: string; unitPrice: string; note: string; key: string };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
+/** An error that keeps the server's machine-readable code (RECEIPTS_MISSING) and the rows it names. */
+class CallError extends Error {
+  constructor(message: string, readonly code?: string, readonly missing?: string[]) {
+    super(message);
+  }
+}
+
 async function call(url: string, init?: RequestInit) {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Серверийн алдаа (${res.status})`);
+  if (!res.ok) throw new CallError(body.error || `Серверийн алдаа (${res.status})`, body.code, body.missing);
   return body;
 }
 
@@ -48,6 +56,9 @@ export default function ProcurementDetailPage() {
   const [editing, setEditing] = useState<{ item: ProcurementItemView; purchase: PurchaseView; mode: "correct" | "void" } | null>(null);
   const [editForm, setEditForm] = useState({ quantity: "", unitPrice: "", reason: "" });
   const [confirmComplete, setConfirmComplete] = useState(false);
+  // rows the server says have no receipt; the Manager may continue by saying why
+  const [missingReceipts, setMissingReceipts] = useState<string[] | null>(null);
+  const [noReceiptReason, setNoReceiptReason] = useState("");
   const [abroad, setAbroad] = useState<Record<string, boolean>>({});
   const [confirmClassify, setConfirmClassify] = useState(false);
   const [reassigning, setReassigning] = useState<ProcurementItemView | null>(null);
@@ -169,11 +180,18 @@ export default function ProcurementDetailPage() {
   async function complete() {
     setBusy("complete");
     try {
-      setDetail(await call(`/api/requests/${id}/procurement/complete`, { method: "POST" }));
+      setDetail(await call(`/api/requests/${id}/procurement/complete`, { method: "POST", body: JSON.stringify(missingReceipts ? { noReceiptReason } : {}) }));
       setConfirmComplete(false);
+      setMissingReceipts(null);
+      setNoReceiptReason("");
       push({ kind: "success", title: "Худалдан авалт дууслаа", description: "Ерөнхий нягтлан бодогчид шилжлээ" });
     } catch (err) {
       setConfirmComplete(false);
+      if (err instanceof CallError && err.code === "RECEIPTS_MISSING") {
+        // stop here: attach the receipts, or continue with a stated reason
+        setMissingReceipts(err.missing ?? []);
+        return;
+      }
       push({ kind: "error", title: "Дуусгах боломжгүй", description: err instanceof Error ? err.message : undefined });
       void load();
     } finally {
@@ -508,6 +526,8 @@ export default function ProcurementDetailPage() {
         </ul>
       )}
 
+      <PurchaseReceiptsPanel requestId={id} refreshKey={`${detail.requestStatus}:${detail.completedItemCount}`} />
+
       {covered.length > 0 && (
         <Card>
           <CardHeader>
@@ -610,7 +630,38 @@ export default function ProcurementDetailPage() {
         )}
       </Modal>
 
-      <Modal open={confirmComplete} onClose={() => setConfirmComplete(false)} title="Худалдан авалтыг дуусгах уу?" description="Захиалга Ерөнхий нягтлан бодогчид бүртгэхээр шилжинэ. Үүнийг буцаах боломжгүй.">
+      <Modal
+        open={missingReceipts !== null}
+        onClose={() => setMissingReceipts(null)}
+        title="Баримт хавсаргаагүй"
+        description="Худалдан авсан мөр бүрт дор хаяж нэг баримт (падаан, нэхэмжлэх, НӨАТ-ын баримт) хавсаргана. Онцгой тохиолдолд шалтгаанаа бичээд үргэлжлүүлж болно: нягтланд улаанаар харагдана."
+      >
+        <div className="space-y-3">
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-danger">
+            {(missingReceipts ?? []).map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+          <textarea
+            value={noReceiptReason}
+            onChange={(e) => setNoReceiptReason(e.target.value)}
+            rows={3}
+            placeholder="Баримтгүй — шалтгаан"
+            aria-label="Баримтгүй байгаа шалтгаан"
+            className="focus-ring w-full rounded-lg border border-border bg-bg-surface px-3 py-2 text-sm text-text"
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setMissingReceipts(null)}>
+              Баримт хавсаргах
+            </Button>
+            <Button variant="danger" loading={busy === "complete"} disabled={noReceiptReason.trim().length < 3} onClick={() => void complete()}>
+              Баримтгүй үргэлжлүүлэх
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={confirmComplete} onClose={() => setConfirmComplete(false)} title="Худалдан авалтыг дуусгах уу?" description="Захиалга Ерөнхий нягтлан бодогчид бүртгэхээр шилжинэ. Нягтлан буцаавал дахин нээгдэнэ.">
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setConfirmComplete(false)}>
             Болих

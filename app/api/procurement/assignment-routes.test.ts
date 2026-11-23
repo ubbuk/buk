@@ -14,6 +14,7 @@ import { POST as REASSIGN } from "../requests/[id]/procurement/items/[itemId]/re
 import { POST as PURCHASE } from "../requests/[id]/procurement/purchases/route";
 import { POST as VOID } from "../requests/[id]/procurement/purchases/[purchaseId]/void/route";
 import { POST as CORRECT } from "../requests/[id]/procurement/purchases/[purchaseId]/correct/route";
+import { ensureReceipt } from "@/lib/purchase-receipt-test-support";
 import { POST as COMPLETE } from "../requests/[id]/procurement/complete/route";
 import { GET as ROLES_GET, POST as ROLES_POST } from "../admin/approval-roles/route";
 import { ADMIN_TEST_HASH, withStepUp } from "./step-up-support";
@@ -275,6 +276,7 @@ describe("completion needs both groups", () => {
     as("mgrC");
     expect((await COMPLETE(post(), ctx(b))).status).toBe(403); // not involved
     as("mgrB");
+    await ensureReceipt(b.id, uid("mgrB"));
     expect((await COMPLETE(post(), ctx(b))).status).toBe(200);
     expect((await stateOf(b)).status).toBe("PENDING_ACCOUNTING");
     as("mgrA");

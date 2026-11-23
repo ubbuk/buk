@@ -185,11 +185,12 @@ export async function verifyUploads(scope: { prefix: string; actorId: string }, 
 
   const keys = refs.flatMap((r) => (r.thumbKey ? [r.key, r.thumbKey] : [r.key]));
   if (new Set(keys).size !== keys.length) return bail(400, "Хүчингүй өгөгдөл");
-  const [a, b] = await Promise.all([
+  const [a, b, c] = await Promise.all([
     prisma.attachment.count({ where: { OR: [{ storageKey: { in: keys } }, { thumbKey: { in: keys } }] } }),
     prisma.foreignTradeAttachment.count({ where: { OR: [{ storageKey: { in: keys } }, { thumbKey: { in: keys } }] } }),
+    prisma.purchaseReceipt.count({ where: { OR: [{ storageKey: { in: keys } }, { thumbKey: { in: keys } }] } }),
   ]);
-  if (a + b > 0) return fail(409, "Энэ файл аль хэдийн хавсаргагдсан байна"); // not discarded: those objects belong to the existing rows
+  if (a + b + c > 0) return fail(409, "Энэ файл аль хэдийн хавсаргагдсан байна"); // not discarded: those objects belong to the existing rows
 
   try {
     return await inspectAll(scope, refs, bail);

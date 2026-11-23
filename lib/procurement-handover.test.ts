@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "./prisma";
-import { classifyProcurement, completeProcurement, getProcurementDetail, getProcurementManagers, listProcurement, procurementCounts, recordPurchase, voidPurchase } from "./procurement";
+import { classifyProcurement, getProcurementDetail, getProcurementManagers, listProcurement, procurementCounts, recordPurchase, voidPurchase } from "./procurement";
+import { completeProcurement } from "./purchase-receipt-test-support";
 import { executeHandover, orphanableWork, previewHandover } from "./procurement-handover";
 import { pendingClassificationRequestIds, procurementBadgeCount } from "./procurement-workload";
 

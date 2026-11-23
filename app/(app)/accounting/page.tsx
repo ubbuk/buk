@@ -10,6 +10,8 @@ import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { PurchaseReceiptsPanel } from "@/components/procurement/PurchaseReceiptsPanel";
+import { ReturnToProcurement } from "@/components/procurement/ReturnToProcurement";
 import { today } from "@/lib/onec/dates";
 import { useToast } from "@/components/ui/Toast";
 import { useRequestStore } from "@/lib/store";
@@ -34,6 +36,7 @@ function AccountingPageInner() {
   const requests = useRequestStore((s) => s.requests);
   const loading = useRequestStore((s) => s.requestsLoading);
   const recordAccounting = useRequestStore((s) => s.recordAccounting);
+  const loadRequests = useRequestStore((s) => s.loadRequests);
 
   const queue = requests.filter((r) => r.status === "PENDING_ACCOUNTING");
 
@@ -154,6 +157,7 @@ function AccountingPageInner() {
             <p className="text-sm text-text-muted">
               №{target.requestNumber} — {formatCurrency(target.totalAmount)}
             </p>
+            <PurchaseReceiptsPanel requestId={target.id} />
             <input
               value={ledgerNumber}
               onChange={(e) => setLedgerNumber(e.target.value)}
@@ -168,7 +172,15 @@ function AccountingPageInner() {
               rows={3}
               className={inputClass}
             />
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <ReturnToProcurement
+                requestId={target.id}
+                requestNumber={target.requestNumber}
+                onDone={() => {
+                  setTarget(null);
+                  void loadRequests();
+                }}
+              />
               <Button variant="secondary" onClick={() => setTarget(null)}>
                 Болих
               </Button>

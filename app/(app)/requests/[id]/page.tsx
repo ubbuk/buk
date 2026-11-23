@@ -18,6 +18,8 @@ import { AllocationBar } from "@/components/workflow/AllocationBar";
 import { AttachmentsPanel } from "@/components/workflow/AttachmentsPanel";
 import { MaterialDetailModal } from "@/components/workflow/MaterialDetailModal";
 import { PinModal } from "@/components/workflow/PinModal";
+import { PurchaseReceiptsPanel } from "@/components/procurement/PurchaseReceiptsPanel";
+import { ReturnToProcurement } from "@/components/procurement/ReturnToProcurement";
 import { ExecutiveApprovalPanel } from "@/components/workflow/ExecutiveApprovalPanel";
 import { ResubmitShortfallModal } from "@/components/workflow/ResubmitShortfallModal";
 import { isStepAssignedTo } from "@/lib/approval-queue";
@@ -26,6 +28,8 @@ import { USER_ROLE_LABEL } from "@/lib/types";
 import { warehouseOutcome } from "@/lib/warehouse-outcome";
 import { formatDateTime, formatNumber, formatPriceOrPending } from "@/lib/utils";
 
+// Purchase receipts exist from procurement on (before that there is nothing bought to prove).
+const RECEIPT_STATUSES = new Set(["PENDING_PROCUREMENT", "PENDING_ACCOUNTING", "ACCOUNTING_COMPLETED"]);
 const RETURNED_STATUSES = new Set(["RETURNED_BY_DEPARTMENT", "RETURNED_BY_BRANCH_APPROVER", "RETURNED_BY_MANAGER_PRICING", "RETURNED_BY_FINANCE", "RETURNED_BY_EXECUTIVE"]);
 const TERMINAL_STATUSES = new Set(["COMPLETED", "PARTIALLY_COMPLETED", "CANCELLED", "ACCOUNTING_COMPLETED"]);
 
@@ -48,6 +52,7 @@ export default function RequestDetailPage() {
   const resubmitPositionStep = useRequestStore((s) => s.resubmitPositionStep);
   const updateItemPrice = useRequestStore((s) => s.updateItemPrice);
   const warehouseCheck = useRequestStore((s) => s.warehouseCheck);
+  const loadRequests = useRequestStore((s) => s.loadRequests);
   const request = requests.find((r) => r.id === params.id);
   const [returnOpen, setReturnOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -257,12 +262,15 @@ export default function RequestDetailPage() {
           </Link>
         )}
         {pendingStep && pendingStep.type === "ACCOUNTING_RECORD" && isAuthorizedApprover && (
-          <Link href={`/accounting?requestId=${request.id}`}>
-            <Button>
-              <Receipt className="size-4" />
-              Санхүүгийн бүртгэл хийх
-            </Button>
-          </Link>
+          <>
+            <ReturnToProcurement requestId={request.id} requestNumber={request.requestNumber} onDone={() => void loadRequests()} />
+            <Link href={`/accounting?requestId=${request.id}`}>
+              <Button>
+                <Receipt className="size-4" />
+                Батлах: санхүүгийн бүртгэл хийх
+              </Button>
+            </Link>
+          </>
         )}
         {pendingStep && pendingStep.type === "MANAGER_PROCUREMENT" && (session?.user?.role === "MANAGER" || session?.user?.role === "ADMIN") && (
           <Link href={`/procurement/${request.id}`}>
@@ -446,6 +454,7 @@ export default function RequestDetailPage() {
               />
             </CardBody>
           </Card>
+          {RECEIPT_STATUSES.has(request.status) && <PurchaseReceiptsPanel requestId={request.id} refreshKey={request.version} />}
         </div>
 
         <div className="space-y-6">
