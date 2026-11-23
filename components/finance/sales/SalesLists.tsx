@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronRight, FileText, Search } from "lucide-react";
-import type { SalesClient, SalesItem } from "@/lib/onec/sales-view";
+import type { SalesClient, SalesItem, SalesReconciliation } from "@/lib/onec/sales-view";
 import { amountMatches, parseQuery } from "@/lib/query-parse";
 import { cn } from "@/lib/utils";
 import { Amount } from "@/components/finance/cash/Amount";
@@ -26,7 +26,7 @@ function words(q: string) {
  * Харилцагчаар / Бүтээгдэхүүнээр: нэр, кодоор, дүнгээр («84 сая», 84073015) хайна. Мөр бүрд орлого, ашиг, ашгийн хувь; дарвал
  * харилцагч → худалдан авсан бараа (тоо хэмжээ нэгжтэй + ₮), бараа → худалдан авагчид. Баримтын дугаар, 1С-ийн данс энд байхгүй.
  */
-export function SalesLists({ clients, items, onClientDocs }: { clients: SalesClient[]; items: SalesItem[]; onClientDocs: (c: SalesClient) => void }) {
+export function SalesLists({ clients, items, onClientDocs, reconciliation }: { clients: SalesClient[]; items: SalesItem[]; onClientDocs: (c: SalesClient) => void; reconciliation: SalesReconciliation }) {
   const [mode, setMode] = useState<"clients" | "items">("clients");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -147,6 +147,32 @@ export function SalesLists({ clients, items, onClientDocs }: { clients: SalesCli
           })}
         </ul>
       )}
+      {/* Жагсаалтын нийлбэр дээд талын Ашигтай таарна: Σ ашиг − харилцагчид хуваарилагдаагүй зардал = нийт ашиг (хайлтаас үл хамаарна) */}
+      <dl className="space-y-1 border-t border-border bg-white/[0.02] px-4 py-3 text-sm">
+        <div className="flex items-center justify-between gap-3 text-text-muted">
+          <dt>{mode === "clients" ? "Бүх харилцагчийн ашгийн нийлбэр" : "Бүх бүтээгдэхүүний ашгийн нийлбэр"}</dt>
+          <dd>
+            <Amount value={reconciliation.listProfit} />
+          </dd>
+        </div>
+        {reconciliation.unassigned !== 0 && (
+          <div className="flex items-center justify-between gap-3 text-text-muted">
+            <dt>Харилцагчид хуваарилагдаагүй зардал — цехээс шууд зарцуулсан материал</dt>
+            <dd className="shrink-0">
+              <Amount value={reconciliation.unassigned} className="text-danger" />
+            </dd>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3 border-t border-border pt-1 font-semibold text-text">
+          <dt>
+            Нийт ашиг
+            {!reconciliation.matches && <span className="ml-2 text-xs font-normal text-warning">дээд талын Ашигтай таарахгүй байна</span>}
+          </dt>
+          <dd className="shrink-0">
+            <Amount value={reconciliation.total} />
+          </dd>
+        </div>
+      </dl>
       {list.length > shown && (
         <button type="button" onClick={() => setShown((s) => s + PAGE * 2)} className="focus-ring min-h-11 w-full border-t border-border px-4 text-left text-xs text-[#ffd56b] hover:underline">
           Цааш харуулах ({list.length - shown})

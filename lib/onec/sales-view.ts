@@ -142,3 +142,22 @@ export function buildSalesView(lines: readonly SalesLine[]): SalesView {
     items: itemList.sort(byRevenue),
   };
 }
+
+export interface SalesReconciliation {
+  /** жагсаалтын (харилцагч эсвэл бүтээгдэхүүн) ашгийн нийлбэр */
+  listProfit: number;
+  /** харилцагчид хуваарилагдаагүй зардал (сөрөг): цехээс шууд зарцуулсан материал */
+  unassigned: number;
+  /** жагсаалтын нийлбэр + хуваарилагдаагүй зардал = нийт ашиг */
+  total: number;
+  /** нийт ашиг дээд талын «Ашиг»-тай таарч байна */
+  matches: boolean;
+}
+
+/** Жагсаалтын нийлбэр дээд талын Ашигтай таарах тулгалт: Σ ашиг (харилцагчаар) − хуваарилагдаагүй зардал = нийт ашиг. */
+export function reconcileSales(view: Pick<SalesView, "kpi" | "clients">): SalesReconciliation {
+  const listProfit = round2(view.clients.reduce((s, c) => s + c.profit, 0));
+  const unassigned = round2(-view.kpi.costDirect) || 0; // -0 биш 0
+  const total = round2(listProfit + unassigned);
+  return { listProfit, unassigned, total, matches: Math.abs(total - view.kpi.profit) < 0.01 };
+}
