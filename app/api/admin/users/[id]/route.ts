@@ -155,6 +155,8 @@ const deleteSchema = z.object({
   transfers: z.record(z.string(), z.string().min(1).nullable()).default({}),
   // who takes the approval steps that wait on the person and that no specific answer covers
   pendingReceiverId: z.string().min(1).nullable().optional(),
+  // cancel the waiting orders instead of handing them over
+  cancelPending: z.boolean().optional(),
 });
 
 // Removes a user after the responsibilities were handed over (lib/user-removal.ts): without history the account is deleted for
@@ -170,7 +172,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const parsed = deleteSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Админы нууц үгээ оруулна уу", code: "PASSWORD_REQUIRED" }, { status: 400 });
 
-  const result = await removeUser({ adminId: session.user.id, adminPassword: parsed.data.adminPassword, targetId: id, ip: clientIp(req.headers), transfers: parsed.data.transfers, pendingReceiverId: parsed.data.pendingReceiverId });
+  const result = await removeUser({ adminId: session.user.id, adminPassword: parsed.data.adminPassword, targetId: id, ip: clientIp(req.headers), transfers: parsed.data.transfers, pendingReceiverId: parsed.data.pendingReceiverId, cancelPending: parsed.data.cancelPending });
   if (!result.ok) {
     return NextResponse.json({ error: result.error, code: result.code }, { status: result.status, headers: result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : undefined });
   }
