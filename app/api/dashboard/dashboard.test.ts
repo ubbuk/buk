@@ -194,14 +194,14 @@ describe("/api/dashboard/stock-freshness: сүүлийн АМЖИЛТТАЙ stoc
   afterAll(clean);
   const at = (now: string) => vi.useFakeTimers({ toFake: ["Date"], now: ub(now) });
 
-  it("хуваарьт цагт 1 цагаас хуучин бол шар анхааруулга ба Улаанбаатарын цагаар «сүүлд шинэчилсэн»", async () => {
+  it("хуваарьт цагт 90 минутаас хуучин бол шар анхааруулга ба Улаанбаатарын цагаар «сүүлд шинэчилсэн»", async () => {
     await log("2026-11-16 09:10", true);
     at("2026-11-16 11:30");
     const b = await call();
     expect(b).toMatchObject({ stale: true, never: false, lastSyncedLabel: "2026-11-16 09:10" });
     expect(b.message).toBe("Мэдээлэл 2 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
   });
-  it("1 цагаас дотор бол анхааруулахгүй", async () => {
+  it("90 минутаас дотор бол анхааруулахгүй", async () => {
     await log("2026-11-16 11:00", true);
     at("2026-11-16 11:30");
     expect(await call()).toMatchObject({ stale: false, message: null });

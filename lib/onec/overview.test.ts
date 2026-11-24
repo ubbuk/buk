@@ -41,15 +41,15 @@ describe("buildOverview: мөнгө, зарцуулалт", () => {
     expect(o.stale).toBe(false);
   });
 
-  it("мөнгөний sync 60 минутаас хуучин бол хуучирсан гэж анхааруулна; хараахан sync болоогүй бол мөн", () => {
-    const o = buildOverview({ ...base, cash: { value: 5, asOf: "2026-11-18", syncedAt: at("2026-11-18 09:30") }, usage: { value: 6, asOf: "2026-11", syncedAt: at("2026-11-18 10:50") } });
+  it("мөнгөний sync 90 минутаас хуучин бол хуучирсан гэж анхааруулна; хараахан sync болоогүй бол мөн", () => {
+    const o = buildOverview({ ...base, cash: { value: 5, asOf: "2026-11-18", syncedAt: at("2026-11-18 09:20") }, usage: { value: 6, asOf: "2026-11", syncedAt: at("2026-11-18 10:50") } });
     expect(o.stale).toBe(true);
-    expect(o.updatedAt).toBe(at("2026-11-18 09:30").toISOString());
+    expect(o.updatedAt).toBe(at("2026-11-18 09:20").toISOString());
     expect(buildOverview({ ...base, cash: { value: null, asOf: null, syncedAt: null }, usage: { value: null, asOf: "2026-11", syncedAt: null } }).stale).toBe(true);
   });
 });
 
-describe("buildOverview: хуучирсан эсэх (60 минут, хуваарийн дагуу)", () => {
+describe("buildOverview: хуучирсан эсэх (90 минут, хуваарийн дагуу)", () => {
   const ok = (now: string, syncs: [string, string, string]) =>
     buildOverview({
       now: at(now),
@@ -58,7 +58,7 @@ describe("buildOverview: хуучирсан эсэх (60 минут, хуваа�
       sales: { value: 3, asOf: "2026-11", syncedAt: at(syncs[2]) },
     });
 
-  it("хуваарьт цагт бүгд 60 минутаас шинэ бол анхааруулгагүй; updatedAt нь хамгийн хуучин sync", () => {
+  it("хуваарьт цагт бүгд 90 минутаас шинэ бол анхааруулгагүй; updatedAt нь хамгийн хуучин sync", () => {
     const o = ok("2026-11-18 11:00", ["2026-11-18 10:50", "2026-11-18 10:45", "2026-11-18 10:55"]);
     expect(o.stale).toBe(false);
     expect(o.staleMessage).toBeNull();
@@ -66,8 +66,8 @@ describe("buildOverview: хуучирсан эсэх (60 минут, хуваа�
     expect(o.cards.map((c) => c.key)).toEqual(["stock", "receivables", "sales"]);
   });
 
-  it("хуваарьт цагт нэг нь 60 минутаас хуучин бол шар анхааруулга", () => {
-    const o = ok("2026-11-18 11:00", ["2026-11-18 10:50", "2026-11-18 09:30", "2026-11-18 10:55"]);
+  it("хуваарьт цагт нэг нь 90 минутаас хуучин бол шар анхааруулга", () => {
+    const o = ok("2026-11-18 11:00", ["2026-11-18 10:50", "2026-11-18 09:20", "2026-11-18 10:55"]);
     expect(o.stale).toBe(true);
     expect(o.staleMessage).toContain("шинэчлэгдсэн");
   });
