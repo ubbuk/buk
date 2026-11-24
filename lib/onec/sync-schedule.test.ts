@@ -39,10 +39,10 @@ describe("lastScheduledMoment", () => {
 });
 
 describe("evaluateStockFreshness", () => {
-  it("хуваарьт цагт 1 цагаас дотор бол хэвийн, хуучин бол анхааруулга", () => {
+  it("хуваарьт цагт 90 минутаас дотор бол хэвийн, хуучин бол анхааруулга", () => {
     expect(evaluateStockFreshness(ub("2026-11-16 09:45"), ub("2026-11-16 10:30")).stale).toBe(false);
-    expect(evaluateStockFreshness(ub("2026-11-16 09:30"), ub("2026-11-16 10:30")).stale).toBe(false); // яг 1 цаг
-    const f = evaluateStockFreshness(ub("2026-11-16 09:20"), ub("2026-11-16 10:30"));
+    expect(evaluateStockFreshness(ub("2026-11-16 09:00"), ub("2026-11-16 10:30")).stale).toBe(false); // яг 90 минут
+    const f = evaluateStockFreshness(ub("2026-11-16 08:50"), ub("2026-11-16 10:30"));
     expect(f.stale).toBe(true);
     expect(f.message).toBe("Мэдээлэл 1 цагийн өмнө шинэчлэгдсэн. Тоо хуучирсан байж магадгүй.");
   });
@@ -56,9 +56,9 @@ describe("evaluateStockFreshness", () => {
     expect(evaluateStockFreshness(ub("2026-11-14 19:45"), ub("2026-11-15 14:00")).stale).toBe(false); // ням
     expect(evaluateStockFreshness(ub("2026-11-14 19:45"), ub("2026-11-16 08:00")).stale).toBe(false); // даваа өглөө эрт
   });
-  it("хуваарийн бус цагт ч өмнөх ажлын өдрийн 20:00-ийн өмнө (1 цагаас илүү) шинэчлэгдсэн бол анхааруулна", () => {
+  it("хуваарийн бус цагт ч өмнөх ажлын өдрийн 20:00-ийн өмнө (90 минутаас илүү) шинэчлэгдсэн бол анхааруулна", () => {
     expect(evaluateStockFreshness(ub("2026-11-16 18:00"), ub("2026-11-16 23:30")).stale).toBe(true); // орой
-    expect(evaluateStockFreshness(ub("2026-11-14 18:59"), ub("2026-11-15 14:00")).stale).toBe(true); // ням, 19:00-аас өмнө
+    expect(evaluateStockFreshness(ub("2026-11-14 18:29"), ub("2026-11-15 14:00")).stale).toBe(true); // ням, 18:30-аас өмнө
     expect(evaluateStockFreshness(ub("2026-11-13 19:45"), ub("2026-11-15 14:00")).stale).toBe(true); // Баасан: Бямба огт татагдаагүй
   });
   it("хэзээ ч амжилттай sync болоогүй бол ямагт анхааруулна", () => {
