@@ -39,6 +39,7 @@ export function FinanceShell({
   trailing,
   notice,
   withView,
+  hideYm,
   children,
 }: {
   title: string;
@@ -57,6 +58,8 @@ export function FinanceShell({
   notice?: React.ReactNode;
   /** «Сар / Бүтэн жил» сонголт (Борлуулалт, Зардал) */
   withView?: boolean;
+  /** сар сонгогчийг нуух (хуудас өөрийн хугацаа сонгогчтой: Үйлдвэрлэл) */
+  hideYm?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -87,7 +90,7 @@ export function FinanceShell({
       </div>
       <FinanceTabs />
       <div className="flex flex-wrap items-center gap-2.5">
-        <YmPicker withView={withView} />
+        {!hideYm && <YmPicker withView={withView} />}
         {controls}
         {trailing && <div className="ml-auto max-sm:w-full [&>div]:max-sm:w-full">{trailing}</div>}
       </div>
