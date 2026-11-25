@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays } from "@/lib/onec/dates";
 import type { DirectorCard, SimpleProduct } from "@/lib/onec/production-view";
 import { unitName, type Quantity } from "@/lib/units";
@@ -79,23 +79,20 @@ export function TotalLine({ total, worked }: { total: readonly Quantity[]; worke
   );
 }
 
-/** Цехийн карт: нэр, ТОМ тоо + нэгж, доор гол бүтээгдэхүүн. Мэдээгүй цех: саарал тасархай хүрээ. Улаан, шар тэмдэг байхгүй. */
-export function WorkshopCards({ cards, selected, onSelect }: { cards: DirectorCard[]; selected: string | null; onSelect: (name: string) => void }) {
+/** Цехийн карт: нэр, ТОМ тоо + нэгж, доор гол бүтээгдэхүүн. Мэдээгүй цех: саарал тасархай хүрээ. Улаан, шар тэмдэг байхгүй. Дарахад тэр өдрөөр цехийн хуудас руу (?day=). */
+export function WorkshopCards({ cards, day }: { cards: DirectorCard[]; day: string }) {
   return (
     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((c) => {
         const has = c.day.length > 0;
-        const active = selected === c.name;
         return (
           <li key={c.name}>
-            <button
-              type="button"
-              onClick={() => onSelect(c.name)}
-              aria-pressed={active}
+            <Link
+              href={workshopHref(c.name, day)}
               className={cn(
                 "focus-ring flex h-full w-full flex-col items-start rounded-xl p-4 text-left transition-colors", has && "min-h-[8.5rem]",
                 has ? "border bg-bg-surface shadow-card hover:bg-white/[0.04]" : "border border-dashed border-text-muted/40 bg-transparent",
-                has && (active ? "border-[#ffd56b] bg-[rgba(245,181,35,0.1)]" : "border-border")
+                has && "border-border"
               )}
             >
               <span className={cn("text-sm font-medium", has ? "text-text" : "text-text-muted")}>{c.name}</span>
@@ -117,7 +114,7 @@ export function WorkshopCards({ cards, selected, onSelect }: { cards: DirectorCa
                   <span className="mt-auto pt-3 text-xs text-text-muted">{c.lastDay ? `Сүүлд: ${mmdd(c.lastDay)}` : "Сүүлд: —"}</span>
                 </>
               )}
-            </button>
+            </Link>
           </li>
         );
       })}
@@ -139,28 +136,6 @@ export function ProductLines({ products, empty = "Мэдээ ороогүй" }: 
         </li>
       ))}
     </ul>
-  );
-}
-
-/** Сонгосон картын өдрийн бүтээгдэхүүн + цехийн хуудас руу линк */
-export function CardDayDetail({ card, day, onClose }: { card: DirectorCard; day: string; onClose: () => void }) {
-  return (
-    <section aria-label={`${card.name}: ${mnDate(day)}`} className="rounded-xl border border-[rgba(255,213,107,0.4)] bg-bg-surface shadow-card">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold text-text">
-          {card.name} <span className="font-normal text-text-muted">· {mnDate(day)}</span>
-        </h3>
-        <span className="flex items-center gap-2">
-          <Link href={workshopHref(card.name, day)} className="focus-ring inline-flex min-h-9 items-center rounded-lg border border-border px-3 text-xs text-[#ffd56b] hover:bg-white/[0.04]">
-            Цехийн хуудас →
-          </Link>
-          <button type="button" onClick={onClose} className="focus-ring min-h-9 rounded-lg border border-border px-3 text-xs text-text-muted hover:text-text">
-            Хаах
-          </button>
-        </span>
-      </header>
-      <ProductLines products={card.products} />
-    </section>
   );
 }
 
@@ -204,8 +179,8 @@ export function Bars({ items, selected, onSelect, height = 96, labelEvery = 5 }:
 
 export const dayBars = (days: DirectorCard["monthDays"], unit: string): BarItem[] => days.map((d) => ({ key: d.date, label: String(Number(d.date.slice(8, 10))), value: d.qty, title: `${MONTH_DAY(d.date)}: ${num(d.qty)} ${unitName(unit)}` }));
 
-/** «11-р сар — нийт явц»: цех бүр нэг мөр (нэр | хэвтээ багана | сарын нийт). Мөр дарахад сарын бүтээгдэхүүн, өдөр бүрийн багана. */
-export function MonthProgress({ cards, month, day, selected, onSelect }: { cards: DirectorCard[]; month: string; day: string; selected: string | null; onSelect: (name: string) => void }) {
+/** «11-р сар — нийт явц»: цех бүр нэг мөр (нэр | хэвтээ багана | сарын нийт). Мөр дарахад тэр өдрөөр цехийн хуудас руу (?day=). */
+export function MonthProgress({ cards, month, day }: { cards: DirectorCard[]; month: string; day: string }) {
   const rows = [...cards].sort((a, b) => Number(b.monthQty > 0) - Number(a.monthQty > 0));
   const maxBy = new Map<string, number>();
   for (const c of rows) maxBy.set(c.unit, Math.max(maxBy.get(c.unit) ?? 0, c.monthQty));
@@ -214,36 +189,18 @@ export function MonthProgress({ cards, month, day, selected, onSelect }: { cards
       <h2 className="border-b border-border px-5 py-3 text-sm font-semibold text-text">{Number(month.slice(5, 7))}-р сар — нийт явц</h2>
       <ul className="divide-y divide-border">
         {rows.map((c) => {
-          const open = selected === c.name;
           const has = c.monthQty > 0;
           const pct = has ? Math.max(2, (c.monthQty / (maxBy.get(c.unit) || 1)) * 100) : 0;
           return (
             <li key={c.name}>
-              <button type="button" aria-expanded={open} onClick={() => onSelect(c.name)} className="focus-ring flex min-h-14 w-full flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-3 text-left hover:bg-white/[0.03] sm:flex-nowrap">
+              <Link href={workshopHref(c.name, day)} className="focus-ring flex min-h-14 w-full flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-3 text-left hover:bg-white/[0.03] sm:flex-nowrap">
                 <span className={cn("min-w-0 flex-1 text-sm sm:w-56 sm:flex-none", has ? "text-text" : "text-text-muted")}>{c.name}</span>
                 <span className="order-last h-2.5 min-w-0 basis-full overflow-hidden rounded-full bg-white/5 sm:order-none sm:basis-auto sm:flex-1" aria-hidden>
                   <span className="block h-full rounded-full bg-[linear-gradient(90deg,#f5b523,#ffd56b)]" style={{ width: `${pct}%` }} />
                 </span>
                 <span className={cn("ng-num ml-auto shrink-0 whitespace-nowrap text-sm font-semibold sm:w-40 sm:text-right", has ? "text-text" : "font-normal text-text-muted")}>{has ? qtyLine(c.month) : "Мэдээ ороогүй"}</span>
-                <ChevronDown aria-hidden className={cn("size-4 shrink-0 text-text-muted transition-transform", open && "rotate-180")} />
-              </button>
-              {open && (
-                <div className="space-y-3 border-t border-border bg-white/[0.015] px-5 py-4">
-                  {has ? (
-                    <>
-                      <Bars items={dayBars(c.monthDays, c.unit)} />
-                      <div className="-mx-5 border-t border-border">
-                        <ProductLines products={c.monthProducts} />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-text-muted">Энэ сард мэдээ ороогүй</p>
-                  )}
-                  <Link href={workshopHref(c.name, day)} className="focus-ring inline-flex min-h-9 items-center rounded-lg border border-border px-3 text-xs text-[#ffd56b] hover:bg-white/[0.04]">
-                    Цехийн хуудас →
-                  </Link>
-                </div>
-              )}
+                <ChevronRight aria-hidden className="size-4 shrink-0 text-text-muted" />
+              </Link>
             </li>
           );
         })}
