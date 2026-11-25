@@ -21,11 +21,11 @@ export async function writeProductionMonth(data: ProductionMonthData) {
     prisma.onecProductionLine.deleteMany({ where: { month: data.month } }),
     prisma.onecProductionLedger.deleteMany({ where: { month: data.month } }),
     prisma.onecProductionLine.createMany({
-      data: data.lines.map((l) => ({ month: data.month, day: l.day, docRef: l.docRef, docNumber: l.docNumber, lineNo: l.lineNo, posted: l.posted, stage: l.stage, department: l.department, productKey: l.productKey, product: l.product, unit: l.unit, quantity: l.quantity, syncedAt })),
+      data: data.lines.map((l) => ({ month: data.month, day: l.day, docRef: l.docRef, docNumber: l.docNumber, lineNo: l.lineNo, docTime: l.time, posted: l.posted, stage: l.stage, department: l.department, groupName: l.group, productKey: l.productKey, product: l.product, unit: l.unit, quantity: l.quantity, syncedAt })),
       skipDuplicates: true,
     }),
     prisma.onecProductionLedger.createMany({
-      data: data.ledger.map((r) => ({ month: data.month, kind: r.kind, stage: r.stage, department: r.department, productKey: r.productKey, product: r.product, unit: r.unit, quantity: r.quantity, amount: r.amount, syncedAt })),
+      data: data.ledger.map((r) => ({ month: data.month, kind: r.kind, stage: r.stage, department: r.department, groupName: r.group, productKey: r.productKey, product: r.product, unit: r.unit, quantity: r.quantity, amount: r.amount, syncedAt })),
     }),
   ]);
 }
@@ -38,18 +38,28 @@ export interface ProductionRows {
 
 export async function readProductionMonth(month: string): Promise<ProductionRows> {
   const [lines, ledger, last] = await Promise.all([
-    prisma.$queryRaw<{ day: string; doc_ref: string; doc_number: string; posted: boolean; stage: string; department: string; product: string; unit: string; quantity: number }[]>`
-      SELECT day, doc_ref, doc_number, posted, stage, department, product, unit, quantity::float8 AS quantity
+    prisma.$queryRaw<{ day: string; doc_ref: string; doc_number: string; doc_time: string; posted: boolean; stage: string; department: string; group_name: string; product: string; unit: string; quantity: number }[]>`
+      SELECT day, doc_ref, doc_number, doc_time, posted, stage, department, group_name, product, unit, quantity::float8 AS quantity
         FROM onec_production_line WHERE month = ${month} ORDER BY day, doc_number, line_no`,
-    prisma.$queryRaw<{ kind: string; stage: string; department: string; product: string; unit: string; quantity: number; amount: number }[]>`
-      SELECT kind, stage, department, product, unit, quantity::float8 AS quantity, amount::float8 AS amount
+    prisma.$queryRaw<{ kind: string; stage: string; department: string; group_name: string; product: string; unit: string; quantity: number; amount: number }[]>`
+      SELECT kind, stage, department, group_name, product, unit, quantity::float8 AS quantity, amount::float8 AS amount
         FROM onec_production_ledger WHERE month = ${month}`,
     prisma.onecSyncLog.findFirst({ where: { kind: PRODUCTION_LOG_KIND, ok: true }, orderBy: { finishedAt: "desc" }, select: { finishedAt: true } }),
   ]);
   return {
-    lines: lines.map((l) => ({ day: l.day, docRef: l.doc_ref, docNumber: l.doc_number, posted: l.posted, stage: l.stage as ProductionStage, department: l.department, product: l.product, unit: l.unit, quantity: l.quantity })),
-    ledger: ledger.map((r) => ({ kind: r.kind as "output" | "material", stage: r.stage, department: r.department, product: r.product, unit: r.unit, quantity: r.quantity, amount: r.amount })),
+    lines: lines.map((l) => ({ day: l.day, docRef: l.doc_ref, docNumber: l.doc_number, docTime: l.doc_time, posted: l.posted, stage: l.stage as ProductionStage, department: l.department, group: l.group_name || l.department, product: l.product, unit: l.unit, quantity: l.quantity })),
+    ledger: ledger.map((r) => ({ kind: r.kind as "output" | "material", stage: r.stage, department: r.department, group: r.group_name || r.department, product: r.product, unit: r.unit, quantity: r.quantity, amount: r.amount })),
     syncedAt: last?.finishedAt.toISOString() ?? null,
+  };
+}
+
+/** Хэд хэдэн сарын мөрүүд (хугацаа сарын хилийг давсан үед): мөр, бичилт нийлнэ; бичилт нь сар бүрийн тусдаа (ledgerByMonth) */
+export async function readProductionMonths(months: readonly string[]): Promise<{ lines: ProductionLineRow[]; ledgerByMonth: Record<string, ProductionLedgerRow[]>; syncedAt: string | null }> {
+  const parts = await Promise.all(months.map((m) => readProductionMonth(m)));
+  return {
+    lines: parts.flatMap((p) => p.lines),
+    ledgerByMonth: Object.fromEntries(months.map((m, i) => [m, parts[i].ledger])),
+    syncedAt: parts.map((p) => p.syncedAt).filter((s): s is string => !!s).sort().at(-1) ?? null,
   };
 }
 

@@ -25,9 +25,13 @@ export interface ProductionLineInput {
   docRef: string;
   docNumber: string;
   lineNo: number;
+  /** баримтын цаг «ЦЦ:ММ» */
+  time: string;
   posted: boolean;
   stage: ProductionStage;
   department: string;
+  /** эх хэлтэс (Parent): «Тенсиланд хэсэг» -> «Төмөр бетон хийц эдлэлийн цех»; эх нь байхгүй бол хэлтэс өөрөө */
+  group: string;
   productKey: string;
   product: string;
   unit: string;
@@ -38,6 +42,7 @@ export interface ProductionLedgerInput {
   kind: "output" | "material";
   stage: ProductionStage | "";
   department: string;
+  group: string;
   productKey: string;
   product: string;
   unit: string;
@@ -110,7 +115,26 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
     const unitKeys = [...lineRows.map((l) => realKey(l.ЕдиницаИзмерения_Key)), ...[...products.values()].map((p) => realKey(p?.ЕдиницаИзмерения_Key))];
     const units = await names(UNITS, unitKeys);
     const deptKeys = [...docs.map((d) => realKey(d.ПодразделениеЗатрат_Key)), ...ledgerRows.flatMap((r) => [realKey(r.ПодразделениеDr_Key), realKey(r.ПодразделениеCr_Key)])];
-    const depts = await names(DEPARTMENTS, deptKeys);
+    // Хэлтсийн эх (Parent_Key) хэлхээг дээш нь (≤ 4 түвшин) татаж, хамгийн дээд эхийг бүлгийн нэр болгоно
+    const depts = await names(DEPARTMENTS, deptKeys, "Description,Parent_Key");
+    const chain = new Map(depts);
+    for (let i = 0; i < 4; i++) {
+      const missing = [...chain.values()].map((r) => realKey(r?.Parent_Key)).filter((k): k is string => !!k && !chain.has(k));
+      if (!missing.length) break;
+      for (const [k, v] of await names(DEPARTMENTS, missing, "Description,Parent_Key")) chain.set(k, v);
+    }
+    const clean = (v: unknown) => String(v ?? "").replace(/s+/g, " ").trim();
+    const groupName = (key: unknown): string => {
+      let k = realKey(key);
+      let name = "";
+      for (let i = 0; k && i < 6; i++) {
+        const row = chain.get(k);
+        if (!row) break;
+        name = clean(row.Description) || name;
+        k = realKey(row.Parent_Key);
+      }
+      return name || "Цех заагаагүй";
+    };
 
     const unitName = (key: unknown): string => String(units.get(realKey(key) ?? "")?.Description ?? "").trim();
     const productName = (key: string | null): string => String(products.get(key ?? "")?.Description ?? "").replace(/\s+/g, " ").trim() || "Нэргүй бүтээгдэхүүн";
@@ -123,6 +147,8 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
       const docRef = lower(d.Ref_Key);
       const day = String(d.Date ?? "").slice(0, 10);
       const dept = deptName(d.ПодразделениеЗатрат_Key);
+      const group = groupName(d.ПодразделениеЗатрат_Key);
+      const time = String(d.Date ?? "").slice(11, 16);
       for (const l of (Array.isArray(d.Продукция) ? d.Продукция : []) as Row[]) {
         const quantity = round(num(l.Количество), 3);
         const productKey = realKey(l.Номенклатура_Key);
@@ -134,9 +160,11 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
           docRef,
           docNumber: String(d.Number ?? "").trim(),
           lineNo: Number(l.LineNumber) || lines.length + 1,
+          time,
           posted: d.Posted === true,
           stage: stageOfAccount(accountCode(l.Счет_Key)) ?? "finished",
           department: dept,
+          group,
           productKey,
           product: productName(productKey),
           unit,
@@ -152,8 +180,9 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
       const amount = num(r.Сумма);
       if (dr === "1423") {
         const department = deptName(r.ПодразделениеDr_Key);
+        const group = groupName(r.ПодразделениеDr_Key);
         const k = `material|${department}`;
-        const row = merged.get(k) ?? { kind: "material" as const, stage: "" as const, department, productKey: "", product: "", unit: "", quantity: 0, amount: 0 };
+        const row = merged.get(k) ?? { kind: "material" as const, stage: "" as const, department, group, productKey: "", product: "", unit: "", quantity: 0, amount: 0 };
         row.amount += amount;
         merged.set(k, row);
         continue;
@@ -162,9 +191,10 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
       const productKey = realKey(r.ExtDimensionDr1);
       if (!stage || !productKey) continue;
       const department = deptName(r.ПодразделениеCr_Key);
+      const group = groupName(r.ПодразделениеCr_Key);
       const k = `output|${stage}|${department}|${productKey}`;
       const unit = unitOf.get(productKey) ?? unitName(products.get(productKey)?.ЕдиницаИзмерения_Key);
-      const row = merged.get(k) ?? { kind: "output" as const, stage, department, productKey, product: productName(productKey), unit, quantity: 0, amount: 0 };
+      const row = merged.get(k) ?? { kind: "output" as const, stage, department, group, productKey, product: productName(productKey), unit, quantity: 0, amount: 0 };
       row.quantity += num(r.КоличествоDr);
       row.amount += amount;
       merged.set(k, row);

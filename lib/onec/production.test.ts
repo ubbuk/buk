@@ -10,6 +10,8 @@ const P_ELS = g(34);
 const D_TEN = g(41);
 const D_ARM = g(42);
 const D_CRUSH = g(43);
+const D_TBHC = g(44); // Тенсиланд, Арматурын хэсгийн эх хэлтэс
+const D_ROOT = g(45); // эх хэлтсийн эх (гурван түвшин)
 
 const state = vi.hoisted(() => ({ calls: [] as string[], docs: [] as Record<string, unknown>[], ledger: [] as Record<string, unknown>[] }));
 
@@ -33,7 +35,13 @@ vi.mock("./odata-read", async (orig) => {
           [P_ELS]: { Description: "Элс  (0-3)", ЕдиницаИзмерения_Key: g(21) },
         },
         Catalog_КлассификаторЕдиницИзмерения: { [UNIT]: { Description: "ш" }, [g(21)]: { Description: "м3" } },
-        Catalog_ПодразделенияОрганизаций: { [D_TEN]: { Description: "Тенсиланд хэсэг" }, [D_ARM]: { Description: "Арматурын хэсэг" }, [D_CRUSH]: { Description: "Бутлан ангилах үйлдвэр" } },
+        Catalog_ПодразделенияОрганизаций: {
+          [D_TEN]: { Description: "Тенсиланд хэсэг", Parent_Key: D_TBHC },
+          [D_ARM]: { Description: "Арматурын хэсэг", Parent_Key: "00000000-0000-0000-0000-000000000000" },
+          [D_CRUSH]: { Description: "Бутлан ангилах үйлдвэр", Parent_Key: "" },
+          [D_TBHC]: { Description: "Төмөр бетон хийц эдлэлийн цех", Parent_Key: D_ROOT },
+          [D_ROOT]: { Description: "Үйлдвэр", Parent_Key: "" },
+        },
       };
       return new Map(keys.map((k) => [k, table[catalog]?.[k] ?? null]));
     },
@@ -81,20 +89,20 @@ beforeEach(() => {
 describe("fetchProductionMonth", () => {
   it("баримтын мөр: шат нь мөрийн дансаар (1441 бэлэн, 1431 хагас, 1401 бутлуур), тоо 0 мөр алгасна, дугаар цэвэрлэгдэнэ, нэгж 1С-ийн", async () => {
     const r = await fetchProductionMonth("2098-04");
-    expect(r.lines.map((l) => [l.docNumber, l.day, l.posted, l.stage, l.department, l.product, l.unit, l.quantity])).toEqual([
-      ["ТЕН 1102", "2098-04-02", true, "finished", "Тенсиланд хэсэг", "Шон 80*80", "ш", 700],
-      ["ТЕН 1102", "2098-04-02", true, "finished", "Тенсиланд хэсэг", "Шон 80*80 Брак", "ш", 3],
-      ["АРМ 1102", "2098-04-03", false, "semi", "Арматурын хэсэг", "Каркас", "ш", 12],
-      ["БУТ 1102", "2098-04-03", true, "crusher", "Бутлан ангилах үйлдвэр", "Элс (0-3)", "м3", 79.18],
+    expect(r.lines.map((l) => [l.docNumber, l.day, l.time, l.posted, l.stage, l.department, l.group, l.product, l.unit, l.quantity])).toEqual([
+      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Үйлдвэр", "Шон 80*80", "ш", 700],
+      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Үйлдвэр", "Шон 80*80 Брак", "ш", 3],
+      ["АРМ 1102", "2098-04-03", "10:00", false, "semi", "Арматурын хэсэг", "Арматурын хэсэг", "Каркас", "ш", 12],
+      ["БУТ 1102", "2098-04-03", "17:45", true, "crusher", "Бутлан ангилах үйлдвэр", "Бутлан ангилах үйлдвэр", "Элс (0-3)", "м3", 79.18],
     ]);
   });
 
   it("бичилт: Комплектация хасагдана; гарц бүтээгдэхүүн+цех+шатаар, материал цехээр нэгтгэгдэнэ", async () => {
     const r = await fetchProductionMonth("2098-04");
     expect(r.ledger).toEqual([
-      { kind: "output", stage: "finished", department: "Тенсиланд хэсэг", productKey: P_SHON, product: "Шон 80*80", unit: "ш", quantity: 800, amount: 800 },
-      { kind: "output", stage: "semi", department: "Арматурын хэсэг", productKey: P_KARKAS, product: "Каркас", unit: "ш", quantity: 12, amount: 12 },
-      { kind: "material", stage: "", department: "Арматурын хэсэг", productKey: "", product: "", unit: "", quantity: 0, amount: 2000 },
+      { kind: "output", stage: "finished", department: "Тенсиланд хэсэг", group: "Үйлдвэр", productKey: P_SHON, product: "Шон 80*80", unit: "ш", quantity: 800, amount: 800 },
+      { kind: "output", stage: "semi", department: "Арматурын хэсэг", group: "Арматурын хэсэг", productKey: P_KARKAS, product: "Каркас", unit: "ш", quantity: 12, amount: 12 },
+      { kind: "material", stage: "", department: "Арматурын хэсэг", group: "Арматурын хэсэг", productKey: "", product: "", unit: "", quantity: 0, amount: 2000 },
     ]);
     expect(JSON.stringify(r)).not.toContain("9999999");
   });
@@ -110,6 +118,11 @@ describe("fetchProductionMonth", () => {
     const ledgerReq = state.calls.find((c) => c.includes("RecordsWithExtDimensions"))!;
     expect(ledgerReq).toContain("StartPeriod=datetime'2098-04-01T00:00:00'");
     expect(ledgerReq).toContain(`AccountDr_Key eq guid'${ACC.f1441}'`);
+  });
+
+  it("эх хэлтэс (Parent_Key) хэлхээг дээш нь авч, хамгийн дээд эхийг бүлэг болгоно; эхгүй хэлтэс өөрөө бүлэг", async () => {
+    const r = await fetchProductionMonth("2098-04");
+    expect(Object.fromEntries(r.lines.map((l) => [l.department, l.group]))).toEqual({ "Тенсиланд хэсэг": "Үйлдвэр", "Арматурын хэсэг": "Арматурын хэсэг", "Бутлан ангилах үйлдвэр": "Бутлан ангилах үйлдвэр" });
   });
 
   it("баримтгүй сар алдаа биш: хоосон", async () => {

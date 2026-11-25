@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { ProductionMonthData } from "./production";
-import { backfillProduction, previousMonthNeedsSync, PRODUCTION_LOG_KIND, readProductionMonth, syncProduction, writeProductionMonth } from "./production-store";
+import { backfillProduction, previousMonthNeedsSync, PRODUCTION_LOG_KIND, readProductionMonth, readProductionMonths, syncProduction, writeProductionMonth } from "./production-store";
 
 const NOW = "2098-04";
 
 const data = (month: string, over: { qty?: number; amount?: number; lines?: number } = {}): ProductionMonthData => ({
   month,
-  lines: Array.from({ length: over.lines ?? 2 }, (_, i) => ({ day: `${month}-0${i + 1}`, docRef: `ref-${month}-${i}`, docNumber: `ТЕН ${i}`, lineNo: 1, posted: i === 0, stage: "finished" as const, department: "Тенсиланд хэсэг", productKey: "k1", product: "Шон 80*80", unit: "ш", quantity: over.qty ?? 10 })),
-  ledger: [{ kind: "output", stage: "finished", department: "Тенсиланд хэсэг", productKey: "k1", product: "Шон 80*80", unit: "ш", quantity: over.qty ?? 10, amount: over.amount ?? over.qty ?? 10 }],
+  lines: Array.from({ length: over.lines ?? 2 }, (_, i) => ({ day: `${month}-0${i + 1}`, docRef: `ref-${month}-${i}`, docNumber: `ТЕН ${i}`, lineNo: 1, time: "11:33", posted: i === 0, stage: "finished" as const, department: "Тенсиланд хэсэг", group: "Төмөр бетон хийц эдлэлийн цех", productKey: "k1", product: "Шон 80*80", unit: "ш", quantity: over.qty ?? 10 })),
+  ledger: [{ kind: "output", stage: "finished", department: "Тенсиланд хэсэг", group: "Төмөр бетон хийц эдлэлийн цех", productKey: "k1", product: "Шон 80*80", unit: "ш", quantity: over.qty ?? 10, amount: over.amount ?? over.qty ?? 10 }],
 });
 
 const clean = async () => {
@@ -28,8 +28,25 @@ describe("production агшин зураг (Postgres)", () => {
     expect(r.lines).toHaveLength(1);
     expect(r.lines[0]).toMatchObject({ product: "Шон 80*80", quantity: 55, stage: "finished", posted: true, department: "Тенсиланд хэсэг" });
     expect(r.ledger).toHaveLength(1);
+    // эх хэлтэс (group), баримтын цаг хадгалагдаж, уншигдана
+    expect(r.lines[0]).toMatchObject({ group: "Төмөр бетон хийц эдлэлийн цех", docTime: "11:33" });
+    expect(r.ledger[0]).toMatchObject({ group: "Төмөр бетон хийц эдлэлийн цех" });
     await writeProductionMonth(data("2098-03"));
     expect((await readProductionMonth("2098-04")).lines).toHaveLength(1); // өөр сарыг хөндөхгүй
+  });
+});
+
+describe("readProductionMonths (хугацаа сарын хилийг давсан)", () => {
+  beforeEach(clean);
+  afterEach(clean);
+
+  it("хэд хэдэн сарын мөр нийлнэ, бичилт сар бүрийн тусдаа, сүүлд татсан цаг", async () => {
+    await writeProductionMonth(data("2098-03", { lines: 1 }));
+    await writeProductionMonth(data("2098-04", { lines: 2 }));
+    const r = await readProductionMonths(["2098-03", "2098-04"]);
+    expect(r.lines.map((l) => l.day).sort()).toEqual(["2098-03-01", "2098-04-01", "2098-04-02"]);
+    expect(Object.keys(r.ledgerByMonth)).toEqual(["2098-03", "2098-04"]);
+    expect(r.ledgerByMonth["2098-03"]).toHaveLength(1);
   });
 });
 
@@ -88,7 +105,7 @@ describe("syncProduction (горим: production-month)", () => {
 describe("backfillProduction (горим: production-backfill)", () => {
   beforeEach(clean);
   afterEach(clean);
-  const sleep = vi.fn(async (_ms: number) => {});
+  const sleep = vi.fn(async (ms: number) => void ms);
 
   it("from..to сар бүрийг дараалан татна, сар хооронд завсарлагатай (эхний сарын өмнө үгүй)", async () => {
     sleep.mockClear();

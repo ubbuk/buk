@@ -1261,6 +1261,10 @@ model OnecProductionLine {
   posted     Boolean
   stage      String
   department String
+  // 1С-ийн Подразделение-ийн эх (Parent) хэлтэс: «Тенсиланд хэсэг» -> «Төмөр бетон хийц эдлэлийн цех». Эх нь байхгүй бол хэлтэс өөрөө. Хоосон = хараахан татагдаагүй хуучин мөр
+  groupName  String   @default("") @map("group_name")
+  // Баримтын цаг «ЦЦ:ММ» (drill-down-д)
+  docTime    String   @default("") @map("doc_time")
   productKey String   @map("product_key")
   product    String
   unit       String
@@ -1281,6 +1285,7 @@ model OnecProductionLedger {
   kind       String
   stage      String
   department String
+  groupName  String   @default("") @map("group_name")
   productKey String   @map("product_key")
   product    String
   unit       String
