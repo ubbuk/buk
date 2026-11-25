@@ -7,6 +7,7 @@ let n = 0;
 const KHAN = "5003636128, ХААН банк, MNT";
 const entry = (over: Partial<CashEntry>): CashEntry => ({
   id: `e${++n}`,
+  accountKey: "acct:test",
   date: "2026-11-17",
   time: "15:00:00",
   type: "outflow",

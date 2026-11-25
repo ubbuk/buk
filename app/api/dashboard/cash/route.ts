@@ -1,10 +1,13 @@
 // GET /api/dashboard/cash?month=2026-10[&refresh=1] — сарын мөнгөн хөрөнгө: орлого, зарлага, дотоод шилжүүлэг, эхний/эцсийн үлдэгдэл.
 // 1С-ийн OData-аас шууд (ЗӨВХӨН УНШИХ; AccountingRegister_Хозрасчетный, 11xx данс), 5 минутын cache; 1С холбогдохгүй бол сүүлд хадгалсан
 // (meta.stale). refresh=1 нь cache-ийг тойрно, гэхдээ хамгийн багадаа 60 сек тутамд. Хуучин onec_cash, /hs/dash/cash ашиглагдахгүй.
+import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { withTiming } from "@/lib/api-timing";
+import { authOptions } from "@/lib/auth";
 import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
 import { loadCash, redactCash } from "@/lib/onec/cash";
+import { maskCashForViewer } from "@/lib/onec/cash-accounts";
 import { currentMonth, isMonth } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 
@@ -24,7 +27,9 @@ export const GET = withTiming("GET /api/dashboard/cash", async (req: Request) =>
   try {
     const { value: full, meta } = await loadCash(month, sp.get("refresh") === "1");
     // Цалингийн эрхгүй хүнд хүний нэр, утга гарахгүй: цалингийн харьцаатай бичилтүүд нэгтгэгдэнэ (нийт дүн ижил)
-    const value = (await viewerCanSeePayroll()) ? full : redactCash(full);
+    // Дансны бүтэн дугаар зөвхөн ADMIN-д (бусдад сүүлийн 4 орон)
+    const isAdmin = (await getServerSession(authOptions))?.user.role === "ADMIN";
+    const value = maskCashForViewer((await viewerCanSeePayroll()) ? full : redactCash(full), isAdmin);
     const { entries: _all, ...slim } = value; // бүх гүйлгээ энэ хариунд явахгүй (хуудаслалттай /entries-ээр)
     void _all;
     return NextResponse.json({ ...slim, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } }, { headers: NO_STORE });

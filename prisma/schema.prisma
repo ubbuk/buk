@@ -1232,6 +1232,18 @@ model OnecCashCategoryRule {
   @@map("onec_cash_category_rule")
 }
 
+// «Мөнгөн хөрөнгө» табын «Данснууд»: дансны нэр, нуух, дараалал (ADMIN). Зөвхөн харагдац: 1С-ийн өгөгдөл, үлдэгдэл өөрчлөгдөхгүй. key = `bank:<guid>` | `acct:<код>`.
+model OnecCashAccountSetting {
+  key         String   @id
+  displayName String   @default("") @map("display_name")
+  hidden      Boolean  @default(false)
+  sortOrder   Int?     @map("sort_order")
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("onec_cash_account_setting")
+}
+
 model OnecExpenseCategoryRule {
   id          String   @id @default(cuid())
   field       String

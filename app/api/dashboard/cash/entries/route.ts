@@ -1,15 +1,19 @@
 // GET /api/dashboard/cash/entries?month=2026-11&q=84 сая&flow=outflow&category=suppliers&party=…&page=1&size=50 — сарын БҮХ гүйлгээний хайлт,
 // шүүлт, хуудаслалт (өмнөх «сүүлийн 200» хязгааргүй). Хайлт: харилцагч, утга, дүн («84 сая», 84073015), огноо (2026-11-17, 11-17).
 // Хуудас бүрийн баримтын дугаарыг (нягтлангийн лавлагаа) зөвхөн тухайн хуудасны мөрүүдэд 1С-ээс уншина. «Комментарий» хэзээ ч гарахгүй.
+import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { withTiming } from "@/lib/api-timing";
+import { authOptions } from "@/lib/auth";
 import { requireFinanceAccess, viewerCanSeePayroll } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
+import { accountNames, findAccount, maskAccountName, transferEntriesFor } from "@/lib/onec/cash-accounts";
+import { loadAccountSettings } from "@/lib/onec/cash-accounts-store";
 import { categoryLabel, isCategoryId } from "@/lib/onec/cash-categories";
 import { feeInfoOf, feeMatches, isFeeFilter, linkFees } from "@/lib/onec/cash-fees";
 import { filterEntries, paginate, withCategories, type ReportEntry } from "@/lib/onec/cash-report";
 import { loadCashRules } from "@/lib/onec/cash-rules-store";
-import { currentMonth, isMonth } from "@/lib/onec/dates";
+import { currentMonth, isDate, isMonth } from "@/lib/onec/dates";
 import { lookupRows, OdataError } from "@/lib/onec/odata-read";
 import { withOneCYear, yearOf } from "@/lib/onec/year-context";
 
@@ -50,14 +54,25 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
   const size = Math.min(100, Math.max(10, Number(sp.get("size")) || 50));
 
   try {
-    const [{ value: cash }, rules, canSeePayroll] = await Promise.all([loadCash(month), loadCashRules(), viewerCanSeePayroll()]);
-    const all = withCategories(cash.entries, rules, canSeePayroll);
+    const session = await getServerSession(authOptions);
+    const isAdmin = session?.user.role === "ADMIN";
+    const [{ value: cash }, rules, canSeePayroll, settings] = await Promise.all([loadCash(month), loadCashRules(), viewerCanSeePayroll(), loadAccountSettings()]);
+    // Дансны хуудас: тэр дансны гүйлгээ + шилжүүлэг (тухайн дансны талаас нь орсон/гарсан). «Бүх гүйлгээ»-тэй ИЖИЛ жагсаалт, зөвхөн дансаар шүүгдэнэ.
+    const accountId = sp.get("accountId");
+    const acc = accountId ? findAccount(cash, accountId) : null;
+    if (accountId && !acc) return NextResponse.json({ error: "Данс олдсонгүй" }, { status: 404, headers: NO_STORE });
+    const nameOf = accountNames(cash, settings);
+    const fromRaw = sp.get("from");
+    const toRaw = sp.get("to");
+    const base = withCategories(cash.entries, rules, canSeePayroll);
+    const transfers = acc ? transferEntriesFor(cash, acc.key, nameOf).map((t) => ({ ...t, category: "internal" as const })) : [];
+    const all: ReportEntry[] = acc ? [...base, ...transfers].sort((a, b) => b.date.localeCompare(a.date) || b.amount - a.amount) : base;
     // шимтгэлийн холбоо БҮХ гүйлгээн дээр (шүүлтээс өмнө): шүүсэн жагсаалтад үндсэн гүйлгээ байхгүй ч шимтгэл холбоотой хэвээр
     const links = linkFees(all);
     const byId = new Map(all.map((e) => [e.id, e]));
     const feeRaw = sp.get("fee");
     const fee = isFeeFilter(feeRaw) ? feeRaw : undefined;
-    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined }).filter((e) => !fee || feeMatches(fee, e, links, byId));
+    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined, accountKey: acc?.key, from: isDate(fromRaw) ? fromRaw : undefined, to: isDate(toRaw) ? toRaw : undefined }).filter((e) => !fee || feeMatches(fee, e, links, byId));
     // нэг үндсэн гүйлгээ ба түүний шимтгэлүүд (ангиллын «аль гүйлгээнд хамаарах» жагсаалтаас)
     const main = sp.get("main");
     const scoped = main ? filtered.filter((e) => e.id === main || links.mainOf.get(e.id) === main) : filtered;
@@ -72,13 +87,15 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
           id: e.id,
           date: e.date,
           type: e.type,
-          account: e.account,
+          // дансны нэр: админы өгсөн нэр эсвэл банк + сүүлийн 4 орон; бүтэн дугаар зөвхөн ADMIN-д
+          account: acc ? nameOf(acc.key) : isAdmin ? e.account : maskAccountName(e.account),
+          transfer: e.transfer === true,
           counterpart: e.counterpart,
           memo: e.memo,
           article: e.article,
           amount: e.amount,
           category: e.category,
-          categoryLabel: categoryLabel(e.category, e.type),
+          categoryLabel: e.transfer ? "Шилжүүлэг" : categoryLabel(e.category, e.type),
           payroll: e.payroll === true,
           ...feeInfoOf(e, links, byId),
           // хамгийн доод drill-down: нягтлангийн лавлагаа (цалингийн нэгтгэсэн мөрөнд байхгүй)
