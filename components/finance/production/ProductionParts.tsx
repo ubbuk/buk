@@ -24,26 +24,21 @@ export function UnconfirmedBadge({ children = "Нягтлан батлаагүй
   );
 }
 
-/** «1С-д тайлан ороогүй»: шар = 3+ хоног тайлан ороогүй; улаан = мөн өмнөх сард гарцтай байсан */
-export function StaleBadge({ level }: { level: "warn" | "alert" }) {
+/** «Тайлан хоцорч байна?»: ЗӨВХӨН нэг тохиолдолд: цех сүүлийн 30 хоногт 5+ тайлантай идэвхтэй ажилласан атлаа сүүлийн 7 хоногт тайлангүй. Жижиг шар тэмдэг; бусад анхааруулга, улаан өнгө байхгүй. */
+export function LagBadge({ recent }: { recent: number }) {
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        level === "alert" ? "border-danger/50 bg-danger/10 text-danger" : "border-warning/40 bg-warning/10 text-warning"
-      )}
-      title={level === "alert" ? "Өмнөх сард гарцтай байсан цех, одоо тайлан ороогүй байна" : "Хэд хоног тайлан ороогүй байна"}
-    >
-      <AlertTriangle className="size-3" aria-hidden />1С-д тайлан ороогүй
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning" title={`Сүүлийн 30 хоногт ${recent} тайлантай байсан, сүүлийн 7 хоногт тайлан ороогүй`}>
+      <AlertTriangle className="size-2.5" aria-hidden />
+      Тайлан хоцорч байна?
     </span>
   );
 }
 
-/** «Сүүлийн тайлан: 10-29 (27 хоногийн өмнө)» */
-export function lastReportText(lr: { day: string; daysAgo: number } | null): string {
-  if (!lr) return "Сүүлийн тайлан: алга";
+/** «11-24 (өчигдөр)», «10-29 (27 хоногийн өмнө)» */
+export function lastReportShort(lr: { day: string; daysAgo: number } | null): string {
+  if (!lr) return "тайлан алга";
   const ago = lr.daysAgo === 0 ? "өнөөдөр" : lr.daysAgo === 1 ? "өчигдөр" : `${lr.daysAgo} хоногийн өмнө`;
-  return `Сүүлийн тайлан: ${mmdd(lr.day)} (${ago})`;
+  return `${mmdd(lr.day)} (${ago})`;
 }
 
 /** Хамгийн доод түвшин: өдрөөр задарсан баримтууд (өдрийн нийт, дугаар, цаг) */
@@ -144,48 +139,156 @@ export function ProductRows({ products, getDocs, onOpen }: { products: ProductRo
   );
 }
 
-function Stat({ label, quantities }: { label: string; quantities: ProductionCard["month"] }) {
+/**
+ * Хураангуй хүснэгт: Цех | Гарц | Гол бүтээгдэхүүн | Сүүлийн тайлан. ЗӨВХӨН сонгосон хугацаанд гарцтай цехүүд, их гарцаараа. Мөрийг дарвал тэр цех сонгогдоно.
+ * Гарцгүй цехүүд доор нэг саарал мөрөнд (өнгөгүй; «Тайлан хоцорч байна?» шар тэмдгээс бусад анхааруулга байхгүй).
+ */
+export function SummaryTable({ cards, periodWord, selected, onSelect }: { cards: ProductionCard[]; periodWord: string; selected: string | null; onSelect: (name: string) => void }) {
+  const active = cards.filter((c) => c.periodTotal > 0).sort((a, b) => b.periodTotal - a.periodTotal || a.name.localeCompare(b.name, "mn"));
+  const idle = cards.filter((c) => c.periodTotal <= 0);
+  const head = "text-[11px] font-medium text-text-muted";
   return (
-    <div className="min-w-0">
-      <p className="text-[11px] text-text-muted">{label}</p>
-      <QtySum quantities={quantities} className="mt-0.5 block truncate text-sm font-semibold text-text" />
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-surface shadow-card">
+      {active.length > 0 && (
+        <div role="table" aria-label="Цехийн хураангуй">
+          <div role="row" className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)] gap-x-4 border-b border-border px-4 py-2 md:grid">
+            <span role="columnheader" className={head}>
+              Цех
+            </span>
+            <span role="columnheader" className={head}>
+              {periodWord}
+            </span>
+            <span role="columnheader" className={head}>
+              Гол бүтээгдэхүүн
+            </span>
+            <span role="columnheader" className={head}>
+              Сүүлийн тайлан
+            </span>
+          </div>
+          <ul className="divide-y divide-border">
+            {active.map((c) => (
+              <li key={c.name} role="row">
+                <button
+                  type="button"
+                  aria-pressed={selected === c.name}
+                  onClick={() => onSelect(c.name)}
+                  className={cn(
+                    "focus-ring grid w-full grid-cols-2 gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-white/[0.03] md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)] md:items-center",
+                    selected === c.name && "bg-[rgba(245,181,35,0.07)] shadow-[inset_3px_0_0_#ffd56b]"
+                  )}
+                >
+                  <span role="cell" className="col-span-1 min-w-0">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-text">
+                      {c.name}
+                      {c.semi && <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-normal text-text-muted">хагас боловсруулсан</span>}
+                      {c.lagging && <LagBadge recent={c.recentReports} />}
+                    </span>
+                    {c.unconfigured && <span className="mt-0.5 block text-[11px] leading-snug text-text-muted">Тохиргоогүй хэлтэс: {c.departments.join(" · ")}</span>}
+                  </span>
+                  <span role="cell" className="min-w-0 justify-self-end text-right md:justify-self-start md:text-left">
+                    <QtySum quantities={c.period} className="text-base font-semibold text-text" />
+                  </span>
+                  <span role="cell" className="col-span-2 min-w-0 text-sm text-text md:col-span-1">
+                    {c.top ? (
+                      <>
+                        <span className="text-text-muted md:hidden">Гол: </span>
+                        {c.top.name} <Qty qty={c.top.qty} unit={c.top.unit} className="text-text-muted" />
+                      </>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )}
+                  </span>
+                  <span role="cell" className="col-span-2 min-w-0 text-xs text-text-muted md:col-span-1 md:text-sm">
+                    <span className="md:hidden">Сүүлийн тайлан: </span>
+                    <span className="ng-num">{lastReportShort(c.lastReport)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {idle.length > 0 && (
+        <p className={cn("bg-white/[0.03] px-4 py-2.5 text-xs leading-relaxed text-text-muted", active.length > 0 && "border-t border-border")}>
+          {periodWord} тайлангүй:{" "}
+          {idle.map((c, i) => (
+            <span key={c.name}>
+              {i > 0 && ", "}
+              <button type="button" onClick={() => onSelect(c.name)} className="focus-ring rounded underline-offset-2 hover:text-text hover:underline">
+                {c.name}
+              </button>{" "}
+              <span className="ng-num">({c.lastReport ? `сүүлд ${mmdd(c.lastReport.day)}` : "тайлан алга"})</span>
+              {c.lagging && (
+                <>
+                  {" "}
+                  <LagBadge recent={c.recentReports} />
+                </>
+              )}
+            </span>
+          ))}
+        </p>
+      )}
     </div>
   );
 }
 
-/** Цех бүр нэг карт: энэ сар, сүүлийн 7 хоног, сүүлийн тайлан, хоцролтын тэмдэг. Дарвал тэр цехээр шүүгдэнэ (12 сарын график). */
-export function ProductionCardView({ card, selected, onSelect }: { card: ProductionCard; selected: boolean; onSelect: () => void }) {
+/** Сонгосон цехийн дэлгэрэнгүй: 1С-ийн хэлтсүүд, энэ сар, сүүлийн 7 хоног, сүүлийн тайлан */
+export function CardDetail({ card, onClear }: { card: ProductionCard; onClear: () => void }) {
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      aria-label={card.name}
-      className={cn(
-        "focus-ring flex min-w-0 flex-col gap-3 rounded-xl border bg-bg-surface p-4 text-left shadow-card transition-colors hover:bg-white/[0.03]",
-        selected ? "border-[rgba(255,213,107,0.7)] shadow-[0_0_0_1px_rgba(255,213,107,0.45)_inset]" : card.stale === "alert" ? "border-danger/50" : "border-border"
+    <div className="rounded-xl border border-[rgba(255,213,107,0.4)] bg-bg-surface p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-text">
+            {card.name}
+            {card.semi && <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-normal text-text-muted">хагас боловсруулсан</span>}
+            {card.lagging && <LagBadge recent={card.recentReports} />}
+          </h3>
+          <p className="mt-1 text-[11px] leading-snug text-text-muted">1С-ийн хэлтэс: {card.departments.join(" · ") || "—"}</p>
+        </div>
+        <button type="button" onClick={onClear} className="focus-ring min-h-9 rounded-lg border border-border px-3 text-xs text-text-muted hover:text-text">
+          Бүх цех
+        </button>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+        <div>
+          <dt className="text-[11px] text-text-muted">Энэ сар</dt>
+          <dd className="mt-0.5 text-sm font-semibold text-text">
+            <QtySum quantities={card.month} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] text-text-muted">Сүүлийн 7 хоног</dt>
+          <dd className="mt-0.5 text-sm font-semibold text-text">
+            <QtySum quantities={card.week} />
+          </dd>
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <dt className="text-[11px] text-text-muted">Сүүлийн тайлан</dt>
+          <dd className="ng-num mt-0.5 text-sm text-text">{lastReportShort(card.lastReport)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/** Сонгосон хугацаанд тайлан алга */
+export function EmptyPeriod({ showMonthButton, onMonth }: { showMonthButton: boolean; onMonth: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <p className="text-sm text-text-muted">Энэ хугацаанд 1С-д тайлан алга</p>
+      {showMonthButton && (
+        <button type="button" onClick={onMonth} className="focus-ring min-h-10 rounded-xl border border-[rgba(255,213,107,0.6)] bg-[rgba(245,181,35,0.12)] px-4 text-sm font-medium text-[#ffd56b] hover:bg-[rgba(245,181,35,0.2)]">
+          Энэ сар руу шилжих
+        </button>
       )}
-    >
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-sm font-semibold text-text">{card.name}</span>
-        {card.semi && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">хагас боловсруулсан</span>}
-        {card.unconfigured && <UnconfirmedBadge>Тохиргоогүй хэлтэс</UnconfirmedBadge>}
-        {card.stale && <StaleBadge level={card.stale} />}
-      </span>
-      {card.unconfigured && <span className="text-[11px] leading-snug text-text-muted">{card.departments.join(" · ")}</span>}
-      <span className="grid grid-cols-2 gap-3">
-        <Stat label="Энэ сар" quantities={card.month} />
-        <Stat label="Сүүлийн 7 хоног" quantities={card.week} />
-      </span>
-      <span className={cn("text-[11px]", card.stale === "alert" ? "text-danger" : card.stale === "warn" ? "text-warning" : "text-text-muted")}>{lastReportText(card.lastReport)}</span>
-    </button>
+    </div>
   );
 }
 
 /** Гол хүснэгт: цех бүрийн хэсэг, дотор нь бүтээгдэхүүн × тоо × нэгж; мөрийг дарвал өдрөөр задарна */
 export function ProductTable({ cards, getDocs, onOpen }: { cards: ProductionCard[]; getDocs: (card: string, id: string) => DocState | undefined; onOpen: (card: string, id: string) => void }) {
   const shown = cards.filter((c) => !c.empty);
-  if (shown.length === 0) return <p className="px-4 py-10 text-center text-sm text-text-muted">Сонгосон хугацаанд гарц бүртгэгдээгүй</p>;
+  if (shown.length === 0) return null;
   return (
     <div className="divide-y divide-border">
       {shown.map((c) => (

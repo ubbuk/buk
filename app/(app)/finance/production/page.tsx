@@ -2,23 +2,32 @@
 
 import { Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarClock, Coins, Factory, Layers, PackageCheck, ShieldAlert, Wrench } from "lucide-react";
+import { AlertTriangle, CalendarClock, ChevronRight, Coins, Factory, Layers, PackageCheck, ShieldAlert, Wrench } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { ErrorNote, FinanceShell, connectionFrom } from "@/components/finance/FinanceShell";
 import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
 import { Amount } from "@/components/finance/cash/Amount";
-import { ProductionCardView, ProductTable, RangeBar, type DocState } from "@/components/finance/production/ProductionParts";
+import { CardDetail, EmptyPeriod, ProductTable, RangeBar, SummaryTable, type DocState } from "@/components/finance/production/ProductionParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
-import { rangeLabel, type DateRange } from "@/lib/onec/production-range";
+import { PRODUCTION_GROUPS } from "@/lib/onec/production-groups";
+import { activePreset, presetRange, rangeLabel, type DateRange } from "@/lib/onec/production-range";
 import type { ProductionView } from "@/lib/onec/production-view";
+import { cn } from "@/lib/utils";
 import { formatQuantities, formatQuantity } from "@/lib/units";
 
 const MN_DAY = (date: string) => `${date.slice(0, 4)} оны ${Number(date.slice(5, 7))}-р сарын ${Number(date.slice(8, 10))}`;
 const MN_MONTH = (m: string) => `${m.slice(0, 4)} оны ${Number(m.slice(5, 7))}-р сар`;
 const axis = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v);
+
+/** Цех бүрийн өнгө (stacked график, легенд): тохиргооны дарааллаар тогтмол; «Бусад» саарал */
+const GROUP_COLORS = ["#f5b523", "#60a5fa", "#34d399", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf", "#fbbf24"];
+const groupColor = (name: string) => {
+  const i = PRODUCTION_GROUPS.findIndex((g) => g.name === name);
+  return i < 0 ? "#94a3b8" : GROUP_COLORS[i % GROUP_COLORS.length];
+};
 
 function ProductionPage() {
   const sp = useSearchParams();
@@ -28,7 +37,7 @@ function ProductionPage() {
   const to = sp.get("to");
   const dept = sp.get("dept");
 
-  // URL: ?from=&to=&dept=. Хугацаа өгөөгүй бол «Энэ сар» (сарын 1-ээс өнөөдөр).
+  // URL: ?from=&to=&dept=. from/to байхгүй (эсвэл хагас, буруу) бол сервер ЗАВААЛ «Энэ сар»-ыг (сарын 1-ээс өнөөдөр) сонгоно.
   const url = useMemo(() => {
     const q = new URLSearchParams();
     if (isDate(from) && isDate(to)) {
@@ -80,17 +89,23 @@ function ProductionPage() {
     [period]
   );
 
+  const [moreOpen, setMoreOpen] = useState(false);
   const label = period ? rangeLabel(period) : "";
+  const isMonthPreset = !!data && !!period && activePreset(period, data.todayDate) === "month";
+  const periodWord = isMonthPreset ? "Энэ сар" : label;
   const chartUnit = data?.chart?.unit ?? "";
   const monthNo = data ? `${Number(data.month.slice(5, 7))}-р сар` : "";
   const kpi = data?.kpi;
-  const defectShown = kpi?.defectPct != null;
-  const tableCards = data ? (data.group ? data.cards.filter((c) => c.name === data.group) : data.cards) : [];
+  const selected = data?.group ?? null;
+  const selectedCard = data && selected ? data.cards.find((c) => c.name === selected) ?? null : null;
+  const tableCards = data ? (selected ? data.cards.filter((c) => c.name === selected) : data.cards) : [];
+  const hasOutput = tableCards.some((c) => !c.empty);
+  const toggle = (name: string) => update({ dept: selected === name ? null : name });
 
   return (
     <FinanceShell
       title="Үйлдвэрлэл"
-      subtitle="Цех бүр хэдийг үйлдвэрлэв: сар, долоо хоног, өдөр. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
+      subtitle="Цех бүр хэдийг үйлдвэрлэв. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
       icon={Factory}
       lastSyncedAt={data?.lastSyncedAt}
       connection={connectionFrom(data?.lastSyncedAt)}
@@ -107,8 +122,8 @@ function ProductionPage() {
 
       {/* Хоосон («—», 0) KPI картыг нууна */}
       {!data ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-28 rounded-2xl" />
           ))}
         </div>
@@ -125,7 +140,7 @@ function ProductionPage() {
                 key="total"
                 featured={featured()}
                 spark={data.chart?.days.map((d) => d.confirmed + d.unconfirmed)}
-                label={`Нийт гарц · ${label}`}
+                label={`Нийт гарц · ${periodWord}`}
                 value={formatQuantities(kpi.month).short}
                 valueText={formatQuantities(kpi.month).short.padEnd(14)}
                 icon={Layers}
@@ -134,51 +149,84 @@ function ProductionPage() {
               />
             );
           if (kpi.productTypes > 0) items.push(<KpiCard key="types" featured={featured()} label="Бүтээгдэхүүний төрөл" value={String(kpi.productTypes)} icon={Wrench} hint="Нэр төрөл (засвар нэгтгэсэн)" />);
-          if (defectShown)
-            items.push(<KpiCard key="defect" featured={featured()} label="Брак хувь" value={`${kpi.defectPct!.toFixed(1)}%`} icon={ShieldAlert} tone={kpi.defectPct! >= 3 ? "danger" : "neutral"} hint={`Брак ${formatQuantities(kpi.defect).short}`} />);
+          if (kpi.defectPct != null)
+            items.push(<KpiCard key="defect" featured={featured()} label="Брак хувь" value={`${kpi.defectPct.toFixed(1)}%`} icon={ShieldAlert} tone={kpi.defectPct >= 3 ? "danger" : "neutral"} hint={`Брак ${formatQuantities(kpi.defect).short}`} />);
           if (kpi.unconfirmedDocs > 0)
             items.push(<KpiCard key="unc" featured={featured()} label="Нягтлан батлаагүй" value={`${kpi.unconfirmedDocs} баримт`} icon={AlertTriangle} tone="warning" hint={`${formatQuantities(kpi.unconfirmed).short} нийт дүнд орсон`} />);
           return items.length ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">{items}</div> : null;
         })()
       )}
 
-      {/* Цех бүр нэг карт (тохиргооны дагуу). Дарвал тэр цехээр шүүгдэнэ. */}
+      {/* 1. Хураангуй: Цех | Энэ сар | Гол бүтээгдэхүүн | Сүүлийн тайлан. Гарцгүй цехүүд доор нэг саарал мөрөнд. */}
       {!data ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-36 rounded-xl" />
-          ))}
-        </div>
+        <Skeleton className="h-56 rounded-xl" />
       ) : data.cards.length === 0 ? (
         <Card>
           <CardBody className="py-10 text-center text-sm text-text-muted">{data.scopeNote ? "Харуулах цех алга" : "Үйлдвэрлэлийн баримт татагдаагүй байна. Өгөгдөл 15 минут тутам автоматаар шинэчлэгдэнэ."}</CardBody>
         </Card>
       ) : (
-        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {data.cards.map((c) => (
-            <ProductionCardView key={c.name} card={c} selected={data.group === c.name} onSelect={() => update({ dept: data.group === c.name ? null : c.name })} />
-          ))}
-        </div>
+        <SummaryTable cards={data.cards} periodWord={periodWord} selected={selected} onSelect={toggle} />
       )}
 
-      {/* Гол хүснэгт: бүтээгдэхүүн × цех */}
+      {/* 8. Цех сонгоход л: тэр цехийн дэлгэрэнгүй + 12 сарын график */}
+      {selectedCard && (
+        <>
+          <CardDetail card={selectedCard} onClear={() => update({ dept: null })} />
+          <Card>
+            <CardHeader>
+              <CardTitle>Сүүлийн 12 сарын гарц · {selectedCard.name}</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-2">
+              {data?.monthly ? (
+                <>
+                  <DailyBarChart
+                    data={data.monthly.months.map((m) => ({ date: m.month, confirmed: m.confirmed, unconfirmed: m.unconfirmed }))}
+                    series={[
+                      { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
+                      { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
+                    ]}
+                    label={(m) => `${m.slice(2, 4)}.${m.slice(5, 7)}`}
+                    tooltipTitle={MN_MONTH}
+                    unit="сараар"
+                    valueFormat={(v) => formatQuantity(v, data.monthly!.unit).short}
+                    axisFormat={axis}
+                    highlightDate={data.month}
+                  />
+                  <p className="text-[11px] text-text-muted">Огноо = 1С-д тайлан бичсэн өдөр (сар нь тайлангийн өдрийн сар). Татагдаагүй сар хоосон харагдана.</p>
+                </>
+              ) : (
+                <p className="py-10 text-center text-sm text-text-muted">Сүүлийн 12 сард энэ цехийн гарц бүртгэгдээгүй</p>
+              )}
+            </CardBody>
+          </Card>
+        </>
+      )}
+
+      {/* 5. Бүтээгдэхүүн × цех (сонгосон хугацаагаар); мөрийг дарвал өдрөөр задарна */}
       <Card>
         <CardHeader>
           <CardTitle>
-            Бүтээгдэхүүн × цех{data ? ` · ${label}` : ""}
-            {data?.group ? ` · ${data.group}` : ""}
+            Бүтээгдэхүүн × цех{data ? ` · ${periodWord}` : ""}
+            {selected ? ` · ${selected}` : ""}
           </CardTitle>
-          <span className="text-[11px] text-text-muted">Мөрийг дарвал өдрөөр задарна</span>
+          {hasOutput && <span className="text-[11px] text-text-muted">Мөрийг дарвал өдрөөр задарна</span>}
         </CardHeader>
-        {!data ? <Skeleton className="m-4 h-64" /> : <ProductTable cards={tableCards} getDocs={(c, id) => docs[docKey(c, id)]} onOpen={openDocs} />}
+        {!data ? (
+          <Skeleton className="m-4 h-64" />
+        ) : hasOutput ? (
+          <ProductTable cards={tableCards} getDocs={(c, id) => docs[docKey(c, id)]} onOpen={openDocs} />
+        ) : (
+          <EmptyPeriod showMonthButton={!isMonthPreset} onMonth={() => update({ range: presetRange("month", data.todayDate) })} />
+        )}
       </Card>
 
+      {/* 6. Өдөр бүрийн график: цехээр өнгө ялгасан (stacked) */}
       <Card>
         <CardHeader>
           <CardTitle>
             Өдөр бүрийн гарц{chartUnit ? ` · ${formatQuantity(1, chartUnit).short.replace(/^1 /, "")}` : ""}
             {data ? ` · ${monthNo}` : ""}
-            {data?.group ? ` · ${data.group}` : ""}
+            {selected ? ` · ${selected}` : ""}
           </CardTitle>
           <span className="text-[11px] text-text-muted">Сонгосон өдөр алтан хүрээтэй</span>
         </CardHeader>
@@ -188,18 +236,18 @@ function ProductionPage() {
           ) : data.chart ? (
             <>
               <DailyBarChart
-                data={data.chart.days.map((d) => ({ date: d.date, confirmed: d.confirmed, unconfirmed: d.unconfirmed }))}
-                series={[
-                  { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
-                  { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
-                ]}
+                stacked
+                data={data.chart.days.map((d) => ({ date: d.date, ...Object.fromEntries(data.chart!.groups.map((g) => [g, d.byGroup[g] ?? 0])) }))}
+                series={data.chart.groups.map((g) => ({ key: g, label: g, color: groupColor(g) }))}
                 label={(d) => String(Number(d.slice(8, 10)))}
                 tooltipTitle={MN_DAY}
                 valueFormat={(v) => formatQuantity(v, chartUnit).short}
                 axisFormat={axis}
                 highlightDate={data.period.to}
               />
-              <p className="text-[11px] text-text-muted">Огноо = 1С-д тайлан бичсэн өдөр.</p>
+              <p className="text-[11px] text-text-muted">
+                Огноо = 1С-д тайлан бичсэн өдөр.{data.kpi.unconfirmedDocs > 0 ? " Нягтлан батлаагүй баримт ч орсон." : ""}
+              </p>
             </>
           ) : (
             <p className="py-10 text-center text-sm text-text-muted">Энэ сард бэлэн бүтээгдэхүүний гарц бүртгэгдээгүй</p>
@@ -207,85 +255,64 @@ function ProductionPage() {
         </CardBody>
       </Card>
 
-      {/* Цех сонгоход: сүүлийн 12 сарын гарц */}
-      {data?.group && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Сүүлийн 12 сарын гарц · {data.group}</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-2">
-            {data.monthly ? (
-              <>
-                <DailyBarChart
-                  data={data.monthly.months.map((m) => ({ date: m.month, confirmed: m.confirmed, unconfirmed: m.unconfirmed }))}
-                  series={[
-                    { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
-                    { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
-                  ]}
-                  label={(m) => `${m.slice(2, 4)}.${m.slice(5, 7)}`}
-                  tooltipTitle={MN_MONTH}
-                  unit="сараар"
-                  valueFormat={(v) => formatQuantity(v, data.monthly!.unit).short}
-                  axisFormat={axis}
-                  highlightDate={data.month}
-                />
-                <p className="text-[11px] text-text-muted">Огноо = 1С-д тайлан бичсэн өдөр (сар нь тайлангийн өдрийн сар). Татагдаагүй сар хоосон харагдана.</p>
-              </>
+      {/* 7. Өртөг ба материал: «Дэлгэрэнгүй» (анхдагч хаалттай) */}
+      <Card>
+        <button
+          type="button"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((v) => !v)}
+          className="focus-ring flex min-h-14 w-full items-center gap-2 px-5 py-3 text-left text-sm font-semibold text-text hover:bg-white/[0.03]"
+        >
+          <ChevronRight aria-hidden className={cn("size-4 text-text-muted transition-transform", moreOpen && "rotate-90")} />
+          Дэлгэрэнгүй
+          <span className="text-[11px] font-normal text-text-muted">· Өртөг ба материал{data ? ` · ${monthNo}` : ""}</span>
+        </button>
+        {moreOpen && (
+          <CardBody className="space-y-4 border-t border-border">
+            {!data ? (
+              <Skeleton className="h-40" />
             ) : (
-              <p className="py-10 text-center text-sm text-text-muted">Сүүлийн 12 сард энэ цехийн гарц бүртгэгдээгүй</p>
+              <>
+                <div>
+                  <p className="flex items-center gap-2 text-xs text-text-muted">
+                    <Coins className="size-4 text-[#ffd56b]" aria-hidden /> Үйлдвэрлэлийн өртөг
+                  </p>
+                  {data.cost.closed && data.cost.total !== null ? (
+                    <p className="mt-1 text-xl font-semibold text-text">
+                      <Amount value={data.cost.total} />
+                    </p>
+                  ) : (
+                    <p className="mt-1 flex items-start gap-2 text-sm text-text-muted">
+                      <CalendarClock className="mt-0.5 size-4 shrink-0 text-[#ffd56b]" aria-hidden />
+                      {data.cost.message ?? "Өртөг тодорхойгүй"}
+                    </p>
+                  )}
+                  {!data.cost.closed && <p className="mt-1 text-[11px] text-text-muted">Бодит өртөг нь сар хаагдсаны дараа гарна.</p>}
+                </div>
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs text-text-muted">Материалын зарцуулалт ({monthNo})</p>
+                  {data.material ? (
+                    <>
+                      <p className="mt-1 text-xl font-semibold text-text">
+                        <Amount value={data.material.amount} />
+                      </p>
+                      <ul className="mt-2 space-y-1 text-xs">
+                        {data.material.departments.map((d) => (
+                          <li key={d.name} className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 flex-1 truncate text-text-muted">{d.name}</span>
+                            <Amount value={d.amount} className="text-text" />
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-sm text-text-muted">Энэ сард материалын зарцуулалт бүртгэгдээгүй</p>
+                  )}
+                </div>
+              </>
             )}
           </CardBody>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Coins className="size-4 text-[#ffd56b]" aria-hidden /> Өртөг ба материал{data ? ` · ${monthNo}` : ""}
-          </CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
-          {!data ? (
-            <Skeleton className="h-40" />
-          ) : (
-            <>
-              <div>
-                <p className="text-xs text-text-muted">Үйлдвэрлэлийн өртөг</p>
-                {data.cost.closed && data.cost.total !== null ? (
-                  <p className="mt-1 text-xl font-semibold text-text">
-                    <Amount value={data.cost.total} />
-                  </p>
-                ) : (
-                  <p className="mt-1 flex items-start gap-2 text-sm text-text-muted">
-                    <CalendarClock className="mt-0.5 size-4 shrink-0 text-[#ffd56b]" aria-hidden />
-                    {data.cost.message ?? "Өртөг тодорхойгүй"}
-                  </p>
-                )}
-                {!data.cost.closed && <p className="mt-1 text-[11px] text-text-muted">Бодит өртөг нь сар хаагдсаны дараа гарна.</p>}
-              </div>
-              <div className="border-t border-border pt-3">
-                <p className="text-xs text-text-muted">Материалын зарцуулалт ({monthNo})</p>
-                {data.material ? (
-                  <>
-                    <p className="mt-1 text-xl font-semibold text-text">
-                      <Amount value={data.material.amount} />
-                    </p>
-                    <ul className="mt-2 space-y-1 text-xs">
-                      {data.material.departments.map((d) => (
-                        <li key={d.name} className="flex items-center justify-between gap-3">
-                          <span className="min-w-0 flex-1 truncate text-text-muted">{d.name}</span>
-                          <Amount value={d.amount} className="text-text" />
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="mt-1 text-sm text-text-muted">Энэ сард материалын зарцуулалт бүртгэгдээгүй</p>
-                )}
-              </div>
-            </>
-          )}
-        </CardBody>
+        )}
       </Card>
     </FinanceShell>
   );

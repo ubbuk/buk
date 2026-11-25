@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductionView, latestOutputDay, monthlyOutput, productDocs, STALE_DAYS, visibleLines, type ProductionLineRow, type ReportInfo } from "./production-view";
+import { buildProductionView, latestOutputDay, LAG_DAYS, LAG_MIN_REPORTS, LAG_WINDOW_DAYS, monthlyOutput, productDocs, visibleLines, type ProductionLineRow, type ReportInfo } from "./production-view";
 
 const TODAY = "2098-04-10";
 const MONTH = "2098-04";
@@ -84,40 +84,44 @@ describe("картууд: тохиргооны дагуу (1С-ийн Parent б�
   });
 });
 
-describe("сүүлийн тайлан ба «1С-д тайлан ороогүй» анхааруулга", () => {
-  const rep = (department: string, lastDay: string, prevMonth = false): ReportInfo => ({ department, lastDay, prevMonth });
+describe("сүүлийн тайлан ба «Тайлан хоцорч байна?» (ЗӨВХӨН нэг дүрэм)", () => {
+  const rep = (department: string, lastDay: string, recent = 0): ReportInfo => ({ department, lastDay, recent });
 
-  it("STALE_DAYS = 3", () => {
-    expect(STALE_DAYS).toBe(3);
+  it("дүрмийн тогтмолууд: сүүлийн 30 хоногт 5+ тайлан, сүүлийн 7 хоногт тайлангүй", () => {
+    expect([LAG_WINDOW_DAYS, LAG_MIN_REPORTS, LAG_DAYS]).toEqual([30, 5, 7]);
   });
 
-  it("сүүлийн тайлан: өдөр, хэд хоногийн өмнө (картад)", () => {
+  it("сүүлийн тайлан: өдөр, хэд хоногийн өмнө (хураангуйн «Сүүлийн тайлан»)", () => {
     const v = view([line({ product: "Шон", quantity: 1, day: "2098-04-09" })]);
     expect(card(v, TEN).lastReport).toEqual({ day: "2098-04-09", daysAgo: 1 });
-    expect(card(v, TEN).stale).toBeNull();
+    expect(card(v, TEN).lagging).toBe(false);
   });
 
-  it("3-аас бага хоног: анхааруулга байхгүй; яг 3 хоног: шар", () => {
-    const two = view([], { lastReports: [rep(TEN, "2098-04-08", true)] });
-    expect(card(two, TEN)).toMatchObject({ lastReport: { day: "2098-04-08", daysAgo: 2 }, stale: null });
-    const three = view([], { lastReports: [rep(TEN, "2098-04-07")] });
-    expect(card(three, TEN).stale).toBe("warn");
+  it("идэвхтэй (5+ тайлан) цех 7+ хоног тайлангүй бол ГАНЦ «lagging»; 6 хоног бол үгүй", () => {
+    const six = view([], { lastReports: [rep(TEN, "2098-04-04", 12)] });
+    expect(card(six, TEN)).toMatchObject({ lastReport: { daysAgo: 6 }, lagging: false });
+    const seven = view([], { lastReports: [rep(TEN, "2098-04-03", 12)] });
+    expect(card(seven, TEN)).toMatchObject({ lastReport: { daysAgo: 7 }, recentReports: 12, lagging: true });
   });
 
-  it("3+ хоног тайлан ороогүй, өмнөх сард гарцтай байсан бол улаан (alert); үгүй бол шар (warn)", () => {
-    const v = view([], { lastReports: [rep(RAIL, "2098-03-20", true), rep("Металл хийц үйлдвэрлэлийн цех", "2098-02-10", false)] });
-    expect(card(v, "Бетон дэрний хэсэг")).toMatchObject({ stale: "alert", lastReport: { day: "2098-03-20", daysAgo: 21 } });
-    expect(card(v, "Металл хийц")).toMatchObject({ stale: "warn", lastReport: { day: "2098-02-10", daysAgo: 59 } });
+  it("идэвхгүй (5-аас цөөн тайлантай) цех хэчнээн хоног тайлангүй ч анхааруулгагүй", () => {
+    const quiet = view([], { lastReports: [rep(RAIL, "2098-01-10", 4), rep("Металл хийц үйлдвэрлэлийн цех", "2098-02-10", 0)] });
+    expect(card(quiet, "Бетон дэрний хэсэг").lagging).toBe(false);
+    expect(card(quiet, "Металл хийц").lagging).toBe(false);
+    const five = view([], { lastReports: [rep(RAIL, "2098-03-20", LAG_MIN_REPORTS)] });
+    expect(card(five, "Бетон дэрний хэсэг").lagging).toBe(true);
   });
 
-  it("өмнөх сарын мөр (энэ сард ачаалагдсан) байвал ч «өмнөх сард гарцтай»", () => {
-    const v = view([line({ product: "Дэр", quantity: 5, department: RAIL, day: "2098-03-20" })], { lastReports: [] });
-    expect(card(v, "Бетон дэрний хэсэг").stale).toBe("alert");
+  it("сүүлийн 30 хоногийн тайлан: хэлтсүүдийн нийлбэр; ачаалагдсан мөрийн давхардаагүй баримтаас бага биш", () => {
+    const many = view([], { lastReports: [rep("БАЗ-3", "2098-03-20", 3), rep("БАЗ-4", "2098-03-18", 3)] });
+    expect(card(many, "Бетон зуурмаг (БАЗ-3, БАЗ-4)")).toMatchObject({ recentReports: 6, lagging: true });
+    const fromLines = view(Array.from({ length: 5 }, (_, i) => line({ product: "Дэр", quantity: 1, department: RAIL, day: "2098-03-" + String(20 + i) })), { lastReports: [] });
+    expect(card(fromLines, "Бетон дэрний хэсэг")).toMatchObject({ recentReports: 5, lagging: true });
   });
 
-  it("цехийн хэлтсүүдийн хамгийн сүүлийн тайлан (олон хэлтэстэй карт): аль нэг нь саяхан бол хоцролтгүй", () => {
-    const v = view([], { lastReports: [rep("БАЗ-3", "2098-03-01", true), rep("БАЗ-4", "2098-04-09")] });
-    expect(card(v, "Бетон зуурмаг (БАЗ-3, БАЗ-4)")).toMatchObject({ lastReport: { day: "2098-04-09", daysAgo: 1 }, stale: null });
+  it("хоцролт нь тайлан огт байхгүй (шинэ) картанд үгүй; олон хэлтэстэй картад хамгийн сүүлийн тайлан", () => {
+    const v = view([], { lastReports: [rep("БАЗ-3", "2098-03-01", 9), rep("БАЗ-4", "2098-04-09", 2)] });
+    expect(card(v, "Бетон зуурмаг (БАЗ-3, БАЗ-4)")).toMatchObject({ lastReport: { day: "2098-04-09", daysAgo: 1 }, lagging: false });
   });
 
   it("тайлан огт байхгүй цех карт болохгүй; өнөөдрийн тайлан «0 хоног»", () => {
@@ -127,10 +131,54 @@ describe("сүүлийн тайлан ба «1С-д тайлан ороогүй�
   });
 
   it("эрхийн хүрээнээс гадуурх, хасагдсан хэлтсийн тайлан орохгүй", () => {
-    const v = view([], { lastReports: [rep(RAIL, "2098-03-20", true), rep("Цайны газар", "2098-04-09")], scope: { departments: ["тенсиланд хэсэг"] } });
+    const v = view([], { lastReports: [rep(RAIL, "2098-03-20", 9), rep("Цайны газар", "2098-04-09", 9)], scope: { departments: ["тенсиланд хэсэг"] } });
     expect(v.cards).toEqual([]);
-    const all = view([], { lastReports: [rep("Цайны газар", "2098-04-09")] });
-    expect(all.cards).toEqual([]);
+    expect(view([], { lastReports: [rep("Цайны газар", "2098-04-09", 9)] }).cards).toEqual([]);
+  });
+});
+
+describe("хураангуй хүснэгтийн өгөгдөл: гол бүтээгдэхүүн, гарцын нийлбэр", () => {
+  it("гол бүтээгдэхүүн = сонгосон хугацаанд хамгийн их гарсан (бракгүй, «Зас» нийлсэн); гарцын нийлбэр (эрэмбэлэхэд)", () => {
+    const v = view([line({ product: "Шон", quantity: 60 }), line({ product: "Шон Зас", quantity: 5 }), line({ product: "Шон Брак", quantity: 500 }), line({ product: "Дэр", quantity: 10 }), line({ product: "Дэр", quantity: 900, department: RAIL })]);
+    expect(card(v, TEN).top).toEqual({ name: "Шон", qty: 65, unit: "ш" });
+    expect(card(v, TEN).periodTotal).toBe(75); // 65 + 10, брак орохгүй
+    expect(card(v, "Бетон дэрний хэсэг").top).toEqual({ name: "Дэр", qty: 900, unit: "ш" });
+    expect(card(v, "Бетон дэрний хэсэг").periodTotal).toBeGreaterThan(card(v, TEN).periodTotal);
+  });
+
+  it("сонгосон хугацаанд гарцгүй цех: periodTotal 0, top null, empty (саарал мөр)", () => {
+    const v = view([line({ product: "Шон", quantity: 4, day: "2098-04-02" })], { from: TODAY, to: TODAY, lastReports: [{ department: RAIL, lastDay: "2098-03-20", recent: 0 }] });
+    expect(card(v, TEN)).toMatchObject({ periodTotal: 0, top: null, empty: true });
+    expect(card(v, "Бетон дэрний хэсэг")).toMatchObject({ periodTotal: 0, top: null, empty: true, lastReport: { day: "2098-03-20" } });
+  });
+
+  it("хагас боловсруулсан цехийн гол бүтээгдэхүүн нь 1431", () => {
+    const v = view([line({ product: "Зуурмаг", quantity: 12, unit: "м3", stage: "semi", department: "БАЗ-4" })]);
+    expect(card(v, "Бетон зуурмаг (БАЗ-3, БАЗ-4)")).toMatchObject({ top: { name: "Зуурмаг", qty: 12, unit: "м3" }, periodTotal: 12 });
+  });
+});
+
+describe("өдрийн график: цехээр (stacked)", () => {
+  it("өдөр бүр цех бүрийн хувь нэмэр; графикт орсон цехүүд тохиргооны дарааллаар; батлаагүй ч орно", () => {
+    const v = view([
+      line({ product: "Дэр", quantity: 100, department: RAIL, day: "2098-04-02" }),
+      line({ product: "Шон", quantity: 30, day: "2098-04-02" }),
+      line({ product: "Шон", quantity: 20, day: "2098-04-03", posted: false }),
+      line({ product: "Шон Брак", quantity: 9, day: "2098-04-03" }),
+      line({ product: "Зуурмаг", quantity: 50, unit: "м3", stage: "semi", department: "БАЗ-3", day: "2098-04-02" }),
+    ]);
+    expect(v.chart!.groups).toEqual(["Бетон дэрний хэсэг", TEN]); // зуурмаг (хагас), брак орохгүй
+    const d2 = v.chart!.days.find((d) => d.date === "2098-04-02")!;
+    expect(d2.byGroup).toEqual({ "Бетон дэрний хэсэг": 100, [TEN]: 30 });
+    expect(d2.confirmed).toBe(130);
+    const d3 = v.chart!.days.find((d) => d.date === "2098-04-03")!;
+    expect(d3.byGroup).toEqual({ [TEN]: 20 });
+    expect(d3.unconfirmed).toBe(20);
+  });
+
+  it("цех сонговол зөвхөн тэр цех", () => {
+    const v = view([line({ product: "Дэр", quantity: 100, department: RAIL }), line({ product: "Шон", quantity: 30 })], { group: TEN });
+    expect(v.chart!.groups).toEqual([TEN]);
   });
 });
 
@@ -184,9 +232,9 @@ describe("сүүлийн 12 сарын гарц", () => {
   });
 
   it("view-д history-оос ирнэ (сонгосон хугацаанд гарц байхгүй ч 12 сарын график гарна)", () => {
-    const v = view([], { group: null, history, to: "2098-04-10", from: "2098-04-10", lastReports: [{ department: RAIL, lastDay: "2098-04-02", prevMonth: false }] });
+    const v = view([], { group: null, history, to: "2098-04-10", from: "2098-04-10", lastReports: [{ department: RAIL, lastDay: "2098-04-02", recent: 0 }] });
     expect(v.monthly!.months.find((x) => x.month === "2098-02")!.confirmed).toBe(200); // цех сонгоогүй: бүх бэлэн бүтээгдэхүүн
-    const sel = view([], { group: "Бетон дэрний хэсэг", history, lastReports: [{ department: RAIL, lastDay: "2098-04-02", prevMonth: false }] });
+    const sel = view([], { group: "Бетон дэрний хэсэг", history, lastReports: [{ department: RAIL, lastDay: "2098-04-02", recent: 0 }] });
     expect(sel.group).toBe("Бетон дэрний хэсэг");
     expect(sel.monthly!.months.find((x) => x.month === "2098-02")!.confirmed).toBe(200);
   });

@@ -53,14 +53,19 @@ describe("readLastReports, readProductionLines", () => {
   beforeEach(clean);
   afterEach(clean);
 
-  it("хэлтэс бүрийн сүүлийн тайлан (бүх хадгалагдсан сараас, батлаагүй ч) ба өмнөх сард гарцтай байсан эсэх", async () => {
-    const lines = (month: string, department: string, day: string, posted: boolean) => ({ ...data(month, { lines: 1 }).lines[0], docRef: `r-${month}-${department}-${day}`, day, department, posted });
+  it("хэлтэс бүрийн сүүлийн тайлан (бүх хадгалагдсан сараас, батлагдаагүй ч) ба since-ээс хойших тайлангийн (баримтын) тоо", async () => {
+    const lines = (month: string, department: string, day: string, posted: boolean, ref = `r-${month}-${department}-${day}`) => ({ ...data(month, { lines: 1 }).lines[0], docRef: ref, day, department, posted });
     await writeProductionMonth({ month: "2098-02", lines: [lines("2098-02", "A хэлтэс", "2098-02-10", true), lines("2098-02", "B хэлтэс", "2098-02-28", true)], ledger: [] });
-    await writeProductionMonth({ month: "2098-03", lines: [lines("2098-03", "A хэлтэс", "2098-03-05", true), lines("2098-03", "A хэлтэс", "2098-03-20", false)], ledger: [] });
-    const r = (await readLastReports("2098-03")).filter((x) => x.department.endsWith("хэлтэс")).sort((a, b) => a.department.localeCompare(b.department));
+    await writeProductionMonth({
+      month: "2098-03",
+      // нэг баримтын хоёр мөр нэг л тайлан; батлаагүй баримт ч тайлан
+      lines: [lines("2098-03", "A хэлтэс", "2098-03-05", true, "d1"), { ...lines("2098-03", "A хэлтэс", "2098-03-05", true, "d1"), lineNo: 2 }, lines("2098-03", "A хэлтэс", "2098-03-20", false, "d2")],
+      ledger: [],
+    });
+    const r = (await readLastReports("2098-03-01")).filter((x) => x.department.endsWith("хэлтэс")).sort((a, b) => a.department.localeCompare(b.department));
     expect(r).toEqual([
-      { department: "A хэлтэс", lastDay: "2098-03-20", prevMonth: true }, // батлаагүй баримт ч «тайлан»
-      { department: "B хэлтэс", lastDay: "2098-02-28", prevMonth: false },
+      { department: "A хэлтэс", lastDay: "2098-03-20", recent: 2 },
+      { department: "B хэлтэс", lastDay: "2098-02-28", recent: 0 },
     ]);
   });
 

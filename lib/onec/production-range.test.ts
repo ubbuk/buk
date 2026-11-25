@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePreset, mondayOf, monthsOfRange, parseRange, presetRange, rangeLabel, shiftRange } from "./production-range";
+import { activePreset, mondayOf, monthsOfRange, parseRange, presetRange, rangeLabel, resolveRange, shiftRange } from "./production-range";
 
 // 2026-11-25 = Лхагва
 const TODAY = "2026-11-25";
@@ -68,5 +68,26 @@ describe("rangeLabel, monthsOfRange", () => {
   it("сарын хилийг давсан хугацаа хоёр сар", () => {
     expect(monthsOfRange({ from: "2026-10-28", to: "2026-11-03" })).toEqual(["2026-10", "2026-11"]);
     expect(monthsOfRange({ from: "2026-11-01", to: "2026-11-25" })).toEqual(["2026-11"]);
+  });
+});
+
+describe("resolveRange: хугацаа байхгүй/буруу бол ЗАВААЛ «Энэ сар»", () => {
+  const MONTH = { from: "2026-11-01", to: TODAY };
+  it("from/to байхгүй: Энэ сар (Өнөөдөр биш)", () => {
+    expect(resolveRange(null, null, TODAY)).toEqual(MONTH);
+    expect(resolveRange(undefined, undefined, TODAY)).toEqual(MONTH);
+    expect(activePreset(resolveRange(null, null, TODAY), TODAY)).toBe("month");
+  });
+  it("хагас (зөвхөн from эсвэл to), буруу огноо, ирээдүй, from > to, 62 хоногоос урт: Энэ сар", () => {
+    expect(resolveRange("2026-11-24", null, TODAY)).toEqual(MONTH);
+    expect(resolveRange(null, TODAY, TODAY)).toEqual(MONTH);
+    expect(resolveRange("bad", "worse", TODAY)).toEqual(MONTH);
+    expect(resolveRange("2026-11-25", "2026-12-30", TODAY)).toEqual(MONTH);
+    expect(resolveRange("2026-11-25", "2026-11-01", TODAY)).toEqual(MONTH);
+    expect(resolveRange("2026-01-01", TODAY, TODAY)).toEqual(MONTH);
+  });
+  it("хүчинтэй хугацааг (өдөр ч бай) хэвээр нь", () => {
+    expect(resolveRange("2026-11-24", "2026-11-24", TODAY)).toEqual({ from: "2026-11-24", to: "2026-11-24" });
+    expect(resolveRange("2026-10-01", "2026-10-31", TODAY)).toEqual({ from: "2026-10-01", to: "2026-10-31" });
   });
 });

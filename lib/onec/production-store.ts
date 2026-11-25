@@ -53,11 +53,11 @@ export async function readProductionMonth(month: string): Promise<ProductionRows
   };
 }
 
-/** Хэлтэс бүрийн сүүлийн тайлан (хадгалагдсан БҮХ сараас, батлагдсан эсэхээс үл хамаарна) ба өмнөх сард гарцтай байсан эсэх. Картын «Сүүлийн тайлан», хоцролтод. */
-export async function readLastReports(prevMonth: string): Promise<ReportInfo[]> {
-  const rows = await prisma.$queryRaw<{ department: string; last_day: string; prev: boolean }[]>`
-    SELECT department, max(day) AS last_day, bool_or(month = ${prevMonth}) AS prev FROM onec_production_line GROUP BY department`;
-  return rows.map((r) => ({ department: r.department, lastDay: r.last_day, prevMonth: r.prev }));
+/** Хэлтэс бүрийн сүүлийн тайлан (хадгалагдсан БҮХ сараас, батлагдсан эсэхээс үл хамаарна) ба `since` өдрөөс хойших тайлангийн (баримтын) тоо. Хураангуйн «Сүүлийн тайлан», «Тайлан хоцорч байна?»-д. */
+export async function readLastReports(since: string): Promise<ReportInfo[]> {
+  const rows = await prisma.$queryRaw<{ department: string; last_day: string; recent: number }[]>`
+    SELECT department, max(day) AS last_day, (count(DISTINCT doc_ref) FILTER (WHERE day >= ${since}))::int AS recent FROM onec_production_line GROUP BY department`;
+  return rows.map((r) => ({ department: r.department, lastDay: r.last_day, recent: r.recent }));
 }
 
 /** `fromMonth`..`toMonth` (хоёулаа орно) сарын мөрүүд, бичилтгүй: 12 сарын график */

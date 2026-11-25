@@ -81,3 +81,6 @@ export function monthsOfRange(r: DateRange): string[] {
   for (let m = r.from.slice(0, 7); m <= r.to.slice(0, 7); m = addMonths(m, 1)) out.push(m);
   return out;
 }
+
+/** Хүчинтэй хугацаа, үгүй (байхгүй, буруу, хагас, ирээдүй, 62 хоногоос урт) бол ЗАВААЛ «Энэ сар»: хуудас хэзээ ч санамсаргүй «Өнөөдөр»-өөр нээгдэхгүй */
+export const resolveRange = (from: string | null | undefined, to: string | null | undefined, today: string): DateRange => parseRange(from, to, today) ?? presetRange("month", today);

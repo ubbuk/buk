@@ -42,6 +42,7 @@ export function DailyBarChart({
   valueFormat = money,
   axisFormat = compact,
   highlightDate,
+  stacked = false,
 }: {
   data: Point[];
   series: BarSeries[];
@@ -58,6 +59,8 @@ export function DailyBarChart({
   axisFormat?: (v: number) => string;
   /** онцлох өдөр (жишээ нь өнөөдөр): алтан дэвсгэр, тод шошго */
   highlightDate?: string;
+  /** цувааг давхарлан (stack) зурна: өдөр бүр нэг багана, цуваа бүр өөрийн өнгөөр. Өнгө нь бүтэн CSS өнгө (hex) байх ёстой */
+  stacked?: boolean;
 }) {
   const gid = useId();
   const [hover, setHover] = useState<number | null>(null);
@@ -72,12 +75,13 @@ export function DailyBarChart({
     return () => ro.disconnect();
   }, []);
   // Card-ийн өргөнийг дүүргэнэ; өдөр олонтой, нарийн дэлгэц дээр гүйлгэнэ
-  const W = Math.max(boxW, data.length * (series.length * 8 + 6) + PAD.left + PAD.right, 320);
+  const perBar = stacked ? 1 : series.length;
+  const W = Math.max(boxW, data.length * (perBar * 8 + 6) + PAD.left + PAD.right, 320);
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
-  const max = niceMax(Math.max(0, ...data.flatMap((d) => series.map((s) => Number(d[s.key]) || 0))));
+  const max = niceMax(Math.max(0, ...(stacked ? data.map((d) => series.reduce((sum, s) => sum + (Number(d[s.key]) || 0), 0)) : data.flatMap((d) => series.map((s) => Number(d[s.key]) || 0)))));
   const slot = plotW / Math.max(data.length, 1);
-  const barW = Math.min(18, (slot - 4) / series.length);
+  const barW = Math.min(stacked ? 22 : 18, (slot - 4) / perBar);
   const y = (v: number) => PAD.top + plotH - (v / max) * plotH;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
   const h = hover != null ? data[hover] : null;
@@ -85,7 +89,7 @@ export function DailyBarChart({
   return (
     <div className="space-y-2">
       {series.length > 1 && (
-        <div className="flex gap-4 text-xs text-text-muted">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
           {series.map((s) => (
             <span key={s.key} className="flex items-center gap-1.5">
               <span className="size-2.5 rounded-sm" style={{ background: s.color }} />
@@ -113,24 +117,28 @@ export function DailyBarChart({
             </g>
           ))}
           {data.map((d, i) => {
-            const x0 = PAD.left + i * slot + (slot - barW * series.length) / 2;
+            const x0 = PAD.left + i * slot + (slot - barW * perBar) / 2;
+            let cum = 0;
             return (
               <g key={d.date} onMouseEnter={() => setHover(i)}>
                 {highlightDate === d.date && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} rx={4} fill="rgba(245,181,35,0.12)" stroke="rgba(255,213,107,0.55)" strokeWidth={1} />}
                 {hover === i && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} fill="rgba(80,140,240,0.1)" />}
                 {series.map((s, k) => {
                   const v = Number(d[s.key]) || 0;
-                  const top = y(Math.max(v, 0));
-                  const hgt = Math.max(0, PAD.top + plotH - top);
+                  const base = stacked ? cum : 0;
+                  if (stacked) cum += v;
+                  const top = y(Math.max(base + v, 0));
+                  const hgt = Math.max(0, y(Math.max(base, 0)) - top);
+                  if (stacked && hgt <= 0) return null;
                   return (
                     <rect
                       key={s.key}
-                      x={x0 + k * barW}
+                      x={x0 + (stacked ? 0 : k * barW)}
                       y={top}
                       width={Math.max(barW - 1, 1)}
                       height={hgt}
                       rx={Math.min(3, barW / 2)}
-                      fill={`url(#${gid}-g${k})`}
+                      fill={stacked ? s.color : `url(#${gid}-g${k})`}
                       style={hover === i && isGold(s.color) ? { filter: "drop-shadow(0 0 6px rgba(245,181,35,0.7))" } : undefined}
                     />
                   );
@@ -151,12 +159,17 @@ export function DailyBarChart({
             style={{ left: Math.min(PAD.left + hover * slot + slot, W - 190) }}
           >
             <p className="font-medium text-text">{tooltipTitle(h.date)}</p>
-            {series.map((s) => (
+            {series.filter((s) => !stacked || (Number(h[s.key]) || 0) > 0).map((s) => (
               <p key={s.key} className="mt-1 flex items-center gap-1.5 text-text-muted">
                 <span className="size-2 rounded-sm" style={{ background: isGold(s.color) ? "#f5b523" : s.color }} />
                 {s.label}: <span className="ng-num font-semibold text-text">{valueFormat(Number(h[s.key]) || 0)}</span>
               </p>
             ))}
+            {stacked && series.length > 1 && (
+              <p className="mt-1.5 border-t border-border/60 pt-1 text-text-muted">
+                Нийт: <span className="ng-num font-semibold text-text">{valueFormat(series.reduce((sum, s) => sum + (Number(h[s.key]) || 0), 0))}</span>
+              </p>
+            )}
             {countKey && h[countKey] != null && (
               <p className="mt-1 text-text-muted">
                 {countLabel}: <span className="ng-num font-semibold text-text">{Number(h[countKey]) || 0}</span>
