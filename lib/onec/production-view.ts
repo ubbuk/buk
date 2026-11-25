@@ -622,6 +622,15 @@ export interface Cats {
   defect: number;
 }
 
+/** Нэг бүтээгдэхүүний Бэлэн/Засвар/Брак (нэг нэгжээр). Цехийн графикийг бүтээгдэхүүнээр давхарлахад */
+export interface ProductCats {
+  name: string;
+  unit: string;
+  ready: number;
+  repair: number;
+  defect: number;
+}
+
 export interface DirectorCard {
   name: string;
   /** бетон хийцийн цех: гарц Бэлэн | Засвар | Брак */
@@ -653,6 +662,8 @@ export interface DirectorCard {
   lateDefectMonth: number;
   /** сарын өдөр бүрийн Бэлэн/Засвар/Брак (бетон хийцийн цех) */
   monthDaysCats: (Cats & { date: string })[];
+  /** сарын өдөр бүрийн бүтээгдэхүүнүүд (гол нэгжээр; зөвхөн гарцтай өдөр). Өөр бүтээгдэхүүний тоог нэмэхгүй: график бүтээгдэхүүнээр давхарлана */
+  monthDaysProducts: { date: string; items: ProductCats[] }[];
   /** Бракаас / Засвараас бэлэн болгосон (Комплектаци): өдөр, сар (бүтээгдэхүүнээр), өдөр бүр. Гарцад нэмэгдэхгүй. */
   convDay: Conversions;
   convMonth: Conversions;
@@ -665,8 +676,6 @@ export interface DirectorView {
   latestDay: string | null;
   today: string;
   month: string;
-  /** өдрийн нийт: картуудын өдрийн гарц; нэгж тусдаа (шоо метр ширхэгтэй нэмэгдэхгүй), хагас боловсруулсан цех ордоггүй */
-  total: Quantity[];
   /** гарцтай цехийн тоо */
   worked: number;
   /** гарцтай нь эхэнд (их тоогоор), мэдээгүй нь сүүлд (тохиргооны дарааллаар) */
@@ -746,6 +755,25 @@ function catProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
     .map((p) => ({ ...p, qty: round3(p.qty), repair: round3(p.repair), defect: round3(p.defect) }));
 }
 
+/** Бүтээгдэхүүнээр (үндсэн нэр, нэгжээр) Бэлэн/Засвар/Брак. Бетон хийцийн цех биш бол засвар нь бэлэнд нийлнэ */
+export function productCats(rows: readonly ProductionLineRow[], concrete: boolean): ProductCats[] {
+  const by = new Map<string, ProductCats>();
+  for (const l of rows) {
+    const { base, variant } = splitProductName(l.product);
+    const k = `${base.toLowerCase()}|${l.unit}`;
+    const p = by.get(k) ?? { name: base, unit: l.unit, ready: 0, repair: 0, defect: 0 };
+    if (variant === "main") p.name = base;
+    if (variant === "defect") p.defect += l.quantity;
+    else if (variant === "repair" && concrete) p.repair += l.quantity;
+    else p.ready += l.quantity;
+    by.set(k, p);
+  }
+  return [...by.values()]
+    .filter((p) => p.ready + p.repair + p.defect > 0)
+    .map((p) => ({ ...p, ready: round3(p.ready), repair: round3(p.repair), defect: round3(p.defect) }))
+    .sort((a, b) => b.ready - a.ready || b.repair + b.defect - (a.repair + a.defect) || a.name.localeCompare(b.name, "mn"));
+}
+
 const catsOf = (rows: readonly ProductionLineRow[]): Cats => {
   const c = { ready: 0, repair: 0, defect: 0 };
   for (const l of rows) {
@@ -776,6 +804,7 @@ function directorCard(name: string, mine: readonly ProductionLineRow[], day: str
   const dates: string[] = [];
   for (let d = range.from; d <= last; d = addDays(d, 1)) dates.push(d);
   const monthDays = dates.map((date) => ({ date, qty: round3(monthRows.filter((l) => l.day === date && readyOnly(l) && inUnit(l)).reduce((s, l) => s + l.quantity, 0)) }));
+  const monthDaysProducts = dates.map((date) => ({ date, items: productCats(monthRows.filter((l) => l.day === date && inUnit(l)), concrete) })).filter((d) => d.items.length > 0);
   const monthDaysCats = concrete ? dates.map((date) => ({ date, ...catsOf(monthRows.filter((l) => l.day === date && inUnit(l))) })) : [];
 
   const dayCats = concrete ? catsOf(dayRows.filter(inUnit)) : null;
@@ -813,6 +842,7 @@ function directorCard(name: string, mine: readonly ProductionLineRow[], day: str
     lateDefectDay: round3(late.filter((l) => l.day === day).reduce((s, l) => s + l.quantity, 0)),
     lateDefectMonth: round3(late.filter(inMonth).reduce((s, l) => s + l.quantity, 0)),
     monthDaysCats,
+    monthDaysProducts,
     convDay: conversionsOf(convRows.filter((l) => l.day === day), inSide),
     convMonth,
     convDays,
@@ -850,7 +880,6 @@ export function buildDirectorView(input: {
   );
   const withData = cards.filter((c) => c.day.length > 0).sort((a, b) => biggest(b) - biggest(a));
   const idle = cards.filter((c) => c.day.length === 0);
-  const total = sumQuantities(withData.filter((c) => !isSemiGroup(c.name)).flatMap((c) => c.day));
   const firstDays = [...reports.map((r) => r.firstDay), ...scoped.filter((l) => !isReclass(l)).map((l) => l.day)].filter((d): d is string => !!d);
   const firstDay = firstDays.length ? firstDays.reduce((a, b) => (a < b ? a : b)) : null;
   return {
@@ -858,7 +887,6 @@ export function buildDirectorView(input: {
     latestDay,
     today: input.today,
     month: day.slice(0, 7),
-    total,
     worked: withData.length,
     cards: [...withData, ...idle],
     firstDay,
@@ -883,7 +911,8 @@ export interface WorkshopView {
   monthsUnit: string;
   /** бетон хийцийн цех: сар бүрийн Бэлэн/Засвар/Брак ба 12 сарын брак хувь */
   monthsCats: (Cats & { month: string })[] | null;
-  defectPct12: number | null;
+  /** сар бүрийн бүтээгдэхүүнүүд (цехийн гол нэгжээр): график бүтээгдэхүүнээр давхарлагдана, брак хувь бүтээгдэхүүн бүрээр */
+  monthsProducts: { month: string; items: ProductCats[] }[];
   /** энэ сард зарцуулсан материал: хэлтсээр */
   material: { amount: number; items: { name: string; amount: number }[] } | null;
   lastSyncedAt: string | null;
@@ -922,7 +951,11 @@ export function buildWorkshopView(input: {
   const base = (u: string) => sumQuantities([{ qty: 1, unit: u }])[0]?.unit;
   const unit = cats?.unit ?? monthly?.unit ?? card?.unit ?? "";
   const months = cats ? cats.months.map((m) => ({ month: m.month, qty: m.ready })) : monthly && base(monthly.unit) === base(unit) ? monthly.months.map((m) => ({ month: m.month, qty: round3(m.confirmed + m.unconfirmed) })) : [];
-  const total12 = cats ? cats.months.reduce<Cats>((a, m) => ({ ready: a.ready + m.ready, repair: a.repair + m.repair, defect: a.defect + m.defect }), { ready: 0, repair: 0, defect: 0 }) : null;
+  const concrete = !!card?.concrete;
+  const semi = isSemiGroup(input.name);
+  const histMonths = Array.from({ length: 12 }, (_, i) => addMonths(end, i - 11));
+  const histRows = input.history.filter((l) => !isReclass(l) && inScope(scope, l.department) && groupOf(l) === input.name && (concrete ? l.stage === "finished" : isCardOutput(l, semi)) && unitOfRow(l) === unit && l.day.slice(0, 7) >= histMonths[0] && l.day.slice(0, 7) <= end);
+  const monthsProducts = card && unit ? histMonths.map((month) => ({ month, items: productCats(histRows.filter((l) => l.day.startsWith(month)), concrete) })) : [];
   const materials = card ? input.ledger.filter((r) => r.kind === "material" && inScope(scope, r.department) && groupOf(r) === input.name) : [];
   const by = new Map<string, number>();
   for (const r of materials) by.set(r.department, (by.get(r.department) ?? 0) + r.amount);
@@ -937,7 +970,7 @@ export function buildWorkshopView(input: {
     months,
     monthsUnit: unit,
     monthsCats: cats?.months ?? null,
-    defectPct12: total12 ? defectPercent(total12) : null,
+    monthsProducts,
     material: materials.length ? { amount: round2(materials.reduce((s, r) => s + r.amount, 0)), items: [...by].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount) } : null,
     lastSyncedAt: dv.lastSyncedAt,
     scopeNote: dv.scopeNote,

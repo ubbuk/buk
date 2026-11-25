@@ -2,15 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
-import { Bars, mnDate, num, type BarItem } from "@/components/finance/production/DirectorParts";
+import { Bars, mnDate, num, shortUnit, type BarItem } from "@/components/finance/production/DirectorParts";
 import { addMonths, monthRange } from "@/lib/onec/dates";
 import type { ProductCard, ProductDetail } from "@/lib/onec/product-search";
 import { cn } from "@/lib/utils";
 
 // «Бүтээгдэхүүн» табын хэсгүүд. Захирлын харагдац: зөвхөн энгийн үгс (үйлдвэрлэсэн, зарсан, агуулахад). Данс, баримтын дугаар, нягтлангийн нэр томьёо энд байхгүй.
 
-const SHORT_UNIT: Record<string, string> = { ширхэг: "ш", "шоо метр": "м³", тонн: "тн", метр: "м", литр: "л" };
-export const shortUnit = (unit: string): string => SHORT_UNIT[unit] ?? unit;
+export { shortUnit };
 
 const COLOR_PRODUCED = "#f5b523";
 const COLOR_SOLD = "#60a5fa";

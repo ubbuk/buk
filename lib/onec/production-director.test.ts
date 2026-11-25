@@ -35,11 +35,11 @@ const view = (lines = base(), day: string | null = "2098-04-09", scope?: { depar
 const card = (v: ReturnType<typeof view>, name: string) => v.cards.find((c) => c.name === name)!;
 
 describe("захирлын харагдац: өдрийн нийт", () => {
-  it("нийт нэгж тусдаа (шоо метр ширхэгтэй нэмэгдэхгүй), хагас боловсруулсан орохгүй; бетон хийцэд зөвхөн Бэлэн (засвар, брак орохгүй)", () => {
-    expect(view().total).toEqual([
-      { unit: "шоо метр", qty: 40 }, // зөвхөн бутлуур; БАЗ-ын 50 орохгүй
-      { unit: "ширхэг", qty: 1200 + 619 },
-    ]);
+  it("«Тэр өдөр нийт» гэсэн нийлбэр БАЙХГҮЙ: өөр өөр бүтээгдэхүүний ширхгийг нэмдэггүй, цех бүр өөрийн бүтээгдэхүүнээр", () => {
+    const v = view();
+    expect("total" in v).toBe(false);
+    expect(card(v, TEN).products.map((p) => [p.name, p.qty])).toEqual([["Шон 80*80", 1200]]);
+    expect(card(v, "Бетон дэрний хэсэг").products.map((p) => [p.name, p.qty])).toEqual([["Дэр", 619]]);
   });
   it("ажилласан цехийн тоо (гарцтай цехүүд, БАЗ-ыг оролцуулан)", () => {
     expect(view().worked).toBe(4);
@@ -52,7 +52,7 @@ describe("захирлын харагдац: өдрийн нийт", () => {
   it("ирээдүй өдөр өгвөл анхдагч өдөр; мэдээгүй өдөр хоосон нийттэй", () => {
     expect(view(base(), "2099-01-01").day).toBe("2098-04-09");
     const v = view(base(), "2098-04-05");
-    expect(v.total).toEqual([]);
+    expect(v.cards.every((c) => c.products.length === 0)).toBe(true);
     expect(v.worked).toBe(0);
   });
 });
@@ -76,7 +76,6 @@ describe("захирлын харагдац: цехийн картууд", () =>
   it("тохиргоогүй хэлтэс «Бусад» картанд; «Цайны газар» хасагдана", () => {
     const v = view([...base(), line({ product: "Х", quantity: 5, department: "Шинэ хэлтэс" }), line({ product: "Хоол", quantity: 999, department: "Цайны газар" })]);
     expect(v.cards.find((c) => c.name === "Бусад")?.day[0]?.qty).toBe(5);
-    expect(v.total.find((q) => q.unit === "ширхэг")?.qty).toBe(1200 + 619 + 5);
   });
   it("бетон бус цехэд засвар үндсэн бүтээгдэхүүнд нийлсэн хэвээр (Металл хийц), брак жагсаалтад ордоггүй", () => {
     const v = view([line({ product: "Хаалга", quantity: 10, department: "Металл хийц үйлдвэрлэлийн цех" }), line({ product: "Хаалга Зас", quantity: 2, department: "Металл хийц үйлдвэрлэлийн цех" }), line({ product: "Хаалга Брак", quantity: 1, department: "Металл хийц үйлдвэрлэлийн цех" })]);
@@ -145,7 +144,6 @@ describe("Дараа нь брак болсон (комплектац): тусд
     expect(c.lateDefectMonth).toBe(17);
     expect(c.dayCats).toEqual({ ready: 1200, repair: 100, defect: 30 }); // өөрчлөгдөөгүй
     expect(c.day).toEqual([{ unit: "ширхэг", qty: 1200 }]);
-    expect(v.total).toEqual(view().total);
     expect(card(view(lines, "2098-04-02"), TEN).lateDefectDay).toBe(5);
   });
   it("зөвхөн комплектацийн мөртэй өдөр цехийг «мэдээтэй» болгохгүй, мөн «Бусад» цех үүсгэхгүй", () => {
@@ -184,7 +182,6 @@ describe("Бракаас / Засвараас бэлэн болгосон (ко�
   it("гарц, Бэлэн/Засвар/Брак, нийт, брак хувь, сарын нийтэд ОРОХГҮЙ (давхар тоолохгүй)", () => {
     const a = view(base());
     const b = view(lines());
-    expect(b.total).toEqual(a.total);
     expect(card(b, TEN)).toMatchObject({ day: card(a, TEN).day, dayCats: card(a, TEN).dayCats, monthCats: card(a, TEN).monthCats, monthQty: card(a, TEN).monthQty, defectPct: card(a, TEN).defectPct, lateDefectDay: 0 });
     expect(card(b, TEN).products).toEqual(card(a, TEN).products);
   });
@@ -240,7 +237,7 @@ describe("захирлын харагдац: эрх ба нууцлал", () => 
   it("BOSS зөвхөн өөрийн цехийн картыг харна (бусад цех, мэдээгүй цехүүд ч харагдахгүй)", () => {
     const v = view(base(), "2098-04-09", { departments: ["тенсиланд хэсэг"] });
     expect(v.cards.map((c) => c.name)).toEqual([TEN]);
-    expect(v.total).toEqual([{ unit: "ширхэг", qty: 1200 }]);
+    expect(card(v, TEN).day).toEqual([{ unit: "ширхэг", qty: 1200 }]);
   });
   it("хариуд баримтын дугаар, цаг, нягтлангийн төлөв, Комментарий ирэхгүй (Засвар, Брак зөвшөөрөгдсөн)", () => {
     const lines = [...base(), line({ product: "Шон", quantity: 1, posted: false })];
@@ -269,7 +266,10 @@ describe("цехийн хуудас", () => {
     expect(w.monthsCats!.at(-1)).toEqual({ month: "2098-04", ready: 1500, repair: 100, defect: 30 });
     expect(w.monthsCats![0].month).toBe("2097-05");
     expect(w.monthsCats!.find((m) => m.month === "2097-06")).toMatchObject({ ready: 40, defect: 10 });
-    expect(w.defectPct12).toBe(2.4); // 40 / 1680
+    expect("defectPct12" in w).toBe(false); // брак хувь зөвхөн бүтээгдэхүүн бүрээр
+    const shon = w.monthsProducts.flatMap((m) => m.items).filter((p) => p.name.startsWith("Шон"));
+    expect(shon.reduce((a, p) => a + p.defect, 0)).toBe(40);
+    expect(Math.round((40 / shon.reduce((a, p) => a + p.ready + p.repair + p.defect, 0)) * 1000) / 10).toBe(2.4); // 40 / 1680
     expect(w.months.at(-1)).toEqual({ month: "2098-04", qty: 1500 });
     expect(w.monthsUnit).toBe("ширхэг");
   });
@@ -281,7 +281,7 @@ describe("цехийн хуудас", () => {
   it("бетон бус цех: months = бэлэн гарц, monthsCats = null", () => {
     const w = ws(CRUSH);
     expect(w.monthsCats).toBeNull();
-    expect(w.defectPct12).toBeNull();
+    expect(w.monthsProducts.flatMap((m) => m.items).every((p) => p.defect === 0 && p.repair === 0)).toBe(true);
     expect(w.months.at(-1)).toEqual({ month: "2098-04", qty: 40 });
   });
   it("нэгж цехээр: бутлуур, БАЗ шоо метр", () => {

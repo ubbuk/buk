@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { AccountantSection } from "@/components/finance/production/AccountantSection";
-import { DayBar, MonthProgress, TotalLine, WorkshopCards } from "@/components/finance/production/DirectorParts";
+import { DayBar, MonthProgress, WorkshopCards } from "@/components/finance/production/DirectorParts";
 import { ProductSearchBox } from "@/components/finance/products/ProductParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
@@ -15,7 +15,7 @@ import type { DirectorView } from "@/lib/onec/production-view";
 import { cn } from "@/lib/utils";
 
 /**
- * Захирлын харагдац: «Тэр өдөр юу хийсэн бэ?» (өдөр сонгогч, нийт, цехийн картууд) ба «Энэ сар хэр явж байна?» (сарын явц).
+ * Захирлын харагдац: «Тэр өдөр юу хийсэн бэ?» (өдөр сонгогч, цехийн картууд: нэг бүтээгдэхүүн бол тоо, олон бол жагсаалт; өөр бүтээгдэхүүний тоог нэмэхгүй) ба «Энэ сар хэр явж байна?» (сарын явц).
  * URL: ?day=2026-11-18 (байхгүй бол гарцтай хамгийн сүүлийн өдөр). Карт, сарын мөр дарахад цехийн хуудас руу орно (?day= дамжина). Нягтлангийн хүснэгт хамгийн доор, анхдагч хаалттай.
  */
 function ProductionPage() {
@@ -43,7 +43,6 @@ function ProductionPage() {
         <>
           <DayBar day={data.day} today={data.today} onDay={(d) => setDay(d === data.latestDay ? null : d)} />
           <ProductSearchBox value="" instant={false} onSearch={(q) => q && router.push(`/finance/products?q=${encodeURIComponent(q)}`)} />
-          <TotalLine total={data.total} worked={data.worked} />
           {data.cards.length === 0 ? (
             <Card>
               <p className="px-5 py-10 text-center text-sm text-text-muted">Харуулах цех алга</p>
