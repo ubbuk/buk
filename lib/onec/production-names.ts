@@ -3,13 +3,16 @@
 //   «Шон 80*80 Брак» -> үндсэн «Шон 80*80», хувилбар defect (брак; тусдаа мөр, нийт гарцад ороход брак хувийг тооцно)
 export type ProductVariant = "main" | "repair" | "defect";
 
-const SUFFIX = /^(.*\S)\s+\(?(зас|брак)\)?\.?$/iu; // «… Брак», «… (брак)», «… Зас»
+// «… Брак», «… (брак)», «… Зас», «… БРАК.» (том/жижиг үсэг), мөн зайгүй наалдсан «Н-810зас», «Н-810(зас)»:
+// наалдсан үед өмнөх тэмдэг үсэг биш байх ёстой (үгийн төгсгөл биш: «Базас» үндсэн хэвээр). «засвар», «засварт» гэх мэт бүтэн үг хөндөгдөхгүй.
+const SUFFIX = /^(.*?\S)(?:\s+|(?<!\p{L}))\(?(зас|брак)\)?\.?$/iu;
 
 export function splitProductName(raw: string): { base: string; variant: ProductVariant } {
   const name = raw.replace(/\s+/g, " ").trim();
   const m = SUFFIX.exec(name);
-  if (!m) return { base: name, variant: "main" };
-  return { base: m[1].trim(), variant: m[2].toLowerCase() === "брак" ? "defect" : "repair" };
+  const base = m ? m[1].replace(/[\s\-–,;:]+$/u, "") : "";
+  if (!m || !/[\p{L}\p{N}]/u.test(base)) return { base: name, variant: "main" };
+  return { base, variant: m[2].toLowerCase() === "брак" ? "defect" : "repair" };
 }
 
 /**
