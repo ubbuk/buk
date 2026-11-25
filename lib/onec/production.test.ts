@@ -95,7 +95,7 @@ beforeEach(() => {
 const comp = (product: string, qty: number) => ({ Номенклатура_Key: product, Количество: qty });
 
 describe("fetchProductionMonth: Комплектаци (дараа нь брак болсон)", () => {
-  it("толгой нь «Брак», эх нь брак БИШ бол reclass мөр (баримтын өдрөөр, цехгүй); брак→бэлэн, зас→бэлэн, брак→брак орохгүй", async () => {
+  it("толгой нь «Брак», эх нь брак БИШ бол reclass мөр (баримтын өдрөөр, цехгүй); брак→бэлэн, зас→бэлэн нь reclass биш (тусдаа шат), брак→брак орохгүй", async () => {
     state.reclass = [
       { Ref_Key: g(200), Number: "УБ00-1", Date: "2098-04-05T13:40:04", Номенклатура_Key: P_BRAK, Количество: 12, Комплектующие: [comp(P_SHON, 12)] },
       { Ref_Key: g(201), Number: "УБ00-2", Date: "2098-04-06T00:00:00", Номенклатура_Key: P_BRAK2, Количество: 4, Комплектующие: [comp(P_ZAS, 4)] },
@@ -109,7 +109,23 @@ describe("fetchProductionMonth: Комплектаци (дараа нь брак
       ["УБ00-2", "2098-04-06", "", "Шон 80*80 (брак)", "ш", 4, true],
     ]);
     // гарцын мөрүүд хэвээр
-    expect(r.lines.filter((l) => l.stage !== "reclass")).toHaveLength(4);
+    expect(r.lines.filter((l) => ["finished", "semi", "crusher"].includes(l.stage))).toHaveLength(4);
+  });
+
+  it("Бракаас / Засвараас бэлэн болгосон: эх бүтээгдэхүүн бүр өөрийн мөр (defect_to_ready / repair_to_ready), тоо нь эхийнх; бусад бүтээгдэхүүн рүү шилжүүлэг орохгүй", async () => {
+    state.reclass = [
+      { Ref_Key: g(210), Number: "УБ00-6", Date: "2098-04-07T00:00:00", Номенклатура_Key: P_SHON, Количество: 2113, Комплектующие: [comp(P_BRAK, 2113)] },
+      { Ref_Key: g(211), Number: "УБ00-7", Date: "2098-04-08T00:00:00", Номенклатура_Key: P_SHON, Количество: 160, Комплектующие: [comp(P_ZAS, 149), comp(P_BRAK, 11)] },
+      { Ref_Key: g(212), Number: "УБ00-8", Date: "2098-04-09T00:00:00", Номенклатура_Key: P_SHON, Количество: 5, Комплектующие: [comp(P_KARKAS, 5)] },
+      { Ref_Key: g(213), Number: "УБ00-9", Date: "2098-04-10T00:00:00", Номенклатура_Key: P_BRAK, Количество: 12, Комплектующие: [comp(P_SHON, 12)] },
+    ];
+    const r = await fetchProductionMonth("2098-04");
+    expect(r.lines.filter((l) => l.stage === "defect_to_ready" || l.stage === "repair_to_ready").map((l) => [l.docNumber, l.day, l.lineNo, l.stage, l.department, l.product, l.quantity])).toEqual([
+      ["УБ00-6", "2098-04-07", 1, "defect_to_ready", "", "Шон 80*80", 2113],
+      ["УБ00-7", "2098-04-08", 1, "repair_to_ready", "", "Шон 80*80", 149],
+      ["УБ00-7", "2098-04-08", 2, "defect_to_ready", "", "Шон 80*80", 11],
+    ]);
+    expect(r.lines.filter((l) => l.stage === "reclass").map((l) => l.docNumber)).toEqual(["УБ00-9"]); // Бэлэн→Брак хэвээр
   });
 
   it("зөвхөн GET, зөвхөн батлагдсан (Posted), устгагдаагүй, сарын хүрээ; Комментарий уншихгүй", async () => {

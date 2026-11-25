@@ -19,11 +19,14 @@ describe("«Дараа нь брак болсон» мөрийн цех", () => 
       { stage: "reclass", product: "Төмөр замын бетон дэр Брак", department: "" },
       { stage: "reclass", product: "ШОН 80*80 (брак)", department: "" },
       { stage: "reclass", product: "Танигдаагүй Брак", department: "" },
+      { stage: "defect_to_ready", product: "Төмөр замын бетон дэр", department: "" },
+      { stage: "repair_to_ready", product: "Танигдаагүй", department: "" },
       { stage: "finished", product: "Дэр", department: "X" },
     ];
     expect(assignReclassDepartments(lines, known).map((l) => [l.stage, l.department])).toEqual([
       ["reclass", "Төмөр замын төмөр бетон дэрний хэсэг"],
       ["reclass", "Тенсиланд хэсэг"],
+      ["defect_to_ready", "Төмөр замын төмөр бетон дэрний хэсэг"],
       ["finished", "X"],
     ]);
   });

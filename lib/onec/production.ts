@@ -4,7 +4,7 @@
 //   Өртөг    = Хозрасчетный, ЗӨВХӨН энэ баримтын бичилт: Дт 1441/1431 ← Кт 142x. Сар хаагдтал Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮), хаагдсаны дараа бодит өртөг.
 //   Материал = Дт 1423 ← Кт 1401 (цехээр). КомплектацияНоменклатуры г.м. өөр баримтын бичилтийг ГАРЦАД оруулахгүй (үйлдвэрлэл биш).
 //   Дараа нь брак болсон = Document_КомплектацияНоменклатуры (Дт 1441 ← Кт 1441): толгой бүтээгдэхүүний нэр «Брак», эх бүтээгдэхүүн брак БИШ бол
-//              тэр баримтын өдрөөр, stage = "reclass" мөр болгон хадгална (давхар тоолохгүй: гарцын нийлбэрт ордоггүй). Цех нь баримтад байхгүй: хадгалахдаа бүтээгдэхүүнийхээ цехээр.
+//              тэр баримтын өдрөөр, stage = "reclass" мөр болгон хадгална. Эсрэг чиглэл (толгой «Зас»/«Брак»-гүй, эх нь «… Брак»/«… Зас») нь stage = "defect_to_ready"/"repair_to_ready" (давхар тоолохгүй: гарцын нийлбэрт ордоггүй). Цех нь баримтад байхгүй: хадгалахдаа бүтээгдэхүүнийхээ цехээр.
 // Хүний мэдээлэл, баримтын «Комментарий»-ийг огт уншихгүй ($select-ээр зөвхөн хэрэгтэй талбар).
 import { loadAccountBook, shortCode, type AccountBook } from "./accounts";
 import { monthRange } from "./dates";
@@ -192,6 +192,31 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
         product: head,
         unit: unitName(products.get(productKey)?.ЕдиницаИзмерения_Key),
         quantity,
+      });
+    }
+
+    // Бракаас / Засвараас бэлэн болгосон: толгой нь «Зас»/«Брак»-гүй, эх бүтээгдэхүүн бүр «… Брак» эсвэл «… Зас». Эх бүтээгдэхүүн бүрийн тоо = нэг мөр (шат нь эхийнхээр).
+    for (const d of reclassDocs) {
+      const productKey = realKey(d.Номенклатура_Key);
+      if (!productKey || splitProductName(productName(productKey)).variant !== "main") continue;
+      reclassComps(d).forEach((c, i) => {
+        const variant = splitProductName(productName(realKey(c.Номенклатура_Key))).variant;
+        const quantity = round(num(c.Количество), 3);
+        if (variant === "main" || !quantity) return;
+        lines.push({
+          day: String(d.Date ?? "").slice(0, 10),
+          docRef: lower(d.Ref_Key),
+          docNumber: String(d.Number ?? "").trim(),
+          lineNo: i + 1,
+          time: String(d.Date ?? "").slice(11, 16),
+          posted: true,
+          stage: variant === "defect" ? "defect_to_ready" : "repair_to_ready",
+          department: "",
+          productKey,
+          product: productName(productKey),
+          unit: unitName(products.get(productKey)?.ЕдиницаИзмерения_Key),
+          quantity,
+        });
       });
     }
 

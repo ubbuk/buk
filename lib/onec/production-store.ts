@@ -8,7 +8,7 @@ import { multiYear } from "./bases";
 import { addMonths, currentMonth, isMonth, monthsBetween } from "./dates";
 import { fetchProductionMonth, PRODUCTION_TIMEOUT_MS, type ProductionMonthData } from "./production";
 import { isCostClosed, type ProductionLedgerRow, type ProductionLineRow, type ReportInfo } from "./production-view";
-import type { ProductionStage } from "./production-names";
+import { isReclassStage, type ProductionStage } from "./production-names";
 import { assignReclassDepartments } from "./production-reclass";
 import type { SnapshotStep } from "./snapshots-store";
 
@@ -20,7 +20,7 @@ export async function writeProductionMonth(data: ProductionMonthData) {
   const syncedAt = new Date();
   // «Дараа нь брак болсон» мөрийн цех: бүтээгдэхүүний нэрээр (бусад сарын бэлэн гарц + энэ сарын гарц); олдоогүй мөр хадгалагдахгүй
   let lines = data.lines;
-  if (lines.some((l) => l.stage === "reclass")) {
+  if (lines.some((l) => isReclassStage(l.stage))) {
     const stored = await prisma.$queryRaw<{ product: string; department: string; quantity: number }[]>`
       SELECT product, department, sum(quantity)::float8 AS quantity FROM onec_production_line WHERE stage = 'finished' AND month <> ${data.month} GROUP BY product, department`;
     lines = assignReclassDepartments(lines, [...stored, ...lines.filter((l) => l.stage === "finished")]);
@@ -64,7 +64,7 @@ export async function readProductionMonth(month: string): Promise<ProductionRows
 /** Хэлтэс бүрийн сүүлийн тайлан (хадгалагдсан БҮХ сараас, батлагдсан эсэхээс үл хамаарна) ба `since` өдрөөс хойших тайлангийн (баримтын) тоо. Хураангуйн «Сүүлийн тайлан», «Тайлан хоцорч байна?»-д. */
 export async function readLastReports(since: string): Promise<ReportInfo[]> {
   const rows = await prisma.$queryRaw<{ department: string; last_day: string; first_day: string; recent: number }[]>`
-    SELECT department, max(day) AS last_day, min(day) AS first_day, (count(DISTINCT doc_ref) FILTER (WHERE day >= ${since}))::int AS recent FROM onec_production_line WHERE stage <> 'reclass' GROUP BY department`;
+    SELECT department, max(day) AS last_day, min(day) AS first_day, (count(DISTINCT doc_ref) FILTER (WHERE day >= ${since}))::int AS recent FROM onec_production_line WHERE stage NOT IN ('reclass', 'defect_to_ready', 'repair_to_ready') GROUP BY department`;
   return rows.map((r) => ({ department: r.department, lastDay: r.last_day, firstDay: r.first_day, recent: r.recent }));
 }
 

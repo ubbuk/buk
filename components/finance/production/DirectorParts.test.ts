@@ -23,6 +23,9 @@ const card = (name: string, over: Partial<DirectorCard> = {}): DirectorCard => (
   lateDefectDay: 0,
   lateDefectMonth: 0,
   monthDaysCats: [],
+  convDay: { fromDefect: 0, fromRepair: 0, products: [] },
+  convMonth: { fromDefect: 0, fromRepair: 0, products: [] },
+  convDays: [],
   ...over,
 });
 const cards = [card("Тенсиланд хэсэг"), card("Бетон зуурмаг (БАЗ-3, БАЗ-4)", { day: [], top: null, monthQty: 0, month: [], lastDay: "2098-03-30" })];

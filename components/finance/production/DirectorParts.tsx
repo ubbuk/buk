@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays } from "@/lib/onec/dates";
 import { slugOf } from "@/lib/onec/production-groups";
-import type { Cats, DirectorCard, SimpleProduct } from "@/lib/onec/production-view";
+import type { Cats, Conversions, DirectorCard, SimpleProduct } from "@/lib/onec/production-view";
 import { unitName, type Quantity } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
@@ -248,6 +248,48 @@ export function CatProductLines({ products, empty = "Мэдээ ороогүй" 
         ))}
       </ul>
     </div>
+  );
+}
+
+/** «Бракаас бэлэн болгосон: 5 · Засвараас бэлэн болгосон: 2» */
+export const convSummary = (c: Pick<Conversions, "fromDefect" | "fromRepair">): string => `Бракаас бэлэн болгосон: ${num(c.fromDefect)} · Засвараас бэлэн болгосон: ${num(c.fromRepair)}`;
+
+/** Комплектацийн шилжүүлэг бүтээгдэхүүнээр: Бракаас | Засвараас (гарцад нэмэгдэхгүй) */
+export function ConvProductLines({ products }: { products: Conversions["products"] }) {
+  const cell = (v: number) => (v ? <span className="ng-num font-semibold text-text">{num(v)}</span> : <span className="text-text-muted/50">—</span>);
+  return (
+    <div className="text-sm">
+      <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] gap-x-2 border-b border-border px-4 py-1.5 text-[11px] text-text-muted sm:grid-cols-[minmax(0,1fr)_7rem_7rem]">
+        <span>Бүтээгдэхүүн</span>
+        <span className="text-right">Бракаас</span>
+        <span className="text-right">Засвараас</span>
+      </div>
+      <ul className="divide-y divide-border">
+        {products.map((p) => (
+          <li key={`${p.name}|${p.unit}`} className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-baseline gap-x-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_7rem_7rem]">
+            <span className="min-w-0 text-text">{p.name}</span>
+            <span className="text-right">{cell(p.fromDefect)}</span>
+            <span className="text-right">{cell(p.fromRepair)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Сарын шилжүүлэг өдрөөр: «11-р сарын 1: Бракаас 2,113 · Засвараас 141» */
+export function ConvDayLines({ days }: { days: DirectorCard["convDays"] }) {
+  return (
+    <ul className="divide-y divide-border text-sm">
+      {days.map((d) => (
+        <li key={d.date} className="flex flex-wrap items-baseline justify-between gap-x-3 px-4 py-2">
+          <span className="text-text">{MONTH_DAY(d.date)}</span>
+          <span className="ng-num text-text-muted">
+            Бракаас {num(d.fromDefect)} · Засвараас {num(d.fromRepair)}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

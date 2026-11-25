@@ -1,6 +1,6 @@
 // «Дараа нь брак болсон» мөрүүдийн цехийг тодорхойлно. Комплектацийн баримтад цех байхгүй тул бүтээгдэхүүний нэрээр (үндсэн нэр, Зас/Брак-гүй)
 // өөр сарууд, энэ сарын бэлэн гарцаас хамгийн их гарсан цехийг авна. Цэвэр функц (DB-гүй): тестлэхэд хялбар.
-import { splitProductName } from "./production-names";
+import { isReclassStage, splitProductName } from "./production-names";
 
 export interface KnownOutput {
   product: string;
@@ -28,7 +28,7 @@ export function productDepartments(rows: readonly KnownOutput[]): Map<string, st
 export function assignReclassDepartments<T extends { stage: string; product: string; department: string }>(lines: readonly T[], known: readonly KnownOutput[]): T[] {
   const dept = productDepartments(known);
   return lines.flatMap((l) => {
-    if (l.stage !== "reclass") return [l];
+    if (!isReclassStage(l.stage)) return [l];
     const department = dept.get(keyOf(l.product));
     return department ? [{ ...l, department }] : [];
   });

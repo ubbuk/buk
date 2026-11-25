@@ -162,6 +162,53 @@ describe("Дараа нь брак болсон (комплектац): тусд
   });
 });
 
+describe("Бракаас / Засвараас бэлэн болгосон (комплектаци): гарцад нэмэгдэхгүй", () => {
+  const cv = (stage: "defect_to_ready" | "repair_to_ready", qty: number, day: string, product = "Шон 80*80") => line({ stage, product, quantity: qty, day, department: TEN });
+  const lines = () => [...base(), cv("defect_to_ready", 2113, "2098-04-09"), cv("repair_to_ready", 141, "2098-04-09"), cv("repair_to_ready", 6, "2098-04-09", "Дэр"), cv("defect_to_ready", 11, "2098-04-02")];
+
+  it("өдөр: нийт ба бүтээгдэхүүнээр; сар: бүтээгдэхүүнээр ба өдрөөр", () => {
+    const c = card(view(lines()), TEN);
+    expect(c.convDay.fromDefect).toBe(2113);
+    expect(c.convDay.fromRepair).toBe(147);
+    expect(c.convDay.products).toEqual([
+      { name: "Шон 80*80", unit: "ш", fromDefect: 2113, fromRepair: 141 },
+      { name: "Дэр", unit: "ш", fromDefect: 0, fromRepair: 6 },
+    ]);
+    expect(c.convMonth.fromDefect).toBe(2124);
+    expect(c.convMonth.fromRepair).toBe(147);
+    expect(c.convDays).toEqual([
+      { date: "2098-04-02", fromDefect: 11, fromRepair: 0 },
+      { date: "2098-04-09", fromDefect: 2113, fromRepair: 147 },
+    ]);
+  });
+  it("гарц, Бэлэн/Засвар/Брак, нийт, брак хувь, сарын нийтэд ОРОХГҮЙ (давхар тоолохгүй)", () => {
+    const a = view(base());
+    const b = view(lines());
+    expect(b.total).toEqual(a.total);
+    expect(card(b, TEN)).toMatchObject({ day: card(a, TEN).day, dayCats: card(a, TEN).dayCats, monthCats: card(a, TEN).monthCats, monthQty: card(a, TEN).monthQty, defectPct: card(a, TEN).defectPct, lateDefectDay: 0 });
+    expect(card(b, TEN).products).toEqual(card(a, TEN).products);
+  });
+  it("шилжүүлэггүй цех/өдөр: 0, хоосон; зөвхөн шилжүүлэгтэй өдөр цехийг «мэдээтэй» болгохгүй", () => {
+    expect(card(view(base()), TEN).convDay).toEqual({ fromDefect: 0, fromRepair: 0, products: [] });
+    const v = view(lines(), "2098-04-06");
+    expect(card(v, TEN).day).toEqual([]);
+    expect(card(v, TEN).convMonth.fromDefect).toBe(2124);
+  });
+  it("сард гарц байхгүй ч (нэгж хоосон) шилжүүлэг, дараа нь брак тоологдоно", () => {
+    const only = [cv("defect_to_ready", 2113, "2098-04-09"), line({ stage: "reclass", product: "Шон Брак", quantity: 3, day: "2098-04-09" })];
+    const c = card(view(only), TEN);
+    expect(c.convDay).toMatchObject({ fromDefect: 2113, fromRepair: 0 });
+    expect(c.convMonth.fromDefect).toBe(2113);
+    expect(c.lateDefectDay).toBe(3);
+  });
+  it("цехийн хуудсанд орно; BOSS өөр цехийн шилжүүлгийг харахгүй; нууцлал (баримтын дугаар ирэхгүй)", () => {
+    const w = buildWorkshopView({ name: TEN, day: "2098-04-09", today: TODAY, lines: lines(), history: lines(), ledger: [] });
+    expect(w.card!.convMonth.fromDefect).toBe(2124);
+    expect(JSON.stringify(w)).not.toContain("СЕКРЕТ");
+    expect(view(lines(), "2098-04-09", { departments: ["бусад хэлтэс"] }).cards).toEqual([]);
+  });
+});
+
 describe("захирлын харагдац: сарын явц", () => {
   it("сарын нийт өдрөөс үл хамаарна (сонгосон өдрийн сар бүтнээрээ), өдөр бүрийн багана", () => {
     const c = card(view(), TEN);

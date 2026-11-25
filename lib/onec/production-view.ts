@@ -9,7 +9,7 @@
 import { addDays, addMonths, monthRange } from "./dates";
 import { groupFor, groupRank, isConcreteGroup, isSemiGroup, OTHER_GROUP, PRODUCTION_GROUPS } from "./production-groups";
 import { daysOfMonth } from "./production-month";
-import { normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
+import { isReclassStage, normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
 import { sumQuantities, type Quantity } from "@/lib/units";
 
 export interface ProductionLineRow {
@@ -237,8 +237,8 @@ interface Acc {
 function aggregate(rows: readonly ProductionLineRow[], includeCrusher: boolean): Map<string, Acc> {
   const acc = new Map<string, Acc>();
   for (const l of rows) {
-    if (l.stage === "reclass" || (l.stage === "crusher" && !includeCrusher)) continue; // reclass = «Дараа нь брак болсон»: гарц биш
-    const stage = l.stage;
+    if (isReclassStage(l.stage) || (l.stage === "crusher" && !includeCrusher)) continue; // reclass = «Дараа нь брак болсон»: гарц биш
+    const stage = l.stage as ProductRow["stage"];
     const { base, variant } = splitProductName(l.product);
     const isDefect = variant === "defect";
     const id = `${keyOf(l.stage, base, l.unit)}${isDefect ? "|defect" : ""}`;
@@ -293,7 +293,7 @@ export function buildProductionView(input: {
 }): ProductionView {
   const { month, current, today } = input;
   const scope = input.scope ?? { departments: null };
-  const scoped = input.lines.filter((l) => l.stage !== "reclass" && inScope(scope, l.department));
+  const scoped = input.lines.filter((l) => !isReclassStage(l.stage) && inScope(scope, l.department));
   const scopedLedger = input.ledger.filter((r) => inScope(scope, r.department));
   // Картууд: тохиргооны хэлтсүүдээс өгөгдөлтэй (энэ сарын мөр эсвэл хэзээ нэгэн тайлантай) нь, дарааллаар; тохиргоогүй хэлтэс «Бусад» картанд
   const reports = (input.lastReports ?? []).filter((r) => inScope(scope, r.department));
@@ -560,7 +560,7 @@ export function latestOutputDay(lines: readonly ProductionLineRow[], scope: Prod
 
 /** Drill-down-ы шүүлтүүр: эрхийн хүрээ, хасагдсан хэлтэс, сонгосон цех, хугацаа */
 export function visibleLines(lines: readonly ProductionLineRow[], scope: ProductionScope, opts: { group?: string | null; from?: string; to?: string } = {}): ProductionLineRow[] {
-  return lines.filter((l) => l.stage !== "reclass" && inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
+  return lines.filter((l) => !isReclassStage(l.stage) && inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
 }
 
 export interface DayProduct {
@@ -648,6 +648,10 @@ export interface DirectorCard {
   lateDefectMonth: number;
   /** сарын өдөр бүрийн Бэлэн/Засвар/Брак (бетон хийцийн цех) */
   monthDaysCats: (Cats & { date: string })[];
+  /** Бракаас / Засвараас бэлэн болгосон (Комплектаци): өдөр, сар (бүтээгдэхүүнээр), өдөр бүр. Гарцад нэмэгдэхгүй. */
+  convDay: Conversions;
+  convMonth: Conversions;
+  convDays: { date: string; fromDefect: number; fromRepair: number }[];
 }
 
 export interface DirectorView {
@@ -672,7 +676,44 @@ export interface DirectorView {
 
 const qtyOfRows = (rows: readonly ProductionLineRow[]): Quantity[] => sumQuantities(rows.map((l) => ({ qty: l.quantity, unit: l.unit })));
 const unitOfRow = (l: ProductionLineRow) => sumQuantities([{ qty: l.quantity, unit: l.unit }])[0]?.unit ?? "";
-const isReclass = (l: { stage: string }) => l.stage === "reclass";
+const isReclass = (l: { stage: string }) => isReclassStage(l.stage);
+const LATE_DEFECT = "reclass";
+
+export interface ConvProduct {
+  name: string;
+  unit: string;
+  fromDefect: number;
+  fromRepair: number;
+}
+/** Комплектацийн шилжүүлэг: Бракаас / Засвараас бэлэн болгосон. Гарцад ордоггүй. */
+export interface Conversions {
+  fromDefect: number;
+  fromRepair: number;
+  products: ConvProduct[];
+}
+
+function conversionsOf(rows: readonly ProductionLineRow[], inUnit: (l: ProductionLineRow) => boolean): Conversions {
+  const by = new Map<string, ConvProduct>();
+  let fromDefect = 0;
+  let fromRepair = 0;
+  for (const l of rows) {
+    const isDef = l.stage === "defect_to_ready";
+    if (!isDef && l.stage !== "repair_to_ready") continue;
+    const k = `${splitProductName(l.product).base.toLowerCase()}|${l.unit}`;
+    const p = by.get(k) ?? { name: splitProductName(l.product).base, unit: l.unit, fromDefect: 0, fromRepair: 0 };
+    p[isDef ? "fromDefect" : "fromRepair"] += l.quantity;
+    by.set(k, p);
+    if (inUnit(l)) {
+      if (isDef) fromDefect += l.quantity;
+      else fromRepair += l.quantity;
+    }
+  }
+  return {
+    fromDefect: round3(fromDefect),
+    fromRepair: round3(fromRepair),
+    products: [...by.values()].map((p) => ({ ...p, fromDefect: round3(p.fromDefect), fromRepair: round3(p.fromRepair) })).sort((a, b) => b.fromDefect + b.fromRepair - (a.fromDefect + a.fromRepair) || a.name.localeCompare(b.name, "mn")),
+  };
+}
 
 function simpleProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
   return orderProducts(aggregate(rows, true))
@@ -738,7 +779,15 @@ function directorCard(name: string, mine: readonly ProductionLineRow[], day: str
   // Бетон хийцийн цех: бэлэн гарцгүй ч засвар/брак байвал өдөр «мэдээтэй» (0 бэлэн)
   const dayQty = dayReady.length ? qtyOfRows(dayReady) : dayRows.length && unit ? [{ unit, qty: 0 }] : [];
   const products = concrete ? catProducts(dayRows) : simpleProducts(dayRows);
-  const late = mine.filter((l) => isReclass(l) && inUnit(l));
+  const convRows = mine.filter((l) => l.stage === "defect_to_ready" || l.stage === "repair_to_ready");
+  // Сард гарц байхгүй ч шилжүүлэг байж болно (нэгж хоосон): тэр үед шилжүүлгийн гол нэгжээр
+  const sideUnit = unit || ([...qtyOfRows(mine.filter((l) => isReclass(l)))].sort((a, b) => b.qty - a.qty)[0]?.unit ?? "");
+  const inSide = (l: ProductionLineRow) => unitOfRow(l) === sideUnit;
+  const late = mine.filter((l) => l.stage === LATE_DEFECT && inSide(l));
+  const convMonth = conversionsOf(convRows.filter(inMonth), inSide);
+  const convDays = dates
+    .map((date) => ({ date, ...(({ fromDefect, fromRepair }) => ({ fromDefect, fromRepair }))(conversionsOf(convRows.filter((l) => l.day === date), inSide)) }))
+    .filter((d) => d.fromDefect > 0 || d.fromRepair > 0);
   const own = active.filter((l) => l.day <= day).reduce<string | null>((best, l) => (best === null || l.day > best ? l.day : best), null);
   return {
     name,
@@ -759,6 +808,9 @@ function directorCard(name: string, mine: readonly ProductionLineRow[], day: str
     lateDefectDay: round3(late.filter((l) => l.day === day).reduce((s, l) => s + l.quantity, 0)),
     lateDefectMonth: round3(late.filter(inMonth).reduce((s, l) => s + l.quantity, 0)),
     monthDaysCats,
+    convDay: conversionsOf(convRows.filter((l) => l.day === day), inSide),
+    convMonth,
+    convDays,
   };
 }
 

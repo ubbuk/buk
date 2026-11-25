@@ -8,7 +8,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { Amount } from "@/components/finance/cash/Amount";
-import { Bars, catDayBars, catMonthBars, CatLegend, CatProductLines, catSummary, DayBar, dayBars, mnDate, num, ProductLines, qtyLine } from "@/components/finance/production/DirectorParts";
+import { Bars, catDayBars, ConvDayLines, ConvProductLines, convSummary, catMonthBars, CatLegend, CatProductLines, catSummary, DayBar, dayBars, mnDate, num, ProductLines, qtyLine } from "@/components/finance/production/DirectorParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
 import { resolveWorkshopParam } from "@/lib/onec/production-groups";
@@ -42,6 +42,7 @@ function WorkshopPage() {
   const card = data?.card ?? null;
   const unit = card?.unit ?? "";
   const title = data?.name ?? ws?.name ?? "Цех";
+  const hasConv = !!card && (card.convMonth.fromDefect + card.convMonth.fromRepair > 0 || card.convDay.fromDefect + card.convDay.fromRepair > 0);
   const onDay = (d: string) => setDay(d === data?.latestDay ? null : d);
 
   return (
@@ -168,10 +169,35 @@ function WorkshopPage() {
               >
                 <ChevronRight aria-hidden className={cn("size-4 text-text-muted transition-transform", moreOpen && "rotate-90")} />
                 Дэлгэрэнгүй
-                <span className="text-[11px] font-normal text-text-muted">· Энэ сард зарцуулсан материал</span>
+                <span className="text-[11px] font-normal text-text-muted">{hasConv ? "· Бракаас, засвараас бэлэн болгосон · материал" : "· Энэ сард зарцуулсан материал"}</span>
               </button>
               {moreOpen && (
-                <CardBody className="border-t border-border">
+                <CardBody className="space-y-5 border-t border-border">
+                  {hasConv && (
+                    <div className="space-y-4">
+                      <p className="text-xs text-text-muted">Комплектаци: бракаас, засвараас бэлэн болгосон (гарцын тоонд нэмэгдээгүй)</p>
+                      <div className="overflow-hidden rounded-lg border border-border">
+                        <p className="border-b border-border bg-white/[0.02] px-4 py-2 text-sm text-text">
+                          {mnDate(data.day)}: <span className="ng-num">{convSummary(card.convDay)}</span>
+                        </p>
+                        {card.convDay.products.length > 0 ? <ConvProductLines products={card.convDay.products} /> : <p className="px-4 py-3 text-sm text-text-muted">Энэ өдөр шилжүүлэг байхгүй</p>}
+                      </div>
+                      <div className="overflow-hidden rounded-lg border border-border">
+                        <p className="border-b border-border bg-white/[0.02] px-4 py-2 text-sm text-text">
+                          {Number(data.day.slice(5, 7))}-р сар: <span className="ng-num">{convSummary(card.convMonth)}</span>
+                        </p>
+                        {card.convMonth.products.length > 0 ? (
+                          <>
+                            <ConvProductLines products={card.convMonth.products} />
+                            <p className="border-y border-border px-4 py-1.5 text-[11px] text-text-muted">Өдрөөр</p>
+                            <ConvDayLines days={card.convDays} />
+                          </>
+                        ) : (
+                          <p className="px-4 py-3 text-sm text-text-muted">Энэ сард шилжүүлэг байхгүй</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {data.material ? (
                     <>
                       <p className="text-xl font-semibold text-text">
