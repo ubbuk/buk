@@ -3,7 +3,7 @@
 //   «Шон 80*80 Брак» -> үндсэн «Шон 80*80», хувилбар defect (брак; тусдаа мөр, нийт гарцад ороход брак хувийг тооцно)
 export type ProductVariant = "main" | "repair" | "defect";
 
-const SUFFIX = /^(.*\S)\s+(зас|брак)\.?$/iu;
+const SUFFIX = /^(.*\S)\s+\(?(зас|брак)\)?\.?$/iu; // «… Брак», «… (брак)», «… Зас»
 
 export function splitProductName(raw: string): { base: string; variant: ProductVariant } {
   const name = raw.replace(/\s+/g, " ").trim();
@@ -12,8 +12,11 @@ export function splitProductName(raw: string): { base: string; variant: ProductV
   return { base: m[1].trim(), variant: m[2].toLowerCase() === "брак" ? "defect" : "repair" };
 }
 
-/** Гарцын шат: finished = 1441 бэлэн бүтээгдэхүүн, semi = 1431 хагас боловсруулсан, crusher = 1401 (бутлан ангилах үйлдвэрийн гарц) */
-export type ProductionStage = "finished" | "semi" | "crusher";
+/**
+ * Гарцын шат: finished = 1441 бэлэн бүтээгдэхүүн, semi = 1431 хагас боловсруулсан, crusher = 1401 (бутлан ангилах үйлдвэрийн гарц).
+ * reclass = «Дараа нь брак болсон»: КомплектацияНоменклатуры (Дт 1441 ← Кт 1441)-аар бэлэн/засвартай бүтээгдэхүүнийг брак болгон шилжүүлсэн, шилжүүлсэн өдрөөр. Гарц биш (давхар тоолохгүй).
+ */
+export type ProductionStage = "finished" | "semi" | "crusher" | "reclass";
 
 /** Гарцын дансны код (1441, 1431, 1401 ...) -> шат. Мэдэгдэхгүй данс бол null (тооцохгүй). */
 export function stageOfAccount(code: string): ProductionStage | null {

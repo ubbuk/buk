@@ -7,7 +7,7 @@
 //  * Баримтын Posted=false бол «Нягтлан батлаагүй»: нийт дүнд орно, гэхдээ тусад нь тоологдож тэмдэглэгдэнэ.
 //  * Өртөг: сар хаагдсан үед л (isCostClosed). Хаагдаагүй сард Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮) тул харуулахгүй.
 import { addDays, addMonths, monthRange } from "./dates";
-import { groupFor, groupRank, isSemiGroup, OTHER_GROUP, PRODUCTION_GROUPS } from "./production-groups";
+import { groupFor, groupRank, isConcreteGroup, isSemiGroup, OTHER_GROUP, PRODUCTION_GROUPS } from "./production-groups";
 import { daysOfMonth } from "./production-month";
 import { normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
 import { sumQuantities, type Quantity } from "@/lib/units";
@@ -74,6 +74,8 @@ export interface CrusherProduct {
 export interface ReportInfo {
   department: string;
   lastDay: string;
+  /** хадгалагдсан хамгийн эртний тайлангийн өдөр */
+  firstDay?: string;
   /** өнөөдрөөс өмнөх 30 хоногт (өнөөдөр орно) бичигдсэн тайлан (баримт) */
   recent: number;
 }
@@ -235,13 +237,14 @@ interface Acc {
 function aggregate(rows: readonly ProductionLineRow[], includeCrusher: boolean): Map<string, Acc> {
   const acc = new Map<string, Acc>();
   for (const l of rows) {
-    if (l.stage === "crusher" && !includeCrusher) continue;
+    if (l.stage === "reclass" || (l.stage === "crusher" && !includeCrusher)) continue; // reclass = «Дараа нь брак болсон»: гарц биш
+    const stage = l.stage;
     const { base, variant } = splitProductName(l.product);
     const isDefect = variant === "defect";
     const id = `${keyOf(l.stage, base, l.unit)}${isDefect ? "|defect" : ""}`;
     let a = acc.get(id);
     if (!a) {
-      a = { base, row: { id, name: isDefect ? `${base} · Брак` : base, unit: l.unit, stage: l.stage, defect: isDefect, qty: 0, repairQty: 0, unconfirmedQty: 0, cost: null } };
+      a = { base, row: { id, name: isDefect ? `${base} · Брак` : base, unit: l.unit, stage, defect: isDefect, qty: 0, repairQty: 0, unconfirmedQty: 0, cost: null } };
       acc.set(id, a);
     }
     if (variant === "main") a.row.name = base; // «Зас»-ын нэр биш, үндсэн нэрийн бичлэгийг ав
@@ -290,7 +293,7 @@ export function buildProductionView(input: {
 }): ProductionView {
   const { month, current, today } = input;
   const scope = input.scope ?? { departments: null };
-  const scoped = input.lines.filter((l) => inScope(scope, l.department));
+  const scoped = input.lines.filter((l) => l.stage !== "reclass" && inScope(scope, l.department));
   const scopedLedger = input.ledger.filter((r) => inScope(scope, r.department));
   // Картууд: тохиргооны хэлтсүүдээс өгөгдөлтэй (энэ сарын мөр эсвэл хэзээ нэгэн тайлантай) нь, дарааллаар; тохиргоогүй хэлтэс «Бусад» картанд
   const reports = (input.lastReports ?? []).filter((r) => inScope(scope, r.department));
@@ -557,7 +560,7 @@ export function latestOutputDay(lines: readonly ProductionLineRow[], scope: Prod
 
 /** Drill-down-ы шүүлтүүр: эрхийн хүрээ, хасагдсан хэлтэс, сонгосон цех, хугацаа */
 export function visibleLines(lines: readonly ProductionLineRow[], scope: ProductionScope, opts: { group?: string | null; from?: string; to?: string } = {}): ProductionLineRow[] {
-  return lines.filter((l) => inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
+  return lines.filter((l) => l.stage !== "reclass" && inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
 }
 
 export interface DayProduct {
@@ -591,33 +594,60 @@ export function dayDetail(lines: readonly ProductionLineRow[], scope: Production
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Захирлын харагдац: «Тэр өдөр юу хийсэн бэ?», «Энэ сар хэр явж байна?». Энгийн: цех бүрийн өдрийн гарц, сарын нийт, бүтээгдэхүүний нэр, тоо.
-// Засвар үндсэн бүтээгдэхүүнд нийлсэн; брак, нягтлангийн төлөв, баримтын дугаар, цаг энд ИРЭХГҮЙ (нягтлангийн хүснэгтэд л).
+// Бетон хийцийн цехүүд (production-groups: concrete) гарцаа 3 ангиллаар: Бэлэн | Засвар | Брак.
+//   Бэлэн  = 1441 гарцын нэр нь «Зас»/«Брак»-гүй мөр; Засвар = нэр нь «… Зас»; Брак = нэр нь «… Брак»/«(брак)» (тусдаа, бэлэнд ордоггүй).
+//   Брак хувь = брак / (бэлэн + засвар + брак). Бусад цехэд засвар үндсэн бүтээгдэхүүнд нийлсэн хэвээр.
+//   «Дараа нь брак болсон» = Комплектацийн баримтаар (stage "reclass") бэлэн/засвартай бүтээгдэхүүнийг брак болгосон, шилжүүлсэн өдрөөр. Гарцад ордоггүй (давхар тоолохгүй).
+// Нягтлангийн төлөв, баримтын дугаар, цаг энд ИРЭХГҮЙ (нягтлангийн хүснэгтэд л).
 // ---------------------------------------------------------------------------------------------------------------------
 
 export interface SimpleProduct {
   name: string;
+  /** бэлэн (бетон хийцийн цехэд зөвхөн бэлэн; бусад цехэд засвар нийлсэн) */
   qty: number;
   unit: string;
+  /** зөвхөн бетон хийцийн цех */
+  repair?: number;
+  defect?: number;
+}
+
+export interface Cats {
+  ready: number;
+  repair: number;
+  defect: number;
 }
 
 export interface DirectorCard {
   name: string;
-  /** сонгосон өдрийн гарц (цехийн нэгжээр); хоосон бол «Мэдээ ороогүй» */
+  /** бетон хийцийн цех: гарц Бэлэн | Засвар | Брак */
+  concrete: boolean;
+  /** сонгосон өдрийн гарц (бэлэн; цехийн нэгжээр); хоосон бол «Мэдээ ороогүй» */
   day: Quantity[];
   /** сонгосон өдрийн бүтээгдэхүүн бүр */
   products: SimpleProduct[];
-  /** өдрийн гол бүтээгдэхүүн (хамгийн их) */
+  /** өдрийн гол бүтээгдэхүүн (хамгийн их бэлэн) */
   top: SimpleProduct | null;
   /** гарцтай хамгийн сүүлийн өдөр (сонгосон өдрөөс ихгүй) */
   lastDay: string | null;
-  /** сонгосон өдрийн сарын нийт */
+  /** сонгосон өдрийн сарын нийт (бэлэн) */
   month: Quantity[];
   monthProducts: SimpleProduct[];
-  /** сарын гол нэгж ба тэр нэгжээр сарын нийт (хэвтээ багана) */
+  /** сарын гол нэгж ба тэр нэгжээр сарын нийт бэлэн (хэвтээ багана) */
   unit: string;
   monthQty: number;
-  /** сарын өдөр бүрийн гарц (гол нэгжээр, сарын эхнээс сарын төгсгөл эсвэл өнөөдөр хүртэл) */
+  /** сарын өдөр бүрийн бэлэн гарц (гол нэгжээр, сарын эхнээс сарын төгсгөл эсвэл өнөөдөр хүртэл) */
   monthDays: { date: string; qty: number }[];
+  /** бетон хийцийн цех: өдөр, сарын Бэлэн/Засвар/Брак (гол нэгжээр); бусад цех null */
+  dayCats: Cats | null;
+  monthCats: Cats | null;
+  /** брак хувь (өдөр, сар); брак байхгүй бол null */
+  defectPct: number | null;
+  monthDefectPct: number | null;
+  /** дараа нь брак болсон (шилжүүлсэн өдөр, сар) */
+  lateDefectDay: number;
+  lateDefectMonth: number;
+  /** сарын өдөр бүрийн Бэлэн/Засвар/Брак (бетон хийцийн цех) */
+  monthDaysCats: (Cats & { date: string })[];
 }
 
 export interface DirectorView {
@@ -626,18 +656,23 @@ export interface DirectorView {
   latestDay: string | null;
   today: string;
   month: string;
-  /** өдрийн нийт: нэгж тусдаа (шоо метр ширхэгтэй нэмэгдэхгүй), хагас боловсруулсан цех ордоггүй */
+  /** өдрийн нийт: картуудын өдрийн гарц; нэгж тусдаа (шоо метр ширхэгтэй нэмэгдэхгүй), хагас боловсруулсан цех ордоггүй */
   total: Quantity[];
   /** гарцтай цехийн тоо */
   worked: number;
   /** гарцтай нь эхэнд (их тоогоор), мэдээгүй нь сүүлд (тохиргооны дарааллаар) */
   cards: DirectorCard[];
+  /** хадгалагдсан хамгийн эртний мэдээний өдөр; сонгосон өдөр түүнээс өмнө бол мэдээ татагдаагүй */
+  firstDay: string | null;
+  notLoaded: boolean;
   lastSyncedAt: string | null;
   scopeNote: string | null;
   empty: boolean;
 }
 
 const qtyOfRows = (rows: readonly ProductionLineRow[]): Quantity[] => sumQuantities(rows.map((l) => ({ qty: l.quantity, unit: l.unit })));
+const unitOfRow = (l: ProductionLineRow) => sumQuantities([{ qty: l.quantity, unit: l.unit }])[0]?.unit ?? "";
+const isReclass = (l: { stage: string }) => l.stage === "reclass";
 
 function simpleProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
   return orderProducts(aggregate(rows, true))
@@ -645,38 +680,85 @@ function simpleProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
     .map((p) => ({ name: p.name, qty: p.qty, unit: p.unit }));
 }
 
+/** Бетон хийцийн цехийн бүтээгдэхүүн: Бэлэн, Засвар, Брак тусдаа тоо; бэлэн ихтэй нь эхэнд */
+function catProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
+  const by = new Map<string, Required<SimpleProduct>>();
+  for (const l of rows) {
+    const { base, variant } = splitProductName(l.product);
+    const k = `${base.toLowerCase()}|${l.unit}`;
+    const p = by.get(k) ?? { name: base, qty: 0, unit: l.unit, repair: 0, defect: 0 };
+    if (variant === "main") {
+      p.name = base;
+      p.qty += l.quantity;
+    } else if (variant === "repair") p.repair += l.quantity;
+    else p.defect += l.quantity;
+    by.set(k, p);
+  }
+  return [...by.values()]
+    .filter((p) => p.qty + p.repair + p.defect > 0)
+    .sort((a, b) => b.qty - a.qty || b.repair + b.defect - (a.repair + a.defect) || a.name.localeCompare(b.name, "mn"))
+    .map((p) => ({ ...p, qty: round3(p.qty), repair: round3(p.repair), defect: round3(p.defect) }));
+}
+
+const catsOf = (rows: readonly ProductionLineRow[]): Cats => {
+  const c = { ready: 0, repair: 0, defect: 0 };
+  for (const l of rows) {
+    const v = variantOf(l);
+    c[v === "main" ? "ready" : v === "repair" ? "repair" : "defect"] += l.quantity;
+  }
+  return { ready: round3(c.ready), repair: round3(c.repair), defect: round3(c.defect) };
+};
+/** брак / (бэлэн + засвар + брак), хувь 1 оронтой; брак байхгүй бол null */
+export const defectPercent = (c: Cats): number | null => (c.defect > 0 ? Math.round((c.defect / (c.ready + c.repair + c.defect)) * 1000) / 10 : null);
+
 function directorCard(name: string, mine: readonly ProductionLineRow[], day: string, today: string, reportLast: string | null): DirectorCard {
-  const out = mine.filter((l) => isCardOutput(l, isSemiGroup(name)));
+  const semi = isSemiGroup(name);
+  const concrete = isConcreteGroup(name);
+  const real = mine.filter((l) => !isReclass(l));
+  // Идэвхжилтийн мөрүүд: бетон хийцийн цехэд бүх ангилал (бэлэн, засвар, брак), бусад цехэд картын гарц
+  const active = concrete ? real.filter((l) => l.stage === "finished") : real.filter((l) => isCardOutput(l, semi));
   const month = day.slice(0, 7);
-  const dayRows = out.filter((l) => l.day === day);
-  const monthRows = out.filter((l) => l.day.startsWith(month) && l.day <= today);
-  const monthQ = qtyOfRows(monthRows);
-  const primary = [...monthQ].sort((a, b) => b.qty - a.qty)[0];
+  const inMonth = (l: ProductionLineRow) => l.day.startsWith(month) && l.day <= today;
+  const readyOnly = (l: ProductionLineRow) => !concrete || variantOf(l) === "main";
+  const dayRows = active.filter((l) => l.day === day);
+  const monthRows = active.filter(inMonth);
+  const primary = [...qtyOfRows(monthRows.filter(readyOnly))].sort((a, b) => b.qty - a.qty)[0] ?? [...qtyOfRows(monthRows)].sort((a, b) => b.qty - a.qty)[0];
   const unit = primary?.unit ?? "";
-  const inUnit = (l: ProductionLineRow) => sumQuantities([{ qty: l.quantity, unit: l.unit }])[0]?.unit === unit;
+  const inUnit = (l: ProductionLineRow) => unitOfRow(l) === unit;
   const range = monthRange(month);
   const last = today < range.to ? today : range.to;
-  const monthDays: { date: string; qty: number }[] = [];
-  for (let d = range.from; d <= last; d = addDays(d, 1)) monthDays.push({ date: d, qty: 0 });
-  const at = new Map(monthDays.map((d) => [d.date, d]));
-  for (const l of monthRows.filter(inUnit)) {
-    const d = at.get(l.day);
-    if (d) d.qty += l.quantity;
-  }
-  for (const d of monthDays) d.qty = round3(d.qty);
-  const own = out.filter((l) => l.day <= day).reduce<string | null>((best, l) => (best === null || l.day > best ? l.day : best), null);
-  const products = simpleProducts(dayRows);
+  const dates: string[] = [];
+  for (let d = range.from; d <= last; d = addDays(d, 1)) dates.push(d);
+  const monthDays = dates.map((date) => ({ date, qty: round3(monthRows.filter((l) => l.day === date && readyOnly(l) && inUnit(l)).reduce((s, l) => s + l.quantity, 0)) }));
+  const monthDaysCats = concrete ? dates.map((date) => ({ date, ...catsOf(monthRows.filter((l) => l.day === date && inUnit(l))) })) : [];
+
+  const dayCats = concrete ? catsOf(dayRows.filter(inUnit)) : null;
+  const monthCats = concrete ? catsOf(monthRows.filter(inUnit)) : null;
+  const dayReady = dayRows.filter(readyOnly);
+  // Бетон хийцийн цех: бэлэн гарцгүй ч засвар/брак байвал өдөр «мэдээтэй» (0 бэлэн)
+  const dayQty = dayReady.length ? qtyOfRows(dayReady) : dayRows.length && unit ? [{ unit, qty: 0 }] : [];
+  const products = concrete ? catProducts(dayRows) : simpleProducts(dayRows);
+  const late = mine.filter((l) => isReclass(l) && inUnit(l));
+  const own = active.filter((l) => l.day <= day).reduce<string | null>((best, l) => (best === null || l.day > best ? l.day : best), null);
   return {
     name,
-    day: qtyOfRows(dayRows),
+    concrete,
+    day: dayQty,
     products,
-    top: products[0] ?? null,
+    top: products.reduce<SimpleProduct | null>((best, p) => (best === null || p.qty > best.qty ? p : best), null),
     lastDay: own ?? (reportLast && reportLast <= day ? reportLast : null),
-    month: monthQ,
-    monthProducts: simpleProducts(monthRows),
+    month: qtyOfRows(monthRows.filter(readyOnly)),
+    monthProducts: concrete ? catProducts(monthRows) : simpleProducts(monthRows),
     unit,
-    monthQty: round3(primary?.qty ?? 0),
+    monthQty: round3(monthRows.filter((l) => readyOnly(l) && inUnit(l)).reduce((s, l) => s + l.quantity, 0)),
     monthDays,
+    dayCats,
+    monthCats,
+    defectPct: dayCats ? defectPercent(dayCats) : null,
+    monthDefectPct: monthCats ? defectPercent(monthCats) : null,
+    lateDefectDay: round3(late.filter((l) => l.day === day).reduce((s, l) => s + l.quantity, 0)),
+    lateDefectMonth: round3(late.filter(inMonth).reduce((s, l) => s + l.quantity, 0)),
+    monthDaysCats,
   };
 }
 
@@ -698,7 +780,7 @@ export function buildDirectorView(input: {
   const day = input.day && input.day <= input.today ? input.day : (latestDay ?? input.today);
 
   // Бүх тохиргооны цех үргэлж харагдана (мэдээгүй нь «Мэдээ ороогүй»); BOSS зөвхөн өөрийн цех; тохиргоогүй хэлтэс «Бусад»
-  const present = new Set([...scoped.map(groupOf), ...reports.map(groupOf)]);
+  const present = new Set([...scoped.filter((l) => !isReclass(l)).map(groupOf), ...reports.map(groupOf)]);
   const names = [...new Set([...(scope.departments === null ? PRODUCTION_GROUPS.map((g) => g.name) : []), ...present])].sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b, "mn"));
   const cards = names.map((name) =>
     directorCard(
@@ -711,7 +793,9 @@ export function buildDirectorView(input: {
   );
   const withData = cards.filter((c) => c.day.length > 0).sort((a, b) => biggest(b) - biggest(a));
   const idle = cards.filter((c) => c.day.length === 0);
-  const total = qtyOfRows(scoped.filter((l) => l.day === day && !isSemiGroup(groupOf(l)) && isOutput(l)));
+  const total = sumQuantities(withData.filter((c) => !isSemiGroup(c.name)).flatMap((c) => c.day));
+  const firstDays = [...reports.map((r) => r.firstDay), ...scoped.filter((l) => !isReclass(l)).map((l) => l.day)].filter((d): d is string => !!d);
+  const firstDay = firstDays.length ? firstDays.reduce((a, b) => (a < b ? a : b)) : null;
   return {
     day,
     latestDay,
@@ -720,6 +804,8 @@ export function buildDirectorView(input: {
     total,
     worked: withData.length,
     cards: [...withData, ...idle],
+    firstDay,
+    notLoaded: firstDay !== null && day < firstDay,
     lastSyncedAt: input.lastSyncedAt ?? null,
     scopeNote: input.scopeNote ?? null,
     empty: scoped.length === 0,
@@ -733,13 +819,28 @@ export interface WorkshopView {
   name: string;
   /** null = ийм цех байхгүй эсвэл эрхгүй */
   card: DirectorCard | null;
-  /** сүүлийн 12 сарын гарц (цехийн гол нэгжээр) */
+  firstDay: string | null;
+  notLoaded: boolean;
+  /** сүүлийн 12 сар (өнөөдрийн сараас хойш тоолно, сонгосон өдрөөс үл хамаарна): бэлэн гарц, цехийн гол нэгжээр */
   months: { month: string; qty: number }[];
   monthsUnit: string;
+  /** бетон хийцийн цех: сар бүрийн Бэлэн/Засвар/Брак ба 12 сарын брак хувь */
+  monthsCats: (Cats & { month: string })[] | null;
+  defectPct12: number | null;
   /** энэ сард зарцуулсан материал: хэлтсээр */
   material: { amount: number; items: { name: string; amount: number }[] } | null;
   lastSyncedAt: string | null;
   scopeNote: string | null;
+}
+
+/** Сүүлийн 12 сарын (`endMonth` хүртэл) Бэлэн/Засвар/Брак: бетон хийцийн цехийн. Нэгж нь хамгийн их гарцтай нэгж. */
+export function monthlyCategories(lines: readonly ProductionLineRow[], scope: ProductionScope, group: string, endMonth: string): { unit: string; months: (Cats & { month: string })[] } | null {
+  const months = Array.from({ length: 12 }, (_, i) => addMonths(endMonth, i - 11));
+  const rows = lines.filter((l) => l.stage === "finished" && inScope(scope, l.department) && groupOf(l) === group && l.day.slice(0, 7) >= months[0] && l.day.slice(0, 7) <= endMonth);
+  if (!rows.length) return null;
+  const unit = [...qtyOfRows(rows)].sort((a, b) => b.qty - a.qty)[0].unit;
+  const inUnit = rows.filter((l) => unitOfRow(l) === unit);
+  return { unit, months: months.map((month) => ({ month, ...catsOf(inUnit.filter((l) => l.day.startsWith(month))) })) };
 }
 
 /** Нэг цехийн хуудас: өдөр, сар, 12 сар, материал. `lines` нь сонгосон өдөр, өнөөдрийн сарыг хамарна; `history` нь сүүлийн 12 сар; `ledger` нь сонгосон сарын. */
@@ -758,10 +859,13 @@ export function buildWorkshopView(input: {
   const scope = input.scope ?? { departments: null };
   const dv = buildDirectorView(input);
   const card = dv.cards.find((c) => c.name === input.name) ?? null;
-  const monthly = card ? monthlyOutput(input.history, scope, input.name, dv.month) : null;
-  const unit = card?.unit || monthly?.unit || "";
+  const end = input.today.slice(0, 7);
+  const cats = card?.concrete ? monthlyCategories(input.history, scope, input.name, end) : null;
+  const monthly = card && !card.concrete ? monthlyOutput(input.history, scope, input.name, end) : null;
   const base = (u: string) => sumQuantities([{ qty: 1, unit: u }])[0]?.unit;
-  const months = monthly && base(monthly.unit) === base(unit) ? monthly.months.map((m) => ({ month: m.month, qty: round3(m.confirmed + m.unconfirmed) })) : [];
+  const unit = cats?.unit ?? monthly?.unit ?? card?.unit ?? "";
+  const months = cats ? cats.months.map((m) => ({ month: m.month, qty: m.ready })) : monthly && base(monthly.unit) === base(unit) ? monthly.months.map((m) => ({ month: m.month, qty: round3(m.confirmed + m.unconfirmed) })) : [];
+  const total12 = cats ? cats.months.reduce<Cats>((a, m) => ({ ready: a.ready + m.ready, repair: a.repair + m.repair, defect: a.defect + m.defect }), { ready: 0, repair: 0, defect: 0 }) : null;
   const materials = card ? input.ledger.filter((r) => r.kind === "material" && inScope(scope, r.department) && groupOf(r) === input.name) : [];
   const by = new Map<string, number>();
   for (const r of materials) by.set(r.department, (by.get(r.department) ?? 0) + r.amount);
@@ -771,8 +875,12 @@ export function buildWorkshopView(input: {
     today: dv.today,
     name: input.name,
     card,
+    firstDay: dv.firstDay,
+    notLoaded: dv.notLoaded,
     months,
     monthsUnit: unit,
+    monthsCats: cats?.months ?? null,
+    defectPct12: total12 ? defectPercent(total12) : null,
     material: materials.length ? { amount: round2(materials.reduce((s, r) => s + r.amount, 0)), items: [...by].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount) } : null,
     lastSyncedAt: dv.lastSyncedAt,
     scopeNote: dv.scopeNote,

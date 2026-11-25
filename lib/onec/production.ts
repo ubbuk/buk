@@ -2,12 +2,14 @@
 //   Гарц     = Document_ОтчетПроизводстваЗаСмену (DeletionMark=false), Продукция хүснэгт. Батлагдсан БА батлагдаагүй (Posted) хоёулаа: нягтлан батлаагүйг тусад нь тэмдэглэнэ.
 //              Шат нь мөрийн Счет_Key-ээс: 1441 бэлэн бүтээгдэхүүн, 1431 хагас боловсруулсан, 1401 бутлан ангилах үйлдвэрийн гарц (түүхий эд).
 //   Өртөг    = Хозрасчетный, ЗӨВХӨН энэ баримтын бичилт: Дт 1441/1431 ← Кт 142x. Сар хаагдтал Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮), хаагдсаны дараа бодит өртөг.
-//   Материал = Дт 1423 ← Кт 1401 (цехээр). КомплектацияНоменклатуры г.м. өөр баримтын бичилтийг оруулахгүй (үйлдвэрлэл биш).
+//   Материал = Дт 1423 ← Кт 1401 (цехээр). КомплектацияНоменклатуры г.м. өөр баримтын бичилтийг ГАРЦАД оруулахгүй (үйлдвэрлэл биш).
+//   Дараа нь брак болсон = Document_КомплектацияНоменклатуры (Дт 1441 ← Кт 1441): толгой бүтээгдэхүүний нэр «Брак», эх бүтээгдэхүүн брак БИШ бол
+//              тэр баримтын өдрөөр, stage = "reclass" мөр болгон хадгална (давхар тоолохгүй: гарцын нийлбэрт ордоггүй). Цех нь баримтад байхгүй: хадгалахдаа бүтээгдэхүүнийхээ цехээр.
 // Хүний мэдээлэл, баримтын «Комментарий»-ийг огт уншихгүй ($select-ээр зөвхөн хэрэгтэй талбар).
 import { loadAccountBook, shortCode, type AccountBook } from "./accounts";
 import { monthRange } from "./dates";
 import { enc, lookupRows, num, odataRows, realKey, type Row } from "./odata-read";
-import { stageOfAccount, type ProductionStage } from "./production-names";
+import { splitProductName, stageOfAccount, type ProductionStage } from "./production-names";
 import { withOneCYear, yearOf } from "./year-context";
 
 const DOC = "Document_ОтчетПроизводстваЗаСмену";
@@ -15,6 +17,7 @@ const REGISTER = "AccountingRegister_Хозрасчетный";
 const NOMENCLATURE = "Catalog_Номенклатура";
 const UNITS = "Catalog_КлассификаторЕдиницИзмерения";
 const DEPARTMENTS = "Catalog_ПодразделенияОрганизаций";
+const RECLASS_DOC = "Document_КомплектацияНоменклатуры";
 const RECORDER = "Document_ОтчетПроизводстваЗаСмену";
 const PAGE = 200;
 const TOP = 100_000;
@@ -71,6 +74,20 @@ async function fetchDocs(month: string, timeoutMs: number): Promise<Row[]> {
   return all;
 }
 
+/** Комплектацийн баримтууд (батлагдсан): толгой бүтээгдэхүүн + эх бүтээгдэхүүнүүд */
+async function fetchReclassDocs(month: string, timeoutMs: number): Promise<Row[]> {
+  const { from, to } = monthRange(month);
+  const filter = `Date ge datetime'${from}T00:00:00' and Date le datetime'${to}T23:59:59' and DeletionMark eq false and Posted eq true`;
+  const select = "Ref_Key,Number,Date,Номенклатура_Key,Количество,Комплектующие";
+  const all: Row[] = [];
+  for (let page = 0; page < 40; page++) {
+    const rows = await odataRows(`${enc(RECLASS_DOC)}?$format=json&$select=${enc(select)}&$filter=${enc(filter)}&$orderby=${enc("Date asc")}&$top=${PAGE}&$skip=${page * PAGE}`, { timeoutMs });
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return all;
+}
+
 /** Үйлдвэрлэлийн баримтын бичилт: гарцын (Дт 1441/1431) ба материалын (Дт 1423 ← Кт 1401) мөрүүд */
 async function fetchLedger(month: string, book: AccountBook, timeoutMs: number): Promise<Row[]> {
   const keys = (codes: string[]) => [...book.byKey.values()].filter((a) => codes.includes(base(a.code))).map((a) => a.key);
@@ -105,11 +122,17 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
     const book = await loadAccountBook();
     const docs = await fetchDocs(month, timeoutMs);
     const ledgerRows = await fetchLedger(month, book, timeoutMs);
+    const reclassDocs = await fetchReclassDocs(month, timeoutMs);
 
     const lineRows = docs.flatMap((d) => (Array.isArray(d.Продукция) ? (d.Продукция as Row[]) : []));
-    const productKeys = [...lineRows.map((l) => realKey(l.Номенклатура_Key)), ...ledgerRows.map((r) => realKey(r.ExtDimensionDr1))];
+    const reclassComps = (d: Row): Row[] => (Array.isArray(d.Комплектующие) ? (d.Комплектующие as Row[]) : []);
+    const productKeys = [
+      ...lineRows.map((l) => realKey(l.Номенклатура_Key)),
+      ...ledgerRows.map((r) => realKey(r.ExtDimensionDr1)),
+      ...reclassDocs.flatMap((d) => [realKey(d.Номенклатура_Key), ...reclassComps(d).map((c) => realKey(c.Номенклатура_Key))]),
+    ];
     const products = await names(NOMENCLATURE, productKeys, "Description,ЕдиницаИзмерения_Key");
-    const unitKeys = [...lineRows.map((l) => realKey(l.ЕдиницаИзмерения_Key)), ...[...products.values()].map((p) => realKey(p?.ЕдиницаИзмерения_Key))];
+    const unitKeys = [...lineRows.map((l) => realKey(l.ЕдиницаИзмерения_Key)), ...reclassDocs.map((d) => realKey(products.get(realKey(d.Номенклатура_Key) ?? "")?.ЕдиницаИзмерения_Key)), ...[...products.values()].map((p) => realKey(p?.ЕдиницаИзмерения_Key))];
     const units = await names(UNITS, unitKeys);
     const deptKeys = [...docs.map((d) => realKey(d.ПодразделениеЗатрат_Key)), ...ledgerRows.flatMap((r) => [realKey(r.ПодразделениеDr_Key), realKey(r.ПодразделениеCr_Key)])];
     const depts = await names(DEPARTMENTS, deptKeys);
@@ -146,6 +169,30 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
           quantity,
         });
       }
+    }
+
+    // Дараа нь брак болсон: толгой нь «Брак», эх бүтээгдэхүүн нь брак биш. Цех хоосон: хадгалахдаа (production-store) бүтээгдэхүүнээр нь тодорхойлно.
+    for (const d of reclassDocs) {
+      const productKey = realKey(d.Номенклатура_Key);
+      const quantity = round(num(d.Количество), 3);
+      if (!productKey || !quantity) continue;
+      const head = productName(productKey);
+      const comps = reclassComps(d).map((c) => productName(realKey(c.Номенклатура_Key)));
+      if (splitProductName(head).variant !== "defect" || !comps.length || comps.some((n) => splitProductName(n).variant === "defect")) continue;
+      lines.push({
+        day: String(d.Date ?? "").slice(0, 10),
+        docRef: lower(d.Ref_Key),
+        docNumber: String(d.Number ?? "").trim(),
+        lineNo: 1,
+        time: String(d.Date ?? "").slice(11, 16),
+        posted: true,
+        stage: "reclass",
+        department: "",
+        productKey,
+        product: head,
+        unit: unitName(products.get(productKey)?.ЕдиницаИзмерения_Key),
+        quantity,
+      });
     }
 
     // Нэг бүтээгдэхүүн + нэг цех + нэг шат = нэг мөр (тоо, дүнг нэгтгэнэ)

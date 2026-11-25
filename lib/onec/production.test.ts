@@ -7,13 +7,15 @@ const P_SHON = g(31);
 const P_BRAK = g(32);
 const P_KARKAS = g(33);
 const P_ELS = g(34);
+const P_ZAS = g(35);
+const P_BRAK2 = g(36);
 const D_TEN = g(41);
 const D_ARM = g(42);
 const D_CRUSH = g(43);
 const D_TBHC = g(44); // Тенсиланд, Арматурын хэсгийн эх хэлтэс
 const D_ROOT = g(45); // эх хэлтсийн эх (гурван түвшин)
 
-const state = vi.hoisted(() => ({ calls: [] as string[], docs: [] as Record<string, unknown>[], ledger: [] as Record<string, unknown>[] }));
+const state = vi.hoisted(() => ({ calls: [] as string[], docs: [] as Record<string, unknown>[], reclass: [] as Record<string, unknown>[], ledger: [] as Record<string, unknown>[] }));
 
 vi.mock("./odata-read", async (orig) => {
   const actual = await orig<typeof import("./odata-read")>();
@@ -23,6 +25,7 @@ vi.mock("./odata-read", async (orig) => {
       const p = decodeURIComponent(path);
       state.calls.push(p);
       if (p.includes("RecordsWithExtDimensions")) return state.ledger;
+      if (p.startsWith("Document_КомплектацияНоменклатуры")) return state.reclass;
       if (p.startsWith("Document_")) return state.docs;
       return [];
     },
@@ -32,6 +35,8 @@ vi.mock("./odata-read", async (orig) => {
           [P_SHON]: { Description: "Шон 80*80", ЕдиницаИзмерения_Key: UNIT },
           [P_BRAK]: { Description: "Шон 80*80 Брак", ЕдиницаИзмерения_Key: UNIT },
           [P_KARKAS]: { Description: "Каркас", ЕдиницаИзмерения_Key: UNIT },
+          [P_ZAS]: { Description: "Шон 80*80 Зас", ЕдиницаИзмерения_Key: UNIT },
+          [P_BRAK2]: { Description: "Шон 80*80 (брак)", ЕдиницаИзмерения_Key: UNIT },
           [P_ELS]: { Description: "Элс  (0-3)", ЕдиницаИзмерения_Key: g(21) },
         },
         Catalog_КлассификаторЕдиницИзмерения: { [UNIT]: { Description: "ш" }, [g(21)]: { Description: "м3" } },
@@ -70,6 +75,7 @@ const rec = (over: Record<string, unknown>) => ({ Recorder_Type: "StandardODATA.
 
 beforeEach(() => {
   state.calls.length = 0;
+  state.reclass = [];
   state.docs = [
     { Ref_Key: g(100), Number: "ТЕН 1102   ", Date: "2098-04-02T22:00:00", Posted: true, ПодразделениеЗатрат_Key: D_TEN, Продукция: [ln(1, P_SHON, 700, ACC.f1441), ln(2, P_BRAK, 3, ACC.f1441), ln(3, P_SHON, 0, ACC.f1441)] },
     { Ref_Key: g(101), Number: "АРМ 1102", Date: "2098-04-03T10:00:00", Posted: false, ПодразделениеЗатрат_Key: D_ARM, Продукция: [ln(1, P_KARKAS, 12, ACC.s1431)] },
@@ -84,6 +90,36 @@ beforeEach(() => {
     // Комплектация: үйлдвэрлэл биш, оруулахгүй
     { Recorder_Type: "StandardODATA.Document_КомплектацияНоменклатуры", AccountDr_Key: ACC.f1441, AccountCr_Key: ACC.f1441, Сумма: 9_999_999, КоличествоDr: 5, ExtDimensionDr1: P_SHON, ПодразделениеCr_Key: D_TEN },
   ];
+});
+
+const comp = (product: string, qty: number) => ({ Номенклатура_Key: product, Количество: qty });
+
+describe("fetchProductionMonth: Комплектаци (дараа нь брак болсон)", () => {
+  it("толгой нь «Брак», эх нь брак БИШ бол reclass мөр (баримтын өдрөөр, цехгүй); брак→бэлэн, зас→бэлэн, брак→брак орохгүй", async () => {
+    state.reclass = [
+      { Ref_Key: g(200), Number: "УБ00-1", Date: "2098-04-05T13:40:04", Номенклатура_Key: P_BRAK, Количество: 12, Комплектующие: [comp(P_SHON, 12)] },
+      { Ref_Key: g(201), Number: "УБ00-2", Date: "2098-04-06T00:00:00", Номенклатура_Key: P_BRAK2, Количество: 4, Комплектующие: [comp(P_ZAS, 4)] },
+      { Ref_Key: g(202), Number: "УБ00-3", Date: "2098-04-07T00:00:00", Номенклатура_Key: P_SHON, Количество: 2113, Комплектующие: [comp(P_BRAK, 2113)] },
+      { Ref_Key: g(203), Number: "УБ00-4", Date: "2098-04-08T00:00:00", Номенклатура_Key: P_SHON, Количество: 141, Комплектующие: [comp(P_ZAS, 141)] },
+      { Ref_Key: g(204), Number: "УБ00-5", Date: "2098-04-09T00:00:00", Номенклатура_Key: P_BRAK, Количество: 9, Комплектующие: [comp(P_BRAK2, 9)] },
+    ];
+    const r = await fetchProductionMonth("2098-04");
+    expect(r.lines.filter((l) => l.stage === "reclass").map((l) => [l.docNumber, l.day, l.department, l.product, l.unit, l.quantity, l.posted])).toEqual([
+      ["УБ00-1", "2098-04-05", "", "Шон 80*80 Брак", "ш", 12, true],
+      ["УБ00-2", "2098-04-06", "", "Шон 80*80 (брак)", "ш", 4, true],
+    ]);
+    // гарцын мөрүүд хэвээр
+    expect(r.lines.filter((l) => l.stage !== "reclass")).toHaveLength(4);
+  });
+
+  it("зөвхөн GET, зөвхөн батлагдсан (Posted), устгагдаагүй, сарын хүрээ; Комментарий уншихгүй", async () => {
+    await fetchProductionMonth("2098-04");
+    const call = state.calls.find((c) => c.startsWith("Document_КомплектацияНоменклатуры"))!;
+    expect(call).toContain("Posted eq true");
+    expect(call).toContain("DeletionMark eq false");
+    expect(call).toContain("2098-04-01T00:00:00");
+    expect(call).not.toContain("Комментарий");
+  });
 });
 
 describe("fetchProductionMonth", () => {

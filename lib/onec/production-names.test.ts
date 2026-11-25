@@ -32,3 +32,11 @@ describe("normalizeDepartment", () => {
     expect(normalizeDepartment("ТБХЦ-1")).toBe("тбхц 1");
   });
 });
+
+describe("splitProductName: хаалттай (брак) / (зас)", () => {
+  it("«… (брак)», «… (Зас)» нь Брак, Зас хувилбар", () => {
+    expect(splitProductName("Лотки СТ 9*5*30 намхан (брак)")).toEqual({ base: "Лотки СТ 9*5*30 намхан", variant: "defect" });
+    expect(splitProductName("Шон 80*80 (Зас)")).toEqual({ base: "Шон 80*80", variant: "repair" });
+    expect(splitProductName("Шон (брак) 80*80")).toEqual({ base: "Шон (брак) 80*80", variant: "main" });
+  });
+});

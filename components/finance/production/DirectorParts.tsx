@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays } from "@/lib/onec/dates";
-import type { DirectorCard, SimpleProduct } from "@/lib/onec/production-view";
+import { slugOf } from "@/lib/onec/production-groups";
+import type { Cats, DirectorCard, SimpleProduct } from "@/lib/onec/production-view";
 import { unitName, type Quantity } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,18 @@ const mmdd = (day: string) => `${day.slice(5, 7)}-${day.slice(8, 10)}`;
 /** 1,919 (мянгатын таслалтай; 100-аас бага бол 1 орон) */
 export const num = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1 }).format(v);
 
-export const workshopHref = (name: string, day?: string | null) => `/finance/production/${encodeURIComponent(name)}${day ? `?day=${day}` : ""}`;
+/** Цехийн хуудас: латин slug (/finance/production/tbhets?day=...) */
+export const workshopHref = (name: string, day?: string | null) => `/finance/production/${slugOf(name)}${day ? `?day=${day}` : ""}`;
+
+// Бетон хийцийн цехийн ангиллын өнгө: Бэлэн алтлаг, Засвар цэнхэр, Брак улаан
+export const CAT_COLOR = { ready: "#f5b523", repair: "#60a5fa", defect: "#f87171" } as const;
+export const CAT_LABEL = { ready: "Бэлэн", repair: "Засвар", defect: "Брак" } as const;
+export const pct = (v: number) => `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v)}%`;
+
+/** «Засвар 3 · Брак 1 (брак 2.1%)» */
+export function catSummary(c: Cats, defectPct: number | null): string {
+  return `Засвар ${num(c.repair)} · Брак ${num(c.defect)}${defectPct !== null ? ` (брак ${pct(defectPct)})` : ""}`;
+}
 
 /** «1,919 ширхэг · 12 шоо метр» */
 export function qtyLine(qs: readonly Quantity[]): string {
@@ -106,6 +118,7 @@ export function WorkshopCards({ cards, day }: { cards: DirectorCard[]; day: stri
                       </span>
                     ))}
                   </span>
+                  {c.defectPct !== null && <span className="mt-1.5 text-xs text-text-muted">Брак {pct(c.defectPct)}</span>}
                   <span className="mt-auto pt-3 text-xs text-text-muted">{c.top ? `Гол нь: ${c.top.name}` : ""}</span>
                 </>
               ) : (
@@ -144,6 +157,8 @@ export interface BarItem {
   label: string;
   value: number;
   title: string;
+  /** давхарласан (stacked) багана: доороос дээш, value = нийлбэр */
+  parts?: { value: number; color: string }[];
 }
 
 /** Хуудас хэвтээ гүйлгэгдэхгүй багана график (flex): өдөр эсвэл сар бүр нэг багана; дарахад onSelect */
@@ -157,7 +172,13 @@ export function Bars({ items, selected, onSelect, height = 96, labelEvery = 5 }:
         const bar = (
           <>
             <span className="flex w-full flex-1 items-end">
-              <span className={cn("block w-full rounded-t-[3px]", isSel ? "bg-[#ffd56b]" : "bg-[linear-gradient(180deg,#ffd56b,#f5b523)] opacity-80")} style={{ height: h }} />
+              {i.parts ? (
+                <span className={cn("flex w-full flex-col-reverse overflow-hidden rounded-t-[3px]", isSel && "ring-1 ring-[#ffd56b]")} style={{ height: h }}>
+                  {i.parts.map((p, k) => (p.value > 0 ? <span key={k} className="block w-full" style={{ background: p.color, height: `${(p.value / i.value) * 100}%`, minHeight: 2 }} /> : null))}
+                </span>
+              ) : (
+                <span className={cn("block w-full rounded-t-[3px]", isSel ? "bg-[#ffd56b]" : "bg-[linear-gradient(180deg,#ffd56b,#f5b523)] opacity-80")} style={{ height: h }} />
+              )}
             </span>
             <span className={cn("h-[18px] pt-1 text-[10px] leading-none", isSel ? "text-[#ffd56b]" : "text-text-muted")}>{idx % labelEvery === 0 || isSel ? i.label : ""}</span>
           </>
@@ -173,6 +194,59 @@ export function Bars({ items, selected, onSelect, height = 96, labelEvery = 5 }:
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** Бэлэн/Засвар/Брак давхарласан баганын өнгөний тайлбар */
+export function CatLegend({ className }: { className?: string }) {
+  return (
+    <p className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted", className)}>
+      {(["ready", "repair", "defect"] as const).map((k) => (
+        <span key={k} className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm" style={{ background: CAT_COLOR[k] }} />
+          {CAT_LABEL[k]}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+const catParts = (c: Cats) => [
+  { value: c.ready, color: CAT_COLOR.ready },
+  { value: c.repair, color: CAT_COLOR.repair },
+  { value: c.defect, color: CAT_COLOR.defect },
+];
+const catTotal = (c: Cats) => c.ready + c.repair + c.defect;
+const catTitle = (when: string, c: Cats, u: string) => `${when}: Бэлэн ${num(c.ready)} · Засвар ${num(c.repair)} · Брак ${num(c.defect)} ${unitName(u)}`;
+
+export const catDayBars = (days: DirectorCard["monthDaysCats"], unit: string): BarItem[] => days.map((d) => ({ key: d.date, label: String(Number(d.date.slice(8, 10))), value: catTotal(d), parts: catParts(d), title: catTitle(MONTH_DAY(d.date), d, unit) }));
+export const catMonthBars = (months: (Cats & { month: string })[], unit: string): BarItem[] => months.map((m) => ({ key: m.month, label: String(Number(m.month.slice(5, 7))), value: catTotal(m), parts: catParts(m), title: catTitle(`${m.month.slice(0, 4)} оны ${Number(m.month.slice(5, 7))}-р сар`, m, unit) }));
+
+/** Бетон хийцийн цехийн бүтээгдэхүүн: нэр + Бэлэн | Засвар | Брак гурван багана */
+export function CatProductLines({ products, empty = "Мэдээ ороогүй" }: { products: readonly SimpleProduct[]; empty?: string }) {
+  if (products.length === 0) return <p className="px-4 py-5 text-sm text-text-muted">{empty}</p>;
+  const cell = (v: number | undefined, color?: string) => (v ? <span className="ng-num font-semibold" style={color ? { color } : undefined}>{num(v)}</span> : <span className="text-text-muted/50">—</span>);
+  return (
+    <div className="text-sm">
+      <div className="grid grid-cols-[minmax(0,1fr)_3.75rem_3.75rem_3.75rem] gap-x-2 border-b border-border px-4 py-1.5 text-[11px] text-text-muted sm:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem]">
+        <span>Бүтээгдэхүүн</span>
+        {(["ready", "repair", "defect"] as const).map((k) => (
+          <span key={k} className="text-right">
+            {CAT_LABEL[k]}
+          </span>
+        ))}
+      </div>
+      <ul className="divide-y divide-border">
+        {products.map((p) => (
+          <li key={`${p.name}|${p.unit}`} className="grid grid-cols-[minmax(0,1fr)_3.75rem_3.75rem_3.75rem] items-baseline gap-x-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_5.5rem]">
+            <span className="min-w-0 text-text">{p.name}</span>
+            <span className="text-right text-text">{cell(p.qty)}</span>
+            <span className="text-right">{cell(p.repair, CAT_COLOR.repair)}</span>
+            <span className="text-right">{cell(p.defect, CAT_COLOR.defect)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
