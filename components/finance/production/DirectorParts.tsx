@@ -382,8 +382,19 @@ export interface ProductSeriesPoint {
   items: readonly ProductCats[];
 }
 
+/**
+ * Цехийн хуудасны ТОГТМОЛ өнгө: нэг бүтээгдэхүүн өдөр, 12 сарын график хоёрт ижил өнгөтэй. Өнгийг цехийн сарын жагсаалтын эрэмбээр (их нь эхэнд) оноож,
+ * 5-аас дутвал үлдсэнийг графикийн цуваануудын нийлбэрээр (их нь эхэнд) нөхнө. Индекс = PRODUCT_COLORS-ийн индекс; үлдсэн нь «Бусад».
+ */
+export function productColorNames(monthList: readonly { name: string }[], series: readonly ProductSeriesPoint[], n: number = MAX_STACK): string[] {
+  const out: string[] = [];
+  for (const p of monthList) if (!out.includes(p.name) && out.length < n) out.push(p.name);
+  for (const name of topProductNames(series, Number.MAX_SAFE_INTEGER)) if (!out.includes(name) && out.length < n) out.push(name);
+  return out;
+}
+
 /** Хамгийн их гарцтай эхний `n` бүтээгдэхүүний нэр (бүх цэгийн нийлбэрээр) */
-export function topProductNames(series: readonly ProductSeriesPoint[], n = MAX_STACK): string[] {
+export function topProductNames(series: readonly ProductSeriesPoint[], n: number = MAX_STACK): string[] {
   const total = new Map<string, number>();
   for (const pt of series) for (const p of pt.items) total.set(p.name, (total.get(p.name) ?? 0) + p.ready + p.repair);
   return [...total].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "mn")).slice(0, n).map(([name]) => name);
@@ -403,12 +414,12 @@ export function productStackBars(series: readonly ProductSeriesPoint[], names: r
 }
 
 /** Нэг бүтээгдэхүүний баганууд: бетон хийцийн цехэд Бэлэн/Засвар/Брак давхарласан, бусад цехэд нэг өнгө */
-export function singleProductBars(series: readonly ProductSeriesPoint[], name: string, concrete: boolean, unit: string): BarItem[] {
+export function singleProductBars(series: readonly ProductSeriesPoint[], name: string, concrete: boolean, unit: string, color?: string): BarItem[] {
   return series.map((pt) => {
     const c = pt.items.filter((p) => p.name === name).reduce((a, p) => ({ ready: a.ready + p.ready, repair: a.repair + p.repair, defect: a.defect + p.defect }), { ready: 0, repair: 0, defect: 0 });
     return concrete
       ? { key: pt.key, label: pt.label, value: catTotal(c), parts: catParts(c), title: catTitle(pt.when, c, unit) }
-      : { key: pt.key, label: pt.label, value: c.ready, title: `${pt.when}: ${num(c.ready)} ${shortUnit(unit)}` };
+      : { key: pt.key, label: pt.label, value: c.ready, parts: color ? [{ value: c.ready, color }] : undefined, title: `${pt.when}: ${num(c.ready)} ${shortUnit(unit)}` };
   });
 }
 
@@ -427,19 +438,20 @@ export function productTotals(series: readonly ProductSeriesPoint[], name: strin
 }
 
 /** Графикийн өнгөний тайлбар ба бүтээгдэхүүн сонгох товчнууд: «Бүгд», бүтээгдэхүүн бүр (өнгөтэй), «Бусад» */
-export function ProductLegend({ names, hasOther, selected, onSelect }: { names: readonly string[]; hasOther: boolean; selected: string | null; onSelect: (name: string | null) => void }) {
+/** `names` нь цехийн тогтмол өнгөний жагсаалт (өнгө = индекс); `present` өгвөл зөвхөн энэ графикт байгаа бүтээгдэхүүний товч гарна */
+export function ProductLegend({ names, present, hasOther, selected, onSelect }: { names: readonly string[]; present?: ReadonlySet<string>; hasOther: boolean; selected: string | null; onSelect: (name: string | null) => void }) {
   const chip = (on: boolean) => cn("focus-ring inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-lg border px-2.5 text-xs", on ? "border-[rgba(255,213,107,0.6)] text-[#ffd56b]" : "border-border text-text-muted hover:text-text");
   return (
     <div className="flex flex-wrap gap-1.5" role="group" aria-label="Бүтээгдэхүүн">
       <button type="button" className={chip(selected === null)} aria-pressed={selected === null} onClick={() => onSelect(null)}>
         Бүгд
       </button>
-      {names.map((n, i) => (
+      {names.map((n, i) => (present && !present.has(n) ? null : (
         <button key={n} type="button" className={chip(selected === n)} aria-pressed={selected === n} onClick={() => onSelect(selected === n ? null : n)}>
           <span className="size-2.5 shrink-0 rounded-sm" style={{ background: PRODUCT_COLORS[i] }} />
           <span className="truncate">{n}</span>
         </button>
-      ))}
+      )))}
       {hasOther && (
         <span className="inline-flex min-h-9 items-center gap-1.5 px-1.5 text-xs text-text-muted">
           <span className="size-2.5 rounded-sm" style={{ background: OTHER_COLOR }} />

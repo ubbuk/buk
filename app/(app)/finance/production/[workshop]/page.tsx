@@ -8,7 +8,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { Amount } from "@/components/finance/cash/Amount";
-import { Bars, ConvDayLines, ConvProductLines, convSummary, CatLegend, CatProductLines, catSummary, DayBar, mnDate, num, pct, ProductLegend, ProductLines, productDefectPct, productStackBars, productSummary, productTotals, shortUnit, singleProductBars, topProductNames, typesText, MAX_STACK, type ProductSeriesPoint } from "@/components/finance/production/DirectorParts";
+import { Bars, ConvDayLines, ConvProductLines, convSummary, CatLegend, CatProductLines, catSummary, DayBar, mnDate, num, pct, ProductLegend, ProductLines, productColorNames, productDefectPct, productStackBars, productSummary, productTotals, shortUnit, singleProductBars, typesText, PRODUCT_COLORS, OTHER_COLOR, type ProductSeriesPoint } from "@/components/finance/production/DirectorParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
 import { resolveWorkshopParam } from "@/lib/onec/production-groups";
@@ -57,18 +57,20 @@ function WorkshopPage() {
     () => (data?.monthsProducts ?? []).map((m) => ({ key: m.month, label: String(Number(m.month.slice(5, 7))), when: `${m.month.slice(0, 4)} оны ${Number(m.month.slice(5, 7))}-р сар`, items: m.items })),
     [data?.monthsProducts]
   );
-  // График бүр өөрийн цувааны хамгийн их бүтээгдэхүүнүүдийг (5 хүртэл) өнгөөр ялгана; үлдсэн нь «Бусад». Сонгосон бүтээгдэхүүн хоёр графикт нэг.
-  const dayNames = useMemo(() => topProductNames(daysSeries), [daysSeries]);
-  const monthNames = useMemo(() => topProductNames(monthsSeries), [monthsSeries]);
-  const distinct = (series: readonly ProductSeriesPoint[]) => new Set(series.flatMap((pt) => pt.items.map((p) => p.name))).size;
-  const dayKinds = useMemo(() => distinct(daysSeries), [daysSeries]);
-  const monthKinds = useMemo(() => distinct(monthsSeries), [monthsSeries]);
-  const allNames = useMemo(() => [...new Set([...dayNames, ...monthNames])], [dayNames, monthNames]);
+  // Цехийн ТОГТМОЛ өнгө: нэг бүтээгдэхүүн өдрийн болон 12 сарын графикт ижил өнгөтэй. Өнгийг сарын жагсаалтын эрэмбээр (5 хүртэл) оноож, хоёр графикт хуваалцана; үлдсэн нь «Бусад».
+  const colorNames = useMemo(() => productColorNames(card?.monthProducts ?? [], [...daysSeries, ...monthsSeries]), [card, daysSeries, monthsSeries]);
+  const namesOf = (series: readonly ProductSeriesPoint[]) => new Set(series.flatMap((pt) => pt.items.map((p) => p.name)));
+  const dayPresent = useMemo(() => namesOf(daysSeries), [daysSeries]);
+  const monthPresent = useMemo(() => namesOf(monthsSeries), [monthsSeries]);
+  const allPresent = useMemo(() => new Set([...dayPresent, ...monthPresent]), [dayPresent, monthPresent]);
+  const dayOther = [...dayPresent].some((n) => !colorNames.includes(n));
+  const monthOther = [...monthPresent].some((n) => !colorNames.includes(n));
   // Нэг л бүтээгдэхүүнтэй цех: тэр бүтээгдэхүүнийг (бетон хийцийн цехэд Бэлэн/Засвар/Брак-аар) шууд харуулна
-  const only = dayKinds <= 1 && monthKinds <= 1 ? (allNames[0] ?? null) : null;
-  const shown = pick && allNames.includes(pick) ? pick : only;
-  const dayItems = shown ? singleProductBars(daysSeries, shown, !!card?.concrete, unit) : productStackBars(daysSeries, dayNames, unit);
-  const monthItems = shown ? singleProductBars(monthsSeries, shown, !!card?.concrete, unit) : productStackBars(monthsSeries, monthNames, unit);
+  const only = allPresent.size === 1 ? [...allPresent][0] : null;
+  const shown = pick && allPresent.has(pick) ? pick : only;
+  const shownColor = shown ? (PRODUCT_COLORS[colorNames.indexOf(shown)] ?? OTHER_COLOR) : undefined;
+  const dayItems = shown ? singleProductBars(daysSeries, shown, !!card?.concrete, unit, shownColor) : productStackBars(daysSeries, colorNames, unit);
+  const monthItems = shown ? singleProductBars(monthsSeries, shown, !!card?.concrete, unit, shownColor) : productStackBars(monthsSeries, colorNames, unit);
   const shownTotals = shown ? productTotals(monthsSeries, shown) : null;
   const shownDefectPct = shownTotals && card?.concrete ? productDefectPct({ qty: shownTotals.ready, repair: shownTotals.repair, defect: shownTotals.defect }) : null;
   const daySum = card ? productSummary(card.products) : null;
@@ -162,10 +164,10 @@ function WorkshopPage() {
                 {monthSum?.kind === "many" && card.lateDefectMonth > 0 && <p className="text-sm text-text-muted">Дараа нь брак болсон: {num(card.lateDefectMonth)}</p>}
                 {daysSeries.some((pt) => pt.items.length > 0) ? (
                   <>
-                    {dayKinds > 1 && <ProductLegend names={dayNames} hasOther={dayKinds > MAX_STACK} selected={shown} onSelect={setPick} />}
+                    {dayPresent.size > 1 && <ProductLegend names={colorNames} present={dayPresent} hasOther={dayOther} selected={shown} onSelect={setPick} />}
                     {shown && card.concrete && <CatLegend />}
                     <Bars items={dayItems} selected={data.day} onSelect={onDay} height={120} />
-                    <p className="text-[11px] text-text-muted">Өдрийн баганыг дарвал тэр өдрийн гарц дээр гарна.{dayKinds > 1 && !shown ? " Өнгө бүр нэг бүтээгдэхүүн." : ""}</p>
+                    <p className="text-[11px] text-text-muted">Өдрийн баганыг дарвал тэр өдрийн гарц дээр гарна.{dayPresent.size > 1 && !shown ? " Өнгө бүр нэг бүтээгдэхүүн (12 сарын графикт ижил)." : ""}</p>
                   </>
                 ) : (
                   <p className="text-sm text-text-muted">{data.notLoaded ? "Энэ сарын мэдээ татагдаагүй байна" : "Энэ сард мэдээ ороогүй"}</p>
@@ -188,7 +190,7 @@ function WorkshopPage() {
               <CardBody className="space-y-3">
                 {monthsSeries.some((pt) => pt.items.length > 0) ? (
                   <>
-                    {monthKinds > 1 && <ProductLegend names={monthNames} hasOther={monthKinds > MAX_STACK} selected={shown} onSelect={setPick} />}
+                    {monthPresent.size > 1 && <ProductLegend names={colorNames} present={monthPresent} hasOther={monthOther} selected={shown} onSelect={setPick} />}
                     {shown && card.concrete && <CatLegend />}
                     <Bars items={monthItems} selected={data.day.slice(0, 7)} labelEvery={1} height={120} />
                   </>

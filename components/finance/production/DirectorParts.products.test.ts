@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DirectorCard, ProductCats, SimpleProduct } from "@/lib/onec/production-view";
-import { CatProductLines, MAX_STACK, MonthProgress, ProductLegend, OTHER_COLOR, PRODUCT_COLORS, WorkshopCards, productDefectPct, productStackBars, productSummary, productTotals, shortUnit, singleProductBars, topProductNames, typesText, type ProductSeriesPoint } from "./DirectorParts";
+import { CatProductLines, MAX_STACK, MonthProgress, ProductLegend, productColorNames, OTHER_COLOR, PRODUCT_COLORS, WorkshopCards, productDefectPct, productStackBars, productSummary, productTotals, shortUnit, singleProductBars, topProductNames, typesText, type ProductSeriesPoint } from "./DirectorParts";
 
 // Өөр өөр бүтээгдэхүүний ширхгийг НЭМЖ харуулахгүй: нэг бүтээгдэхүүн бол тоо, олон бол жагсаалт («4 төрлийн бүтээдэхүүн»)
 
@@ -166,5 +166,60 @@ describe("хуудсууд: нийт тоо байхгүй, жагсаалт г�
     expect(list).toBeGreaterThan(-1);
     expect(chart).toBeGreaterThan(list);
     expect(src).not.toContain("бэлэн <span"); // «бэлэн 35 ширхэг» нийлбэр гарчиг байхгүй
+  });
+});
+
+describe("тогтмол өнгө: нэг бүтээгдэхүүн хоёр графикт ижил өнгөтэй", () => {
+  const monthList = [{ name: "B" }, { name: "A" }, { name: "C" }];
+  // 12 сарын цуваанд өөр бүтээгдэхүүн (Z) ихтэй: өмнөх логикоор тэр эхний өнгийг авах байсан
+  const months: ProductSeriesPoint[] = [
+    { key: "2098-03", label: "3", when: "3-р сар", items: items(["Z", 500], ["A", 1]) },
+    { key: "2098-04", label: "4", when: "4-р сар", items: items(["B", 40], ["A", 20], ["C", 5], ["Z", 100]) },
+  ];
+  const days: ProductSeriesPoint[] = [{ key: "2098-04-02", label: "2", when: "4-р сарын 2", items: items(["A", 3], ["B", 9], ["C", 1]) }];
+
+  it("сарын жагсаалтын эрэмбээр эхэлж, дутвал цувааны нийлбэрээр нөхнө (5 хүртэл)", () => {
+    expect(productColorNames(monthList, [...days, ...months])).toEqual(["B", "A", "C", "Z"]);
+    const many = ["a", "b", "c", "d", "e", "f"].map((name) => ({ name }));
+    expect(productColorNames(many, [])).toEqual(["a", "b", "c", "d", "e"]);
+  });
+  it("өдөр, сарын график ижил жагсаалтаар: A өдөр ч, сар ч ижил өнгөтэй", () => {
+    const names = productColorNames(monthList, [...days, ...months]);
+    const color = (bars: ReturnType<typeof productStackBars>, i: number, idx: number) => bars[i].parts![idx].color;
+    const d = productStackBars(days, names, "ш");
+    const m = productStackBars(months, names, "ш");
+    const iA = names.indexOf("A");
+    expect(color(d, 0, iA)).toBe(PRODUCT_COLORS[iA]);
+    expect(color(m, 1, iA)).toBe(PRODUCT_COLORS[iA]);
+    expect(d[0].parts![iA].value).toBe(3);
+    expect(m[1].parts![iA].value).toBe(20);
+    expect(color(d, 0, names.indexOf("B"))).toBe(color(m, 1, names.indexOf("B")));
+  });
+  it("жагсаалтад ороогүй (6 дахь) бүтээгдэхүүн хоёр графикт «Бусад»", () => {
+    const names = productColorNames([{ name: "a" }, { name: "b" }, { name: "c" }, { name: "d" }, { name: "e" }], []);
+    const s: ProductSeriesPoint[] = [{ key: "k", label: "1", when: "x", items: items(["a", 1], ["f", 7]) }];
+    expect(productStackBars(s, names, "ш")[0].parts!.at(-1)).toEqual({ value: 7, color: OTHER_COLOR });
+  });
+  it("сонгосон бүтээгдэхүүн: бетон бус цехэд ч өөрийн тогтмол өнгөөр, хоёр графикт ижил", () => {
+    const names = productColorNames(monthList, [...days, ...months]);
+    const color = PRODUCT_COLORS[names.indexOf("A")];
+    expect(singleProductBars(days, "A", false, "ш", color)[0].parts).toEqual([{ value: 3, color }]);
+    expect(singleProductBars(months, "A", false, "ш", color)[1].parts).toEqual([{ value: 20, color }]);
+    expect(singleProductBars(days, "A", false, "ш")[0].parts).toBeUndefined();
+  });
+  it("тайлбар: зөвхөн тухайн графикт байгаа бүтээгдэхүүн, өнгө нь жагсаалтын индексээр (хоёр графикт ижил)", () => {
+    const names = ["B", "A", "C", "Z"];
+    const o = html(createElement(ProductLegend, { names, present: new Set(["A", "C"]), hasOther: false, selected: null, onSelect: () => {} }));
+    expect(o).not.toContain(">B<");
+    expect(o).toContain(`background:${PRODUCT_COLORS[1]}`); // A = 2 дахь өнгө, B байхгүй ч
+    expect(o).toContain(`background:${PRODUCT_COLORS[2]}`); // C
+    expect(o).not.toContain(`background:${PRODUCT_COLORS[0]}`);
+  });
+  it("цехийн хуудас: өнгийг нэг жагсаалтаас (productColorNames) хоёр графикт өгдөг", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../..", "app/(app)/finance/production/[workshop]/page.tsx"), "utf8");
+    expect(src).toContain("productColorNames(");
+    expect(src).toContain("productStackBars(daysSeries, colorNames, unit)");
+    expect(src).toContain("productStackBars(monthsSeries, colorNames, unit)");
+    expect(src).not.toContain("topProductNames(");
   });
 });
