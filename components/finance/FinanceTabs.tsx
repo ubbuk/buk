@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Banknote, BarChart3, Compass, Coins, Factory, Package, Receipt, ShoppingCart, Wallet } from "lucide-react";
+import { Banknote, BarChart3, Boxes, Compass, Coins, Factory, Package, Receipt, ShoppingCart, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { TAB_LABELS, canViewTab, FINANCE_TABS, PAYROLL_ROLES } from "@/lib/onec/roles";
 import { ODATA_ROLES } from "@/lib/onec-odata/roles";
@@ -13,9 +13,10 @@ import { cn } from "@/lib/utils";
 
 // Нэг «1С» цэсийн табууд: Агуулах, Борлуулалт, Зарцуулалт, Авлага, Зардал, Мөнгөн хөрөнгө (+ ADMIN-д «Хөтөч»).
 // Сонгосон сар (?ym=) таб солиход хадгалагдана. Нярав зөвхөн Агуулах, Зарцуулалт. Эрхийг энд зөвхөн нуух зорилгоор ашиглана: хуудас, API бүр сервер дээр өөрөө шалгана.
-const ORDER = ["stock", "sales", "usage", "receivables", "expenses", "cash", "production"] as const satisfies readonly (typeof FINANCE_TABS)[number][];
+const ORDER = ["products", "stock", "sales", "usage", "receivables", "expenses", "cash", "production"] as const satisfies readonly (typeof FINANCE_TABS)[number][];
 
 const ICONS: Record<(typeof ORDER)[number], LucideIcon> = {
+  products: Boxes,
   stock: Package,
   sales: ShoppingCart,
   usage: Coins,

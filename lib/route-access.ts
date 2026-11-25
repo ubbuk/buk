@@ -22,6 +22,7 @@ const RULES: readonly Rule[] = [
   { prefix: "/accounting", roles: ["CHIEF_ACCOUNTANT", "ADMIN"] },
   { prefix: "/procurement", roles: ["MANAGER", "ADMIN"] },
   // 1С самбар (lib/onec/roles.ts): нярав зөвхөн Агуулах, Зарцуулалт; бусад таб удирдлагад. Тодорхой нь эхэлж.
+  { prefix: "/finance/products", roles: FINANCE_ROLES },
   { prefix: "/finance/sales", roles: FINANCE_ROLES },
   { prefix: "/finance/receivables", roles: FINANCE_ROLES },
   { prefix: "/finance/expenses", roles: FINANCE_ROLES },

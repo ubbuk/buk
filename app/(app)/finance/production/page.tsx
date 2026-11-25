@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { AccountantSection } from "@/components/finance/production/AccountantSection";
 import { DayBar, MonthProgress, TotalLine, WorkshopCards } from "@/components/finance/production/DirectorParts";
+import { ProductSearchBox } from "@/components/finance/products/ProductParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
 import type { DirectorView } from "@/lib/onec/production-view";
@@ -41,6 +42,7 @@ function ProductionPage() {
       ) : (
         <>
           <DayBar day={data.day} today={data.today} onDay={(d) => setDay(d === data.latestDay ? null : d)} />
+          <ProductSearchBox value="" instant={false} onSearch={(q) => q && router.push(`/finance/products?q=${encodeURIComponent(q)}`)} />
           <TotalLine total={data.total} worked={data.worked} />
           {data.cards.length === 0 ? (
             <Card>

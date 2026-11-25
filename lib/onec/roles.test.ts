@@ -13,7 +13,7 @@ describe("1С самбарын табуудын эрх", () => {
 
   it("нярав зөвхөн Агуулах, Зарцуулалт табыг харна", () => {
     expect(FINANCE_TABS.filter((t) => canViewTab("STOREKEEPER", t))).toEqual(["stock", "usage"]);
-    for (const tab of ["sales", "receivables", "expenses", "cash", "production"] as const) expect(canViewTab("STOREKEEPER", tab), tab).toBe(false);
+    for (const tab of ["products", "sales", "receivables", "expenses", "cash", "production"] as const) expect(canViewTab("STOREKEEPER", tab), tab).toBe(false);
   });
 
   it("бусад дүр, дүргүй хэрэглэгч юу ч харахгүй", () => {

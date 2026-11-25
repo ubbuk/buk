@@ -563,6 +563,11 @@ export function visibleLines(lines: readonly ProductionLineRow[], scope: Product
   return lines.filter((l) => !isReclassStage(l.stage) && inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
 }
 
+/** Комплектацийн шилжүүлгийн мөрүүд (эрхийн хүрээнд): гарц биш, зөвхөн бүтээгдэхүүний үлдэгдлийн тооцоонд */
+export function visibleMoves(lines: readonly ProductionLineRow[], scope: ProductionScope): ProductionLineRow[] {
+  return lines.filter((l) => isReclassStage(l.stage) && inScope(scope, l.department));
+}
+
 export interface DayProduct {
   row: ProductRow;
   docs: DocLine[];

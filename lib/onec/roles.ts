@@ -6,13 +6,14 @@
 export const FINANCE_ROLES: readonly string[] = ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS", "ENGINEERING"];
 export const STOREKEEPER_ROLE = "STOREKEEPER";
 
-export const FINANCE_TABS = ["stock", "sales", "usage", "receivables", "expenses", "cash", "production"] as const;
+export const FINANCE_TABS = ["products", "stock", "sales", "usage", "receivables", "expenses", "cash", "production"] as const;
 export type FinanceTab = (typeof FINANCE_TABS)[number];
 
 /** Нярав харах таб */
 export const WAREHOUSE_TABS: readonly FinanceTab[] = ["stock", "usage"];
 
 export const TAB_LABELS: Record<FinanceTab, string> = {
+  products: "Бүтээгдэхүүн",
   stock: "Агуулах",
   sales: "Борлуулалт",
   usage: "Зарцуулалт",

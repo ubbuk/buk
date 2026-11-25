@@ -60,6 +60,22 @@ export const isSemiGroup = (name: string): boolean => PRODUCTION_GROUPS.some((g)
 
 export const isConcreteGroup = (name: string): boolean => PRODUCTION_GROUPS.some((g) => g.name === name && g.concrete === true);
 
+/** Хайлт, жагсаалтад багтах богино нэр: «Вольтамикс 114 · ТБХЭЦ 40» */
+const SHORT_NAMES: Record<string, string> = {
+  der: "Дэр",
+  tbhets: "ТБХЭЦ",
+  tensiland: "Тенсиланд",
+  voltamix: "Вольтамикс",
+  baz: "БАЗ",
+  armatur: "Арматур",
+  butluur: "Бутлуур",
+  metal: "Металл",
+};
+export const shortGroupName = (name: string): string => {
+  const g = PRODUCTION_GROUPS.find((x) => x.name === name);
+  return g ? (SHORT_NAMES[g.slug] ?? g.name) : OTHER_GROUP;
+};
+
 /** Картын нэр -> URL-ийн латин slug (tbhets, der, ... busad) */
 export const slugOf = (name: string): string => (name === OTHER_GROUP ? OTHER_SLUG : (PRODUCTION_GROUPS.find((g) => g.name === name)?.slug ?? encodeURIComponent(name)));
 

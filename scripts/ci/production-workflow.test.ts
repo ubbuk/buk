@@ -52,6 +52,15 @@ describe("sync-1c.yml", () => {
     expect(yml.match(/force_flag/g)!.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("mode=backfill (sales + pl) нь үйлдвэрлэлийг татдаггүй: тайлбар нь үүнийг хэлж, production-backfill руу чиглүүлнэ; backfill горим production-sync-г дуудахгүй", () => {
+    const modeDesc = /mode:\n {8}description: "([^"]+)"/.exec(yml)![1];
+    expect(modeDesc).toContain("backfill = from..to саруудын борлуулалт, ашиг алдагдал (sales + pl) БОЛОВЧ үйлдвэрлэл БИШ");
+    expect(modeDesc).toContain("production-backfill");
+    expect(caseBody("backfill")).toContain("sync:1c -- range");
+    expect(caseBody("backfill")).not.toContain("production");
+    expect(caseBody("regular")).not.toContain("production-backfill"); // regular нь зөвхөн одоогийн (+ хаагдаагүй өмнөх) сар
+  });
+
   it("«Цалин»-ийн тусдаа хуваарь өөрчлөгдөөгүй, production regular-аас гадуур өөр cron нэмээгүй", () => {
     expect(yml.match(/- cron: /g)).toHaveLength(4);
   });

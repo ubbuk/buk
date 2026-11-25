@@ -64,7 +64,7 @@ export async function readProductionMonth(month: string): Promise<ProductionRows
 /** Хэлтэс бүрийн сүүлийн тайлан (хадгалагдсан БҮХ сараас, батлагдсан эсэхээс үл хамаарна) ба `since` өдрөөс хойших тайлангийн (баримтын) тоо. Хураангуйн «Сүүлийн тайлан», «Тайлан хоцорч байна?»-д. */
 export async function readLastReports(since: string): Promise<ReportInfo[]> {
   const rows = await prisma.$queryRaw<{ department: string; last_day: string; first_day: string; recent: number }[]>`
-    SELECT department, max(day) AS last_day, min(day) AS first_day, (count(DISTINCT doc_ref) FILTER (WHERE day >= ${since}))::int AS recent FROM onec_production_line WHERE stage NOT IN ('reclass', 'defect_to_ready', 'repair_to_ready') GROUP BY department`;
+    SELECT department, max(day) AS last_day, min(day) AS first_day, (count(DISTINCT doc_ref) FILTER (WHERE day >= ${since}))::int AS recent FROM onec_production_line WHERE stage NOT IN ('reclass', 'defect_to_ready', 'repair_to_ready', 'swap_in', 'swap_out') GROUP BY department`;
   return rows.map((r) => ({ department: r.department, lastDay: r.last_day, firstDay: r.first_day, recent: r.recent }));
 }
 
