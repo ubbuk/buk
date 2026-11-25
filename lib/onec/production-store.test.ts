@@ -172,6 +172,25 @@ describe("backfillProduction (горим: production-backfill)", () => {
     expect(fetchMonth).toHaveBeenCalledTimes(3);
   });
 
+  it("force: сарын мөрийг (reclass, defect_to_ready, repair_to_ready орно) устгаад дахин татна; force-гүй бол хуучин мөр хэвээр, 1С-д хүрэхгүй", async () => {
+    const mk = (stages: ("finished" | "reclass" | "defect_to_ready" | "repair_to_ready")[], tag: string): ProductionMonthData => {
+      const base = data("2098-05", { lines: 1 }).lines[0];
+      return { month: "2098-05", ledger: [], lines: stages.map((stage, i) => ({ ...base, docRef: `${tag}-${i}`, lineNo: i + 1, stage, product: "Тест бүтээгдэхүүн X1", department: "Тенсиланд хэсэг" })) };
+    };
+    await writeProductionMonth(mk(["finished", "reclass", "defect_to_ready", "repair_to_ready"], "old"));
+    // Тест бүтээгдэхүүн X1-ийн цех: бэлэн гарцаас (энэ сарын мөр) тодорхойлогдоно
+    const stagesOf = async () => (await readProductionMonth("2098-05")).lines.map((l) => `${l.stage}:${l.docRef}`).sort();
+    expect(await stagesOf()).toEqual(["defect_to_ready:old-2", "finished:old-0", "reclass:old-1", "repair_to_ready:old-3"]);
+    const fetchMonth = vi.fn(async () => mk(["finished", "defect_to_ready"], "new"));
+    const plain = await backfillProduction({ from: "2098-05", to: "2098-05", pauseSeconds: 0 }, fetchMonth, sleep);
+    expect(plain.skipped).toEqual(["2098-05"]);
+    expect(fetchMonth).not.toHaveBeenCalled();
+    expect((await stagesOf()).length).toBe(4);
+    const forced = await backfillProduction({ from: "2098-05", to: "2098-05", pauseSeconds: 0, force: true }, fetchMonth, sleep);
+    expect(forced).toEqual({ done: ["2098-05"], skipped: [], failed: [] });
+    expect(await stagesOf()).toEqual(["defect_to_ready:new-1", "finished:new-0"]); // хуучин reclass, repair_to_ready устсан
+  });
+
   it("алдаатай сар failed-д, бусад үргэлжилнэ", async () => {
     const fetchMonth = vi.fn(async (m: string) => {
       if (m === "2098-02") throw new Error("timeout");

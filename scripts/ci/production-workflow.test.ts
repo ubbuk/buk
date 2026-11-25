@@ -36,6 +36,22 @@ describe("sync-1c.yml", () => {
     expect(backfill).toContain('npm run sync:1c -- production-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15');
   });
 
+  it("production-backfill-д «force» boolean input (анхдагч false, Монгол тайлбартай); true үед л --force дамжина, бусад горимд нөлөөгүй", () => {
+    const inputs = yml.slice(yml.indexOf("    inputs:"), yml.indexOf("# Давхар ажиллахгүй"));
+    const force = /      force:\n        description: "([^"]+)"\n        type: boolean\n        default: false\n/.exec(inputs);
+    expect(force, "force input").not.toBeNull();
+    expect(force![1]).toMatch(/production-backfill/);
+    expect(force![1]).toMatch(/[А-Яа-яӨөҮү]{4,}/); // Монгол тайлбар
+    expect(force![1]).toMatch(/reclass|брак/);
+    expect(yml).toContain("INPUT_FORCE: ${{ inputs.force }}");
+    const backfill = caseBody("production-backfill");
+    expect(backfill).toContain('if [ "$INPUT_FORCE" = "true" ]; then force_flag="--force"; fi');
+    expect(backfill).toContain('--pause=15 $force_flag');
+    // force-г зөвхөн production-backfill ашиглана: бусад backfill горим өөрчлөгдөөгүй
+    for (const other of ["expenses-backfill", "receivables-backfill", "backfill"]) expect(caseBody(other)).not.toContain("force_flag");
+    expect(yml.match(/force_flag/g)!.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("«Цалин»-ийн тусдаа хуваарь өөрчлөгдөөгүй, production regular-аас гадуур өөр cron нэмээгүй", () => {
     expect(yml.match(/- cron: /g)).toHaveLength(4);
   });

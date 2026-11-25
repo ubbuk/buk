@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); production-month = «Үйлдвэрлэл» табын одоогийн сар (+ хаагдаагүй өмнөх сар); production-backfill = from..to саруудын үйлдвэрлэл (сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
+        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); production-month = «Үйлдвэрлэл» табын одоогийн сар (+ хаагдаагүй өмнөх сар); production-backfill = from..to саруудын үйлдвэрлэл (сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна; force=true бол алгасахгүй, дахин татна); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
         type: choice
         options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, production-month, production-backfill, payroll, prune, import-materials]
         default: regular
@@ -50,6 +50,10 @@ on:
         description: "backfill, receivables-backfill, expenses-backfill, production-backfill: сүүлийн сар (YYYY-MM)"
         type: string
         required: false
+      force:
+        description: "production-backfill: true бол from..to сарыг «татагдсан» гэж алгасахгүй: тэр сарын үйлдвэрлэлийн мөрүүдийг (дараа нь брак болсон, бракаас/засвараас бэлэн болгосон шилжүүлэг орно) устгаад 1С-ээс дахин татна. Анхдагч (false) нь татагдсан сарыг алгасна"
+        type: boolean
+        default: false
 
 # Давхар ажиллахгүй: өмнөх нь дуусахыг хүлээнэ (дундаа цуцлахгүй, учир нь transaction дундаас таслагдаж болохгүй)
 concurrency:
@@ -91,6 +95,7 @@ jobs:
           INPUT_TO: ${{ inputs.to }}
           INPUT_MONTH: ${{ inputs.month }}
           INPUT_APPLY: ${{ inputs.apply }}
+          INPUT_FORCE: ${{ inputs.force }}
           # Өдөр бүрийн prune-ийг үнэхээр устгадаг болгох (анхдагч нь DRY-RUN): gh variable set PRUNE_APPLY --body 1
           PRUNE_APPLY: ${{ vars.PRUNE_APPLY }}
           # «Авлага» агшин зураг (OData, зөвхөн унших). Тохируулаагүй бол тэр алхмыг алгасна.
@@ -170,7 +175,10 @@ jobs:
               if ! [[ "$INPUT_FROM" =~ $month_re && "$INPUT_TO" =~ $month_re ]]; then
                 echo "::error::production-backfill-д from, to нь YYYY-MM хэлбэртэй байх ёстой"; exit 1
               fi
-              if odata_ready; then run "production-backfill $INPUT_FROM..$INPUT_TO" 1380 npm run sync:1c -- production-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15; fi
+              # force=true: татагдсан сарыг алгасахгүй, сарын мөрийг (reclass, defect_to_ready, repair_to_ready орно) устгаад дахин татна (анхдагч false)
+              force_flag=""
+              if [ "$INPUT_FORCE" = "true" ]; then force_flag="--force"; fi
+              if odata_ready; then run "production-backfill $INPUT_FROM..$INPUT_TO${force_flag:+ force}" 1380 npm run sync:1c -- production-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15 $force_flag; fi
               ;;
             receivables)
               if ! [[ "$INPUT_MONTH" =~ $month_re ]]; then echo "::error::month нь YYYY-MM хэлбэртэй байх ёстой"; exit 1; fi
