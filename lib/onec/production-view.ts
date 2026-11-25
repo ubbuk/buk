@@ -119,7 +119,12 @@ export function isCostClosed(month: string, current: string, ledger: readonly Pi
 
 // Үндсэн нэрийг том/жижиг үсгээр ялгахгүй («Шон 80*80» ба «шон 80*80 зас» нэг бүтээгдэхүүн)
 const keyOf = (stage: string, base: string, unit: string) => `${stage}|${base.toLowerCase()}|${unit}`;
-const inScope = (scope: ProductionScope, department: string) => scope.departments === null || scope.departments.includes(normalizeDepartment(department));
+/** Үйлдвэрлэл биш хэлтэс (жишээ цайны газар): нэрээр нь хасна. Гарц нь цехийн жагсаалт, бүтээгдэхүүн, нийт гарц, график, материалын аль нь ч-д орохгүй. */
+export const PRODUCTION_EXCLUDED_DEPARTMENTS: readonly string[] = ["Цайны газар"];
+const EXCLUDED = PRODUCTION_EXCLUDED_DEPARTMENTS.map(normalizeDepartment);
+export const isExcludedDepartment = (department: string): boolean => EXCLUDED.includes(normalizeDepartment(department));
+
+const inScope = (scope: ProductionScope, department: string) => !isExcludedDepartment(department) && (scope.departments === null || scope.departments.includes(normalizeDepartment(department)));
 
 export function buildProductionView(input: {
   month: string;

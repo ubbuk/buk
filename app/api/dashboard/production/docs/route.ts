@@ -9,7 +9,7 @@ import { currentMonth, isMonth } from "@/lib/onec/dates";
 import { normalizeDepartment } from "@/lib/onec/production-names";
 import { resolveProductionScope } from "@/lib/onec/production-scope";
 import { readProductionMonth } from "@/lib/onec/production-store";
-import { productDocs } from "@/lib/onec/production-view";
+import { isExcludedDepartment, productDocs } from "@/lib/onec/production-view";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,6 @@ export const GET = withTiming("GET /api/dashboard/production/docs", async (req: 
 
   const rows = await readProductionMonth(month);
   const { scope } = await resolveProductionScope(session.user.id, session.user.role, [...new Set(rows.lines.map((l) => l.department))]);
-  const visible = rows.lines.filter((l) => scope.departments === null || scope.departments.includes(normalizeDepartment(l.department)));
+  const visible = rows.lines.filter((l) => !isExcludedDepartment(l.department) && (scope.departments === null || scope.departments.includes(normalizeDepartment(l.department))));
   return NextResponse.json({ docs: productDocs(visible, id) }, { headers: { "Cache-Control": "no-store" } });
 });

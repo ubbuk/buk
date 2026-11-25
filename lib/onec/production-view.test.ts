@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductionView, isCostClosed, productDocs, type ProductionLedgerRow, type ProductionLineRow } from "./production-view";
+import { buildProductionView, isCostClosed, isExcludedDepartment, PRODUCTION_EXCLUDED_DEPARTMENTS, productDocs, type ProductionLedgerRow, type ProductionLineRow } from "./production-view";
 
 const MONTH = "2098-04";
 const TODAY = "2098-04-10";
@@ -190,6 +190,56 @@ describe("эрхийн хүрээ (scope)", () => {
     expect(v.products).toEqual([]);
     expect(v.departments).toEqual([]);
     expect(v.kpi.month).toEqual([]);
+  });
+});
+
+describe("хасагдсан хэлтэс (PRODUCTION_EXCLUDED_DEPARTMENTS)", () => {
+  const lines = () => [
+    line({ product: "Шон", quantity: 100 }),
+    line({ product: "Хоол /иж бүрдэл/", quantity: 976, department: "Цайны газар" }),
+    line({ product: "Хоол /иж бүрдэл/", quantity: 24, department: "ЦАЙНЫ ГАЗАР.", posted: false }),
+  ];
+  const ledger = (): ProductionLedgerRow[] => [
+    out({ product: "Шон", quantity: 100, amount: 5_000_000 }),
+    out({ product: "Хоол /иж бүрдэл/", quantity: 1000, amount: 3_000_000, department: "Цайны газар" }),
+    { kind: "material", stage: "", department: "Цайны газар", product: "", unit: "", quantity: 0, amount: 7_000 },
+  ];
+
+  it("жагсаалтад «Цайны газар» байна", () => {
+    expect(PRODUCTION_EXCLUDED_DEPARTMENTS).toContain("Цайны газар");
+    expect(isExcludedDepartment("цайны  газар")).toBe(true);
+    expect(isExcludedDepartment("Тенсиланд хэсэг")).toBe(false);
+  });
+
+  it("цехийн жагсаалт, бүтээгдэхүүн, нийт гарц, төрөл, өдрийн график, батлаагүй тоонд орохгүй", () => {
+    const v = view(lines(), ledger());
+    expect(v.departments.map((d) => d.name)).toEqual(["Тенсиланд хэсэг"]);
+    expect(v.products.map((p) => p.name)).toEqual(["Шон"]);
+    expect(v.kpi.month).toEqual([{ unit: "ширхэг", qty: 100 }]);
+    expect(v.kpi.today).toEqual([{ unit: "ширхэг", qty: 100 }]);
+    expect(v.kpi.productTypes).toBe(1);
+    expect(v.kpi.unconfirmedDocs).toBe(0);
+    expect(v.chart!.days.find((d) => d.date === TODAY)).toMatchObject({ confirmed: 100, unconfirmed: 0 });
+    expect(v.departments[0].share).toBe(100);
+  });
+
+  it("өртөг, материалын зарцуулалтад ч орохгүй", () => {
+    const v = view(lines(), ledger(), { month: "2098-03" });
+    expect(v.cost.total).toBe(5_000_000);
+    expect(v.material).toBeNull();
+  });
+
+  it("зөвхөн хасагдсан хэлтсийн гарцтай сар: хоосон", () => {
+    const v = view([line({ product: "Хоол", quantity: 5, department: "Цайны газар" })]);
+    expect(v.empty).toBe(true);
+    expect(v.products).toEqual([]);
+    expect(v.chart).toBeNull();
+  });
+
+  it("drill-down-д productDocs нь шүүгдсэн мөрүүдээр ажиллана (route хасна)", () => {
+    const all = lines();
+    const kept = all.filter((l) => !isExcludedDepartment(l.department));
+    expect(productDocs(kept, "finished|хоол /иж бүрдэл/|ш")).toEqual([]);
   });
 });
 
