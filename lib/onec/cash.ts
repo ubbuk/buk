@@ -54,6 +54,16 @@ export interface CashEntry {
   docType: string;
   ref: string;
   amount: number;
+  /** мөнгөний дансны түлхүүр (`bank:<guid>` эсвэл `acct:<код>`); шилжүүлгийн хувьд зарлагадсан тал */
+  accountKey: string;
+  /** зөвхөн шилжүүлэг: хүлээн авсан дансны түлхүүр */
+  counterKey?: string;
+  /** валютын дансны гүйлгээний валютаар дүн (₮ дүн нь `amount`); ₮ дансанд байхгүй */
+  fxAmount?: number;
+  /** зөвхөн шилжүүлэг: хүлээн авсан (counterKey) тал валютын данс бол валютаар нь */
+  counterFxAmount?: number;
+  /** дансны хуудсанд: дансны хоорондын шилжүүлэг (тухайн дансны талаас нь орсон/гарсан гэж) — lib/onec/cash-accounts.ts transferEntriesFor */
+  transfer?: boolean;
   /** харьцсан данс нь цалингийн данс (3340-3349, 3450, 346x ...): canViewPayroll-гүй хүнд нэгтгэж харуулна (redactCash) */
   payroll?: boolean;
 }
@@ -70,6 +80,22 @@ export interface CashAccount {
   closing: number;
   /** эцсийн үлдэгдэл - (эхний + орлого - зарлага + шилжүүлэг орсон - гарсан): 0 байх ёстой */
   difference: number;
+  /** bank = банкны данс, cash = касс эсвэл бусад (дансны кодоор) */
+  kind: "bank" | "cash";
+  /** банкны нэр, дансны БҮТЭН дугаар (ADMIN-д л харуулна: lib/onec/cash-accounts.ts), валют («MNT», «USD») */
+  bank: string;
+  number: string;
+  currency: string;
+  /** валютын данс (₮ биш) бол валютаар нь; ₮ дансанд null. Эхний + орлого - зарлага + шилжүүлэг = эцсийн */
+  fx: CashFx | null;
+}
+export interface CashFx {
+  opening: number;
+  inflow: number;
+  outflow: number;
+  transfersIn: number;
+  transfersOut: number;
+  closing: number;
 }
 export interface CashCounterpart {
   key: string;
@@ -87,7 +113,7 @@ export interface CashResult {
   accounts: CashAccount[];
   daily: { date: string; inflow: number; outflow: number }[];
   /** цалингийн дансны харьцаатай орлого, зарлагын БҮРЭН нийт (recent-ийн 200-аар таслагдахгүй); redactCash ашиглана */
-  payroll: { inflow: number; outflow: number; byDay: { date: string; type: "inflow" | "outflow"; account: string; amount: number }[] };
+  payroll: { inflow: number; outflow: number; byDay: { date: string; type: "inflow" | "outflow"; account: string; accountKey: string; amount: number }[] };
   byCounterpart: CashCounterpart[];
   transfers: CashEntry[];
   recent: CashEntry[];
@@ -113,6 +139,24 @@ export interface CashInputs {
 }
 
 const UNKNOWN = "Тодорхойгүй";
+
+/**
+ * Банкны дансны нэр 1С-д «<дугаар>, <банк>, <валют>» хэлбэртэй («5003636128, ХААН банк, MNT»). Тэндээс дугаар, банк, валютыг салгана.
+ * Хэлбэр өөр бол (дугаар хоосон, валютгүй) боломжит хэсгийг авч, валютыг «MNT» гэж үзнэ.
+ */
+export function parseBankAccountName(raw: string): { number: string; bank: string; currency: string } {
+  const parts = raw.split(",").map((p) => p.trim());
+  const last = parts.at(-1) ?? "";
+  const hasCurrency = parts.length >= 2 && /^[A-Za-z]{3}$/.test(last);
+  const currency = hasCurrency ? last.toUpperCase() : "MNT";
+  const body = hasCurrency ? parts.slice(0, -1) : parts;
+  const number = /^[\d\s-]{4,}$/.test(body[0] ?? "") ? body[0].replace(/\s+/g, "") : "";
+  const bank = (number ? body.slice(1) : body).filter(Boolean).join(", ").trim();
+  return { number, bank, currency };
+}
+
+/** Кассын дансны нэр «Касс дахь бэлэн мөнгө - MNT» -> валют «MNT» (олдохгүй бол ""). */
+const cashCurrency = (name: string): string => /-\s*([A-Za-zА-Яа-яӨөҮү]+)\s*$/.exec(name)?.[1]?.trim() ?? "";
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const lower = (v: unknown) => String(v ?? "").toLowerCase();
 const codeKey = (code: string) => code.replace(/\..*$/, "").trim(); // "1101.00" -> "1101"
@@ -145,11 +189,30 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
 
   // Мөнгөний дансны түлхүүр: банкны данс (GUID) эсвэл дансны код
   const keyOf = (acc: { code: string; name: string }, bank: string | null) => (bank ? { key: `bank:${bank}`, name: bankName(bank) || acc.name, code: codeKey(acc.code) } : { key: `acct:${codeKey(acc.code)}`, name: acc.name, code: codeKey(acc.code) });
+  const fxOf = (r: Row, f: string) => num(r[f]);
   const rows = new Map<string, CashAccount>();
   const row = (k: { key: string; name: string; code: string }) => {
     let a = rows.get(k.key);
     if (!a) {
-      a = { key: k.key, name: k.name, code: k.code, opening: 0, inflow: 0, outflow: 0, transfersIn: 0, transfersOut: 0, closing: 0, difference: 0 };
+      const isBank = k.key.startsWith("bank:");
+      const parsed = isBank ? parseBankAccountName(k.name) : { number: "", bank: "", currency: cashCurrency(k.name) };
+      a = {
+        key: k.key,
+        name: k.name,
+        code: k.code,
+        opening: 0,
+        inflow: 0,
+        outflow: 0,
+        transfersIn: 0,
+        transfersOut: 0,
+        closing: 0,
+        difference: 0,
+        kind: isBank ? "bank" : "cash",
+        bank: parsed.bank,
+        number: parsed.number,
+        currency: parsed.currency || (isBank ? "MNT" : ""),
+        fx: isBank && parsed.currency !== "MNT" ? { opening: 0, inflow: 0, outflow: 0, transfersIn: 0, transfersOut: 0, closing: 0 } : null,
+      };
       rows.set(k.key, a);
     }
     return a;
@@ -159,7 +222,9 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     for (const r of list) {
       const acc = cashAcct(r.Account_Key);
       if (!acc) continue;
-      row(keyOf(acc, dim(r, "ExtDimension", BANK)))[field] += num(r["СуммаBalance"]);
+      const a = row(keyOf(acc, dim(r, "ExtDimension", BANK)));
+      a[field] += num(r["СуммаBalance"]);
+      if (a.fx) a.fx[field] += fxOf(r, "ВалютнаяСуммаBalance");
     }
   }
 
@@ -171,7 +236,7 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
   let outflow = 0;
   let internal = 0;
   const payrollTotals = { inflow: 0, outflow: 0 };
-  const payrollByDay = new Map<string, { date: string; type: "inflow" | "outflow"; account: string; amount: number }>();
+  const payrollByDay = new Map<string, { date: string; type: "inflow" | "outflow"; account: string; accountKey: string; amount: number }>();
 
   for (const r of records) {
     const dr = cashAcct(r.AccountDr_Key);
@@ -186,10 +251,16 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     if (dr && cr) {
       const to = keyOf(dr, dim(r, "ExtDimensionDr", BANK));
       const from = keyOf(cr, dim(r, "ExtDimensionCr", BANK));
-      row(to).transfersIn += amount;
-      row(from).transfersOut += amount;
+      const toRow = row(to);
+      const fromRow = row(from);
+      toRow.transfersIn += amount;
+      fromRow.transfersOut += amount;
+      if (toRow.fx) toRow.fx.transfersIn += fxOf(r, "ВалютнаяСуммаDr");
+      if (fromRow.fx) fromRow.fx.transfersOut += fxOf(r, "ВалютнаяСуммаCr");
       internal += amount;
-      transfers.push({ ...base, type: "internal", account: from.name, counterpart: to.name });
+      const fxFrom = fromRow.fx ? round2(fxOf(r, "ВалютнаяСуммаCr")) : undefined;
+      const fxTo = toRow.fx ? round2(fxOf(r, "ВалютнаяСуммаDr")) : undefined;
+      transfers.push({ ...base, type: "internal", account: from.name, counterpart: to.name, accountKey: from.key, counterKey: to.key, ...(fxFrom !== undefined ? { fxAmount: fxFrom } : {}), ...(fxTo !== undefined ? { counterFxAmount: fxTo } : {}) });
       continue;
     }
 
@@ -205,11 +276,14 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     const cpName = (party && names.parties.get(party)) || otherAcc?.name || UNKNOWN;
     const cpKey = party ?? `acct:${otherAcc ? codeKey(otherAcc.code) : ""}`;
 
+    const fxMove = a.fx ? fxOf(r, income ? "ВалютнаяСуммаDr" : "ВалютнаяСуммаCr") : undefined;
     if (income) {
       a.inflow += amount;
+      if (a.fx && fxMove !== undefined) a.fx.inflow += fxMove;
       inflow += amount;
     } else {
       a.outflow += amount;
+      if (a.fx && fxMove !== undefined) a.fx.outflow += fxMove;
       outflow += amount;
     }
     const d = daily.get(date) ?? { inflow: 0, outflow: 0 };
@@ -221,8 +295,8 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
     const payroll = isPayrollAccount(otherAcc?.code);
     if (payroll) {
       payrollTotals[income ? "inflow" : "outflow"] += amount;
-      const dk = `${date}|${income}|${k.name}`;
-      const cur = payrollByDay.get(dk) ?? { date, type: income ? ("inflow" as const) : ("outflow" as const), account: k.name, amount: 0 };
+      const dk = `${date}|${income}|${k.key}`;
+      const cur = payrollByDay.get(dk) ?? { date, type: income ? ("inflow" as const) : ("outflow" as const), account: k.name, accountKey: k.key, amount: 0 };
       cur.amount += amount;
       payrollByDay.set(dk, cur);
     }
@@ -230,6 +304,8 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
       ...base,
       type: income ? "inflow" : "outflow",
       account: k.name,
+      accountKey: k.key,
+      ...(fxMove !== undefined ? { fxAmount: round2(fxMove) } : {}),
       counterpart: cpName,
       counterAccount: otherAcc ? codeKey(otherAcc.code) : "",
       counterAccountName: otherAcc?.name ?? "",
@@ -249,6 +325,7 @@ export function buildCash({ month, asOf, accounts, records, opening, closing, na
         transfersOut: round2(a.transfersOut),
         closing: round2(a.closing),
         difference: round2(a.closing - expected),
+        fx: a.fx ? { opening: round2(a.fx.opening), inflow: round2(a.fx.inflow), outflow: round2(a.fx.outflow), transfersIn: round2(a.fx.transfersIn), transfersOut: round2(a.fx.transfersOut), closing: round2(a.fx.closing) } : null,
       };
     })
     .filter((a) => a.opening || a.inflow || a.outflow || a.transfersIn || a.transfersOut || a.closing)
@@ -304,6 +381,7 @@ export function redactCash(cash: CashResult): CashResult {
     date: d.date,
     type: d.type,
     account: d.account,
+    accountKey: d.accountKey,
     counterpart: PAYROLL_LABEL,
     article: "",
     memo: "",

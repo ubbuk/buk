@@ -27,7 +27,7 @@ export function withCategories(entries: readonly CashEntry[], rules: readonly Ca
       rules
     );
     if (e.payroll && !canSeePayroll) {
-      const key = `${e.date}|${e.type}|${e.account}|${category}`;
+      const key = `${e.date}|${e.type}|${e.accountKey}|${category}`;
       const cur = merged.get(key);
       if (cur) cur.amount = round2(cur.amount + e.amount);
       else
@@ -36,6 +36,7 @@ export function withCategories(entries: readonly CashEntry[], rules: readonly Ca
           date: e.date,
           type: e.type,
           account: e.account,
+          accountKey: e.accountKey,
           counterpart: PAYROLL_LABEL,
           article: "",
           memo: "",
@@ -148,6 +149,11 @@ export interface EntryFilter {
   category?: CategoryId;
   party?: string;
   account?: string;
+  /** мөнгөний дансны түлхүүр: тэр дансны гүйлгээ (шилжүүлгийн хоёр талын аль нь ч) */
+  accountKey?: string;
+  /** хугацаа (YYYY-MM-DD, хоёуланг нь оролцуулна) */
+  from?: string;
+  to?: string;
 }
 
 const hay = (e: ReportEntry) => `${e.counterpart} ${e.memo} ${e.article} ${e.document} ${e.account} ${categoryLabel(e.category, e.type)}`.normalize("NFKC").toLowerCase();
@@ -159,6 +165,9 @@ export function filterEntries(entries: readonly ReportEntry[], f: EntryFilter): 
     if (f.category && e.category !== f.category) return false;
     if (f.party && e.counterpart !== f.party) return false;
     if (f.account && e.account !== f.account) return false;
+    if (f.accountKey && e.accountKey !== f.accountKey && e.counterKey !== f.accountKey) return false;
+    if (f.from && e.date < f.from) return false;
+    if (f.to && e.date > f.to) return false;
     if (!q) return true;
     if (q.ranges.length && !q.ranges.some((r) => e.amount >= r.min - 0.005 && e.amount < r.max)) return false;
     if (q.exact.length && !q.exact.some((n) => (Number.isInteger(n) ? Math.floor(e.amount) === n || Math.round(e.amount) === n : Math.abs(e.amount - n) < 0.006))) return false;

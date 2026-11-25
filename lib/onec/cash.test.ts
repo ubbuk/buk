@@ -108,7 +108,7 @@ describe("buildCash: бүх гүйлгээ хадгалагдана (хуучи�
     expect(r.recent).toHaveLength(200);
     expect(r.entries[0]).toMatchObject({ counterAccount: "1501" });
     const secret = { ...r.entries[0], id: "p1", payroll: true, memo: "нууц утга", counterpart: "Нууц Нэр" };
-    const red = redactCash({ ...r, entries: [secret, ...r.entries.slice(1)], payroll: { inflow: secret.amount, outflow: 0, byDay: [{ date: secret.date, type: "inflow", account: secret.account, amount: secret.amount }] } });
+    const red = redactCash({ ...r, entries: [secret, ...r.entries.slice(1)], payroll: { inflow: secret.amount, outflow: 0, byDay: [{ date: secret.date, type: "inflow", account: secret.account, accountKey: secret.accountKey, amount: secret.amount }] } });
     expect(JSON.stringify(red.entries)).not.toContain("Нууц");
   });
 });

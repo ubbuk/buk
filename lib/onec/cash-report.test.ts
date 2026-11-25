@@ -5,6 +5,7 @@ import { buildCashReport, filterEntries, paginate, parseQuery, withCategories } 
 let n = 0;
 const entry = (over: Partial<CashEntry>): CashEntry => ({
   id: `e${++n}`,
+  accountKey: "acct:test",
   date: "2026-11-17",
   type: "outflow",
   account: "5003636128, ХААН банк, MNT",

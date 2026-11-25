@@ -11,11 +11,13 @@ import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
 import { Amount } from "@/components/finance/cash/Amount";
 import type { FeeReport } from "@/lib/onec/cash-fees";
 import { CategoryPanel } from "@/components/finance/cash/CategoryPanel";
+import { AccountsSection } from "@/components/finance/cash/AccountParts";
 import { CashEntries, NO_FILTER, type CashEntryFilter } from "@/components/finance/cash/CashEntries";
 import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData";
 import { RefreshButton } from "@/components/finance/useOnecRefresh";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
+import type { AccountCards } from "@/lib/onec/cash-accounts";
 import type { CashReport, CategoryRow } from "@/lib/onec/cash-report";
 
 type ReportResponse = CashReport & { meta: OdataMeta };
@@ -56,6 +58,8 @@ export default function CashPage() {
   const isAdmin = useIsAdmin();
   const { data, error, loading, retryAt, refresh } = useOdataData<ReportResponse>(`/api/dashboard/cash/report?month=${ym}`);
   const trend = useTrend(ym.slice(0, 4), data?.meta.fetchedAt ?? "");
+  // «Данснууд»: одоогийн байдлаар (сонгосон сараас үл хамаарна): данс бүрийн үлдэгдэл, өнөөдрийн орсон/гарсан
+  const accounts = useOdataData<AccountCards & { canManage: boolean; meta: OdataMeta }>("/api/dashboard/cash/accounts");
   const [filter, setFilter] = useState<CashEntryFilter>(NO_FILTER);
   const [showTransfers, setShowTransfers] = useState(false);
   const empty = data && data.totals.entries === 0;
@@ -155,6 +159,8 @@ export default function CashPage() {
     >
       {error && <ErrorNote message={data ? `${error}. Сүүлд татсан өгөгдлийг харуулж байна.` : error} />}
       {data?.meta.stale && <ErrorNote message="Мэдээлэл түр шинэчлэгдэхгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
+
+      <AccountsSection data={accounts.data} loading={accounts.loading} error={accounts.error} manageHref={isAdmin ? "/admin/cash-accounts" : undefined} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {loading && !data ? (

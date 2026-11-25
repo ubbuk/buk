@@ -37,6 +37,7 @@ const body = (method: string, data?: unknown) => new Request("http://localhost/x
 let n = 0;
 const entry = (over: Partial<CashEntry>): CashEntry => ({
   id: `e${++n}`,
+  accountKey: "acct:test",
   date: `${month}-05`,
   type: "outflow",
   account: "ХААН банк MNT",
@@ -66,7 +67,7 @@ function makeCash(): CashResult {
     totals: { opening: 100, inflow: 5000, outflow: 2700, internal: 900, closing: 2400, expectedClosing: 2400, difference: 0, entries: 4 },
     accounts: [],
     daily: [],
-    payroll: { inflow: 0, outflow: 700, byDay: [{ date: `${month}-05`, type: "outflow", account: "ХААН банк MNT", amount: 700 }] },
+    payroll: { inflow: 0, outflow: 700, byDay: [{ date: `${month}-05`, type: "outflow", account: "ХААН банк MNT", accountKey: "acct:test", amount: 700 }] },
     byCounterpart: [],
     transfers: [entry({ type: "internal", account: "ХААН банк MNT", counterpart: "ХААН банк 2", amount: 900, counterAccount: "" })],
     recent: [],

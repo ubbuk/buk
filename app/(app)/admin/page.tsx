@@ -461,6 +461,12 @@ export default function AdminPage() {
               Мөнгөний ангилал
             </Button>
           </Link>
+          <Link href="/admin/cash-accounts">
+            <Button variant="secondary">
+              <Wallet className="size-4" />
+              Мөнгөний данснууд
+            </Button>
+          </Link>
           <Link href="/admin/expense-rules">
             <Button variant="secondary">
               <Receipt className="size-4" />

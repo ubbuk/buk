@@ -62,7 +62,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * Сарын БҮХ гүйлгээ: хайлт (харилцагч, утга, дүн «84 сая» / 84073015, огноо 11-17), ангилал, харилцагчийн шүүлт, хуудаслалт.
  * Мөрийг дарвал хамгийн доод drill-down: «Нягтланд: баримтын төрөл, дугаар, данс» (удирдлагад шаардлагагүй, нягтланд хэрэгтэй).
  */
-export function CashEntries({ month, filter, onFilter, version }: { month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string }) {
+export function CashEntries({ month, filter, onFilter, version, accountId, from, to }: { month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string; accountId?: string; from?: string; to?: string }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<EntriesPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
   const q = useDebounced(filter.q, 300);
 
   // шүүлт, сар өөрчлөгдөхөд эхний хуудас руу
-  useEffect(() => setPage(1), [month, q, filter.flow, filter.category, filter.party, filter.fee, filter.main]);
+  useEffect(() => setPage(1), [month, q, filter.flow, filter.category, filter.party, filter.fee, filter.main, accountId, from, to]);
 
   useEffect(() => {
     const c = new AbortController();
@@ -83,6 +83,10 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
     if (filter.party) sp.set("party", filter.party);
     if (filter.fee) sp.set("fee", filter.fee);
     if (filter.main) sp.set("main", filter.main);
+    // дансны хуудас: ижил жагсаалт, зөвхөн тэр дансаар (шилжүүлэгтэй) ба хугацаагаар шүүгдэнэ
+    if (accountId) sp.set("accountId", accountId);
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
     setLoading(true);
     fetch(`/api/dashboard/cash/entries?${sp}`, { signal: c.signal })
       .then(async (res) => {
@@ -99,7 +103,7 @@ export function CashEntries({ month, filter, onFilter, version }: { month: strin
         setLoading(false);
       });
     return () => c.abort();
-  }, [month, page, q, filter.flow, filter.category, filter.party, filter.fee, filter.main, version]);
+  }, [month, page, q, filter.flow, filter.category, filter.party, filter.fee, filter.main, version, accountId, from, to]);
 
   const chips = [filter.flow && (filter.flow === "inflow" ? "Орж ирсэн" : "Гарсан"), filter.categoryLabel, filter.feeLabel, filter.mainLabel, filter.party].filter(Boolean) as string[];
 
