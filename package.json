@@ -20,6 +20,7 @@
     "sync:1c": "tsx --env-file-if-exists=.env scripts/sync-1c.ts",
     "onec:objects": "tsx --env-file=.env scripts/onec-odata-objects.ts",
     "onec:labels-doc": "tsx scripts/gen-onec-labels-doc.ts",
+    "onec:product-check": "tsx --env-file=.env scripts/onec-product-check.ts",
     "onec:cash-check": "tsx --env-file=.env scripts/onec-cash-check.ts",
     "onec:reconcile": "tsx --env-file=.env scripts/onec-reconcile.ts",
     "onec:warehouse-mapping": "tsx --env-file=.env scripts/onec-warehouse-mapping.ts",

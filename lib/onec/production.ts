@@ -220,6 +220,26 @@ export function fetchProductionMonth(month: string, opts: { timeoutMs?: number }
       });
     }
 
+    // Өөр бүтээгдэхүүнээс шилжүүлсэн: толгой «Зас»/«Брак»-гүй, эх нь «Зас»/«Брак»-гүй БОЛОВЧ өөр нэртэй (жишээ нь «дэр R-65»-аас «дэр») -> эх хасагдаж (swap_out), толгойд нэмэгдэнэ (swap_in). Гарц биш.
+    for (const d of reclassDocs) {
+      const productKey = realKey(d.Номенклатура_Key);
+      if (!productKey || splitProductName(productName(productKey)).variant !== "main") continue;
+      const head = productName(productKey);
+      const day = String(d.Date ?? "").slice(0, 10);
+      const time = String(d.Date ?? "").slice(11, 16);
+      const docRef = lower(d.Ref_Key);
+      const docNumber = String(d.Number ?? "").trim();
+      reclassComps(d).forEach((c, i) => {
+        const compKey = realKey(c.Номенклатура_Key);
+        const comp = productName(compKey);
+        const quantity = round(num(c.Количество), 3);
+        if (!compKey || !quantity || splitProductName(comp).variant !== "main" || splitProductName(comp).base.toLowerCase() === splitProductName(head).base.toLowerCase()) return;
+        const row = { day, docRef, docNumber, time, posted: true, department: "", quantity };
+        lines.push({ ...row, lineNo: 1000 + i * 2, stage: "swap_out", productKey: compKey, product: comp, unit: unitName(products.get(compKey)?.ЕдиницаИзмерения_Key) });
+        lines.push({ ...row, lineNo: 1001 + i * 2, stage: "swap_in", productKey, product: head, unit: unitName(products.get(productKey)?.ЕдиницаИзмерения_Key) });
+      });
+    }
+
     // Нэг бүтээгдэхүүн + нэг цех + нэг шат = нэг мөр (тоо, дүнг нэгтгэнэ)
     const merged = new Map<string, ProductionLedgerInput>();
     for (const r of ledgerRows) {

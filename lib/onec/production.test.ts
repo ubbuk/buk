@@ -128,6 +128,23 @@ describe("fetchProductionMonth: Комплектаци (дараа нь брак
     expect(r.lines.filter((l) => l.stage === "reclass").map((l) => l.docNumber)).toEqual(["УБ00-9"]); // Бэлэн→Брак хэвээр
   });
 
+  it("Өөр бүтээгдэхүүнээс шилжүүлсэн (толгой, эх хоёул Зас/Брак-гүй): эх нь swap_out, толгой нь swap_in (гарц биш, эхийн тоогоор); Зас, Брак эх, ижил нэртэй эх орохгүй", async () => {
+    state.reclass = [
+      { Ref_Key: g(220), Number: "УБ00-10", Date: "2098-04-09T00:00:00", Номенклатура_Key: P_SHON, Количество: 5, Комплектующие: [comp(P_KARKAS, 5)] },
+      { Ref_Key: g(221), Number: "УБ00-11", Date: "2098-04-10T00:00:00", Номенклатура_Key: P_SHON, Количество: 160, Комплектующие: [comp(P_ZAS, 149), comp(P_BRAK, 11)] },
+    ];
+    const r = await fetchProductionMonth("2098-04");
+    const swaps = r.lines.filter((l) => l.stage === "swap_in" || l.stage === "swap_out");
+    expect(swaps.map((l) => [l.docNumber, l.day, l.stage, l.quantity])).toEqual([
+      ["УБ00-10", "2098-04-09", "swap_out", 5],
+      ["УБ00-10", "2098-04-09", "swap_in", 5],
+    ]);
+    expect(swaps.find((l) => l.stage === "swap_in")!.product).toBe("Шон 80*80");
+    expect(swaps.find((l) => l.stage === "swap_out")!.product).not.toMatch(/Шон 80*80/);
+    expect(new Set(swaps.map((l) => l.lineNo)).size).toBe(2); // (docRef, lineNo) давхцахгүй
+    expect(r.lines.filter((l) => ["finished", "semi", "crusher"].includes(l.stage))).toHaveLength(4); // гарц нэмэгдээгүй
+  });
+
   it("зөвхөн GET, зөвхөн батлагдсан (Posted), устгагдаагүй, сарын хүрээ; Комментарий уншихгүй", async () => {
     await fetchProductionMonth("2098-04");
     const call = state.calls.find((c) => c.startsWith("Document_КомплектацияНоменклатуры"))!;
