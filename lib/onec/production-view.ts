@@ -7,7 +7,7 @@
 //  * Баримтын Posted=false бол «Нягтлан батлаагүй»: нийт дүнд орно, гэхдээ тусад нь тоологдож тэмдэглэгдэнэ.
 //  * Өртөг: сар хаагдсан үед л (isCostClosed). Хаагдаагүй сард Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮) тул харуулахгүй.
 import { addDays, addMonths, monthRange } from "./dates";
-import { groupFor, groupRank, isSemiGroup, OTHER_GROUP } from "./production-groups";
+import { groupFor, groupRank, isSemiGroup, OTHER_GROUP, PRODUCTION_GROUPS } from "./production-groups";
 import { daysOfMonth } from "./production-month";
 import { normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
 import { sumQuantities, type Quantity } from "@/lib/units";
@@ -587,4 +587,194 @@ export function dayDetail(lines: readonly ProductionLineRow[], scope: Production
       products: orderProducts(aggregate(mine, true)).map((row) => ({ row, docs: productDocs(mine, row.id) })),
     };
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Захирлын харагдац: «Тэр өдөр юу хийсэн бэ?», «Энэ сар хэр явж байна?». Энгийн: цех бүрийн өдрийн гарц, сарын нийт, бүтээгдэхүүний нэр, тоо.
+// Засвар үндсэн бүтээгдэхүүнд нийлсэн; брак, нягтлангийн төлөв, баримтын дугаар, цаг энд ИРЭХГҮЙ (нягтлангийн хүснэгтэд л).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface SimpleProduct {
+  name: string;
+  qty: number;
+  unit: string;
+}
+
+export interface DirectorCard {
+  name: string;
+  /** сонгосон өдрийн гарц (цехийн нэгжээр); хоосон бол «Мэдээ ороогүй» */
+  day: Quantity[];
+  /** сонгосон өдрийн бүтээгдэхүүн бүр */
+  products: SimpleProduct[];
+  /** өдрийн гол бүтээгдэхүүн (хамгийн их) */
+  top: SimpleProduct | null;
+  /** гарцтай хамгийн сүүлийн өдөр (сонгосон өдрөөс ихгүй) */
+  lastDay: string | null;
+  /** сонгосон өдрийн сарын нийт */
+  month: Quantity[];
+  monthProducts: SimpleProduct[];
+  /** сарын гол нэгж ба тэр нэгжээр сарын нийт (хэвтээ багана) */
+  unit: string;
+  monthQty: number;
+  /** сарын өдөр бүрийн гарц (гол нэгжээр, сарын эхнээс сарын төгсгөл эсвэл өнөөдөр хүртэл) */
+  monthDays: { date: string; qty: number }[];
+}
+
+export interface DirectorView {
+  day: string;
+  /** гарцтай хамгийн сүүлийн өдөр (анхдагч өдөр) */
+  latestDay: string | null;
+  today: string;
+  month: string;
+  /** өдрийн нийт: нэгж тусдаа (шоо метр ширхэгтэй нэмэгдэхгүй), хагас боловсруулсан цех ордоггүй */
+  total: Quantity[];
+  /** гарцтай цехийн тоо */
+  worked: number;
+  /** гарцтай нь эхэнд (их тоогоор), мэдээгүй нь сүүлд (тохиргооны дарааллаар) */
+  cards: DirectorCard[];
+  lastSyncedAt: string | null;
+  scopeNote: string | null;
+  empty: boolean;
+}
+
+const qtyOfRows = (rows: readonly ProductionLineRow[]): Quantity[] => sumQuantities(rows.map((l) => ({ qty: l.quantity, unit: l.unit })));
+
+function simpleProducts(rows: readonly ProductionLineRow[]): SimpleProduct[] {
+  return orderProducts(aggregate(rows, true))
+    .filter((p) => !p.defect)
+    .map((p) => ({ name: p.name, qty: p.qty, unit: p.unit }));
+}
+
+function directorCard(name: string, mine: readonly ProductionLineRow[], day: string, today: string, reportLast: string | null): DirectorCard {
+  const out = mine.filter((l) => isCardOutput(l, isSemiGroup(name)));
+  const month = day.slice(0, 7);
+  const dayRows = out.filter((l) => l.day === day);
+  const monthRows = out.filter((l) => l.day.startsWith(month) && l.day <= today);
+  const monthQ = qtyOfRows(monthRows);
+  const primary = [...monthQ].sort((a, b) => b.qty - a.qty)[0];
+  const unit = primary?.unit ?? "";
+  const inUnit = (l: ProductionLineRow) => sumQuantities([{ qty: l.quantity, unit: l.unit }])[0]?.unit === unit;
+  const range = monthRange(month);
+  const last = today < range.to ? today : range.to;
+  const monthDays: { date: string; qty: number }[] = [];
+  for (let d = range.from; d <= last; d = addDays(d, 1)) monthDays.push({ date: d, qty: 0 });
+  const at = new Map(monthDays.map((d) => [d.date, d]));
+  for (const l of monthRows.filter(inUnit)) {
+    const d = at.get(l.day);
+    if (d) d.qty += l.quantity;
+  }
+  for (const d of monthDays) d.qty = round3(d.qty);
+  const own = out.filter((l) => l.day <= day).reduce<string | null>((best, l) => (best === null || l.day > best ? l.day : best), null);
+  const products = simpleProducts(dayRows);
+  return {
+    name,
+    day: qtyOfRows(dayRows),
+    products,
+    top: products[0] ?? null,
+    lastDay: own ?? (reportLast && reportLast <= day ? reportLast : null),
+    month: monthQ,
+    monthProducts: simpleProducts(monthRows),
+    unit,
+    monthQty: round3(primary?.qty ?? 0),
+    monthDays,
+  };
+}
+
+const biggest = (c: DirectorCard) => c.day.reduce((s, q) => Math.max(s, q.qty), 0);
+
+export function buildDirectorView(input: {
+  day?: string | null;
+  today: string;
+  lines: readonly ProductionLineRow[];
+  scope?: ProductionScope;
+  scopeNote?: string | null;
+  lastReports?: readonly ReportInfo[];
+  lastSyncedAt?: string | null;
+}): DirectorView {
+  const scope = input.scope ?? { departments: null };
+  const scoped = input.lines.filter((l) => inScope(scope, l.department));
+  const reports = (input.lastReports ?? []).filter((r) => inScope(scope, r.department));
+  const latestDay = latestOutputDay(input.lines, scope, input.today);
+  const day = input.day && input.day <= input.today ? input.day : (latestDay ?? input.today);
+
+  // Бүх тохиргооны цех үргэлж харагдана (мэдээгүй нь «Мэдээ ороогүй»); BOSS зөвхөн өөрийн цех; тохиргоогүй хэлтэс «Бусад»
+  const present = new Set([...scoped.map(groupOf), ...reports.map(groupOf)]);
+  const names = [...new Set([...(scope.departments === null ? PRODUCTION_GROUPS.map((g) => g.name) : []), ...present])].sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b, "mn"));
+  const cards = names.map((name) =>
+    directorCard(
+      name,
+      scoped.filter((l) => groupOf(l) === name),
+      day,
+      input.today,
+      reports.filter((r) => groupOf(r) === name).reduce<string | null>((best, r) => (best === null || r.lastDay > best ? r.lastDay : best), null)
+    )
+  );
+  const withData = cards.filter((c) => c.day.length > 0).sort((a, b) => biggest(b) - biggest(a));
+  const idle = cards.filter((c) => c.day.length === 0);
+  const total = qtyOfRows(scoped.filter((l) => l.day === day && !isSemiGroup(groupOf(l)) && isOutput(l)));
+  return {
+    day,
+    latestDay,
+    today: input.today,
+    month: day.slice(0, 7),
+    total,
+    worked: withData.length,
+    cards: [...withData, ...idle],
+    lastSyncedAt: input.lastSyncedAt ?? null,
+    scopeNote: input.scopeNote ?? null,
+    empty: scoped.length === 0,
+  };
+}
+
+export interface WorkshopView {
+  day: string;
+  latestDay: string | null;
+  today: string;
+  name: string;
+  /** null = ийм цех байхгүй эсвэл эрхгүй */
+  card: DirectorCard | null;
+  /** сүүлийн 12 сарын гарц (цехийн гол нэгжээр) */
+  months: { month: string; qty: number }[];
+  monthsUnit: string;
+  /** энэ сард зарцуулсан материал: хэлтсээр */
+  material: { amount: number; items: { name: string; amount: number }[] } | null;
+  lastSyncedAt: string | null;
+  scopeNote: string | null;
+}
+
+/** Нэг цехийн хуудас: өдөр, сар, 12 сар, материал. `lines` нь сонгосон өдөр, өнөөдрийн сарыг хамарна; `history` нь сүүлийн 12 сар; `ledger` нь сонгосон сарын. */
+export function buildWorkshopView(input: {
+  name: string;
+  day?: string | null;
+  today: string;
+  lines: readonly ProductionLineRow[];
+  history: readonly ProductionLineRow[];
+  ledger: readonly ProductionLedgerRow[];
+  scope?: ProductionScope;
+  scopeNote?: string | null;
+  lastReports?: readonly ReportInfo[];
+  lastSyncedAt?: string | null;
+}): WorkshopView {
+  const scope = input.scope ?? { departments: null };
+  const dv = buildDirectorView(input);
+  const card = dv.cards.find((c) => c.name === input.name) ?? null;
+  const monthly = card ? monthlyOutput(input.history, scope, input.name, dv.month) : null;
+  const unit = card?.unit || monthly?.unit || "";
+  const base = (u: string) => sumQuantities([{ qty: 1, unit: u }])[0]?.unit;
+  const months = monthly && base(monthly.unit) === base(unit) ? monthly.months.map((m) => ({ month: m.month, qty: round3(m.confirmed + m.unconfirmed) })) : [];
+  const materials = card ? input.ledger.filter((r) => r.kind === "material" && inScope(scope, r.department) && groupOf(r) === input.name) : [];
+  const by = new Map<string, number>();
+  for (const r of materials) by.set(r.department, (by.get(r.department) ?? 0) + r.amount);
+  return {
+    day: dv.day,
+    latestDay: dv.latestDay,
+    today: dv.today,
+    name: input.name,
+    card,
+    months,
+    monthsUnit: unit,
+    material: materials.length ? { amount: round2(materials.reduce((s, r) => s + r.amount, 0)), items: [...by].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount) } : null,
+    lastSyncedAt: dv.lastSyncedAt,
+    scopeNote: dv.scopeNote,
+  };
 }

@@ -2,6 +2,8 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // .tsx компонентыг тестлэхэд (renderToStaticMarkup): Next-ийн автомат JSX
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),

@@ -1,10 +1,10 @@
 "use client";
 
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { Qty, QtySum } from "@/components/finance/Qty";
+import { Qty } from "@/components/finance/Qty";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { isWeekend, shiftMonth } from "@/lib/onec/production-month";
-import type { DaySection, GridCell, ProductionCard, ProductionGrid, ProductRow } from "@/lib/onec/production-view";
+import type { DaySection, GridCell, ProductionGrid } from "@/lib/onec/production-view";
 import { cn } from "@/lib/utils";
 import type { Quantity } from "@/lib/units";
 
@@ -223,73 +223,6 @@ export function ProductionGridView({
   );
 }
 
-/** Сонгосон цехийн дэлгэрэнгүй: 1С-ийн хэлтсүүд, энэ сар, сүүлийн 7 хоног, сүүлийн тайлан */
-export function CardDetail({ card, onClear }: { card: ProductionCard; onClear: () => void }) {
-  return (
-    <div className="rounded-xl border border-[rgba(255,213,107,0.4)] bg-bg-surface p-4 shadow-card">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-text">
-            {card.name}
-            {card.semi && <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-normal text-text-muted">хагас боловсруулсан</span>}
-            {card.lagging && <LagBadge recent={card.recentReports} />}
-          </h3>
-          <p className="mt-1 text-[11px] leading-snug text-text-muted">1С-ийн хэлтэс: {card.departments.join(" · ") || "—"}</p>
-        </div>
-        <button type="button" onClick={onClear} className="focus-ring min-h-9 rounded-lg border border-border px-3 text-xs text-text-muted hover:text-text">
-          Бүх цех
-        </button>
-      </div>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-        <div>
-          <dt className="text-[11px] text-text-muted">Энэ сар</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-text">
-            <QtySum quantities={card.month} />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-[11px] text-text-muted">Сүүлийн 7 хоног</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-text">
-            <QtySum quantities={card.week} />
-          </dd>
-        </div>
-        <div className="col-span-2 sm:col-span-1">
-          <dt className="text-[11px] text-text-muted">Сүүлийн тайлан</dt>
-          <dd className="ng-num mt-0.5 text-sm text-text">{lastReportShort(card.lastReport)}</dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
-
-/** Бүтээгдэхүүн бүр мөр + зурвас + тоо (сарын нийт, сонгосон цехийн дэлгэрэнгүйд) */
-export function ProductList({ products }: { products: ProductRow[] }) {
-  if (products.length === 0) return <p className="px-4 py-8 text-center text-sm text-text-muted">Энэ сард гарц бүртгэгдээгүй</p>;
-  const max = Math.max(1, ...products.filter((p) => !p.defect).map((p) => p.qty));
-  return (
-    <ul className="divide-y divide-border">
-      {products.map((p) => (
-        <li key={p.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5", p.defect && "bg-danger/[0.04]")}>
-          <span className="min-w-0 flex-1 max-sm:basis-full">
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text">
-              <span className={cn(p.defect && "text-danger")}>{p.name}</span>
-              {p.stage === "semi" && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">Хагас боловсруулсан</span>}
-              {p.repairQty > 0 && <span className="shrink-0 text-[11px] text-text-muted">үүнээс засвар {fmt(p.repairQty)}</span>}
-              {p.unconfirmedQty > 0 && <UnconfirmedBadge>Нягтлан батлаагүй {fmt(p.unconfirmedQty)}</UnconfirmedBadge>}
-            </span>
-            {!p.defect && (
-              <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-white/5" aria-hidden>
-                <span className={cn("block h-full rounded-full", p.stage === "crusher" ? "bg-[#60a5fa]" : p.stage === "semi" ? "bg-[#a78bfa]" : "bg-[linear-gradient(90deg,#f5b523,#ffd56b)]")} style={{ width: `${Math.max(2, (p.qty / max) * 100)}%` }} />
-              </span>
-            )}
-          </span>
-          <Qty qty={p.qty} unit={p.unit} className={cn("shrink-0 text-sm font-semibold", p.defect ? "text-danger" : "text-text")} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 export type DayState = { day: string; sections: DaySection[] } | "loading" | "error";
 
 /** Нүд / өдрийн толгой дарахад: өдрийн задаргаа. Цех бүрийн бүтээгдэхүүн, тоо, брак, засвар, дор нь 1С-ийн баримтын дугаар, цаг (хамгийн доод түвшин). */
@@ -334,8 +267,8 @@ export function DayDetailView({ day, card, state, onClose }: { day: string; card
                         <li key={`${d.docNumber}|${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-text-muted">
                           <span className="ng-num w-11 shrink-0">{d.time || "—"}</span>
                           {/* 1С-ийн баримтын дугаар: зөвхөн хамгийн доод түвшинд */}
-                          <span className="ng-num shrink-0" title="Нягтланд бүртгэсэн баримтын дугаар">
-                            Нягтланд: {d.docNumber}
+                          <span className="ng-num shrink-0" title="Баримтын дугаар">
+                            Дугаар: {d.docNumber}
                           </span>
                           <span className="min-w-0 flex-1 truncate max-sm:basis-full">{d.department}</span>
                           {d.repair && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px]">засвар</span>}
