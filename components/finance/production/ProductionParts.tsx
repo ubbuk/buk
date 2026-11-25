@@ -1,15 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import { Amount } from "@/components/finance/cash/Amount";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Qty, QtySum } from "@/components/finance/Qty";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { activePreset, presetRange, rangeLabel, shiftRange, type DateRange, type RangePreset } from "@/lib/onec/production-range";
-import type { DocLine, ProductionCard, ProductRow } from "@/lib/onec/production-view";
+import { isWeekend, shiftMonth } from "@/lib/onec/production-month";
+import type { DaySection, GridCell, ProductionCard, ProductionGrid, ProductRow } from "@/lib/onec/production-view";
 import { cn } from "@/lib/utils";
-
-export type DocState = DocLine[] | "loading" | "error";
+import type { Quantity } from "@/lib/units";
 
 const fmt = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(v);
 const mmdd = (day: string) => `${day.slice(5, 7)}-${day.slice(8, 10)}`;
@@ -24,249 +21,336 @@ export function UnconfirmedBadge({ children = "Нягтлан батлаагүй
   );
 }
 
-/** «1С-д тайлан ороогүй»: шар = 3+ хоног тайлан ороогүй; улаан = мөн өмнөх сард гарцтай байсан */
-export function StaleBadge({ level }: { level: "warn" | "alert" }) {
+/** «Тайлан хоцорч байна?»: ЗӨВХӨН нэг тохиолдолд: цех сүүлийн 30 хоногт 5+ тайлантай идэвхтэй ажилласан атлаа сүүлийн 7 хоногт тайлангүй. Бусад анхааруулга, улаан өнгө байхгүй. */
+export function LagBadge({ recent }: { recent: number }) {
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        level === "alert" ? "border-danger/50 bg-danger/10 text-danger" : "border-warning/40 bg-warning/10 text-warning"
-      )}
-      title={level === "alert" ? "Өмнөх сард гарцтай байсан цех, одоо тайлан ороогүй байна" : "Хэд хоног тайлан ороогүй байна"}
-    >
-      <AlertTriangle className="size-3" aria-hidden />1С-д тайлан ороогүй
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning" title={`Сүүлийн 30 хоногт ${recent} тайлантай байсан, сүүлийн 7 хоногт тайлан ороогүй`}>
+      <AlertTriangle className="size-2.5" aria-hidden />
+      Тайлан хоцорч байна?
     </span>
   );
 }
 
-/** «Сүүлийн тайлан: 10-29 (27 хоногийн өмнө)» */
-export function lastReportText(lr: { day: string; daysAgo: number } | null): string {
-  if (!lr) return "Сүүлийн тайлан: алга";
+/** «11-24 (өчигдөр)», «10-29 (27 хоногийн өмнө)» */
+export function lastReportShort(lr: { day: string; daysAgo: number } | null): string {
+  if (!lr) return "тайлан алга";
   const ago = lr.daysAgo === 0 ? "өнөөдөр" : lr.daysAgo === 1 ? "өчигдөр" : `${lr.daysAgo} хоногийн өмнө`;
-  return `Сүүлийн тайлан: ${mmdd(lr.day)} (${ago})`;
+  return `${mmdd(lr.day)} (${ago})`;
 }
 
-/** Хамгийн доод түвшин: өдрөөр задарсан баримтууд (өдрийн нийт, дугаар, цаг) */
-function DocLines({ docs }: { docs: DocState | undefined }) {
-  if (docs === "loading" || docs === undefined) return <Skeleton className="m-2 h-16" />;
-  if (docs === "error") return <p className="px-3 py-3 text-xs text-danger">Баримтыг татаж чадсангүй</p>;
-  if (docs.length === 0) return <p className="px-3 py-3 text-xs text-text-muted">Баримт олдсонгүй</p>;
-  const days: { day: string; unit: string; total: number; docs: DocLine[] }[] = [];
-  for (const d of docs) {
-    let g = days.find((x) => x.day === d.day);
-    if (!g) days.push((g = { day: d.day, unit: d.unit, total: 0, docs: [] }));
-    g.total += d.quantity;
-    g.docs.push(d);
-  }
+/** Нэгжийн товч: ширхэг -> ш, шоо метр -> м³, тонн -> т */
+export const unitShort = (unit: string): string => ({ ширхэг: "ш", "шоо метр": "м³", тонн: "т", кг: "кг", метр: "м", литр: "л" })[unit] ?? unit;
+const numText = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1 }).format(v);
+
+const WEEKDAY = ["Да", "Мя", "Лх", "Пү", "Ба", "Бя", "Ня"];
+const weekdayOf = (date: string) => WEEKDAY[(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7];
+
+/** Сар сонгогч: ◀ 2026-11 ▶ (календарь); ирээдүй рүү шилжихгүй */
+export function MonthBar({ month, current, onMonth }: { month: string; current: string; onMonth: (m: string) => void }) {
+  const prev = shiftMonth(month, -1, current);
+  const next = shiftMonth(month, 1, current);
+  const arrow = "focus-ring ng-panel inline-flex size-10 items-center justify-center rounded-xl text-text-muted hover:text-text disabled:pointer-events-none disabled:opacity-30";
   return (
-    <div className="text-xs">
-      {days.map((g) => (
-        <div key={g.day} className="border-b border-border/60 last:border-b-0">
-          <p className="flex items-center justify-between gap-3 bg-white/[0.02] px-3 py-1.5 font-medium text-text">
-            <span className="ng-num">{mmdd(g.day)}</span>
-            <Qty qty={Math.round(g.total * 1000) / 1000} unit={g.unit} className="text-text" />
-          </p>
-          <ul className="divide-y divide-border/40">
-            {g.docs.map((d, i) => (
-              <li key={`${d.docNumber}|${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 pl-6">
-                <span className="ng-num shrink-0 text-text-muted">{d.time || "—"}</span>
-                <span className="min-w-0 flex-1 truncate text-text-muted max-sm:basis-full">{d.department}</span>
-                {d.repair && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">засвар</span>}
-                {!d.posted && <UnconfirmedBadge />}
-                <Qty qty={d.quantity} unit={d.unit} className="shrink-0 text-text" />
-                {/* 1С-ийн баримтын дугаар: зөвхөн хамгийн доод түвшинд */}
-                <span className="ng-num shrink-0 text-[11px] text-text-muted" title="Нягтланд бүртгэсэн баримтын дугаар">
-                  Нягтланд: {d.docNumber}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+    <div className="flex flex-wrap items-center gap-2.5">
+      <div className="flex items-center gap-1.5">
+        <button type="button" aria-label="Өмнөх сар" disabled={!prev} onClick={() => prev && onMonth(prev)} className={arrow}>
+          <ChevronLeft className="size-4" />
+        </button>
+        <label className="ng-panel focus-within:ring-2 focus-within:ring-[rgba(255,213,107,0.6)] relative flex h-10 cursor-pointer items-center gap-2.5 rounded-xl pl-3.5 pr-4 text-sm text-text">
+          <CalendarDays className="size-4 text-[#ffd56b]" />
+          <span className="ng-num">{month}</span>
+          <input
+            type="month"
+            value={month}
+            max={current}
+            onChange={(e) => e.target.value && e.target.value <= current && onMonth(e.target.value)}
+            onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
+            aria-label="Сар сонгох"
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
+          />
+        </label>
+        <button type="button" aria-label="Дараах сар" disabled={!next} onClick={() => next && onMonth(next)} className={arrow}>
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+      {month !== current && (
+        <button type="button" onClick={() => onMonth(current)} className="focus-ring ng-panel h-10 rounded-xl px-3 text-sm text-text-muted hover:text-text">
+          Энэ сар
+        </button>
+      )}
     </div>
   );
 }
 
-/** Бүтээгдэхүүн бүр мөр + зурвас + тоо. Мөрийг дарвал өдрөөр задарна (өдөр бүрийн тоо, баримтын дугаар, цаг). */
-export function ProductRows({ products, getDocs, onOpen }: { products: ProductRow[]; getDocs: (id: string) => DocState | undefined; onOpen: (id: string) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
+function QtyLines({ qty }: { qty: Quantity[] }) {
+  return (
+    <>
+      {qty.map((q) => (
+        <span key={q.unit} className="block whitespace-nowrap leading-tight">
+          <span className="ng-num text-[11px] font-medium">{numText(q.qty)}</span>
+          <span className="ml-0.5 text-[9px] text-text-muted">{unitShort(q.unit)}</span>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * «Цех × Өдөр»: мөр = цех, багана = сарын өдрүүд, нүд = өдрийн бэлэн гарц (нэгжтэй), баруун талд «Сарын нийт», доод мөр = өдрийн нийт (нэгж тусдаа).
+ * Хоосон нүд «·», амралтын өдөр бүдэг, өнөөдөр хүрээтэй, нягтлан батлаагүй нь улбар шар цэгтэй. Гарцгүй цех доор, саарал.
+ * Нүд дарвал (өдөр + цех), өдрийн толгой дарвал (өдөр, бүх цех), цехийн нэр дарвал цехийн дэлгэрэнгүй. Утсан дээр хэвтээ гүйлгэнэ, цехийн нэр түгжигдсэн.
+ */
+export function ProductionGridView({
+  grid,
+  today,
+  selectedDay,
+  selectedCard,
+  onCell,
+  onDay,
+  onCard,
+}: {
+  grid: ProductionGrid;
+  today: string;
+  selectedDay: string | null;
+  selectedCard: string | null;
+  onCell: (card: string, day: string) => void;
+  onDay: (day: string) => void;
+  onCard: (card: string) => void;
+}) {
+  const sticky = "sticky left-0 z-10 shadow-[1px_0_0_rgba(80,140,240,0.25)]";
+  // Түгжигдсэн багана ЗААВАЛ тод (opaque) дэвсгэртэй: үгүй бол гүйлгэсэн өдрүүд цехийн нэрний дээгүүр харагдана
+  const stickyBg = { backgroundColor: "#0a1a3c" };
+  const colTone = (date: string) => cn(isWeekend(date) && "bg-white/[0.035] text-text-muted", date === today && "shadow-[inset_1px_0_0_#ffd56b,inset_-1px_0_0_#ffd56b]", date === selectedDay && "bg-[rgba(245,181,35,0.1)]");
+  const dot = <span className="absolute right-1 top-1 size-1.5 rounded-full bg-[#fb923c]" title="Нягтлан батлаагүй баримт орсон" aria-label="Нягтлан батлаагүй" />;
+  const cellBox = "relative z-0 flex min-h-11 w-full min-w-[3.1rem] flex-col items-center justify-center px-1 py-1";
+
+  const renderCell = (cell: GridCell | null, date: string, card: string | null, idle = false) => {
+    if (!cell) return <span className={cn(cellBox, "text-text-muted/50")}>·</span>;
+    const inner = (
+      <>
+        <QtyLines qty={cell.qty} />
+        {cell.unconfirmed && dot}
+      </>
+    );
+    if (!card) return <span className={cn(cellBox, "font-semibold text-text")}>{inner}</span>;
+    return (
+      <button
+        type="button"
+        onClick={() => onCell(card, date)}
+        aria-label={`${card}, ${date}`}
+        aria-pressed={selectedDay === date && selectedCard === card}
+        className={cn(cellBox, "focus-ring hover:bg-white/[0.06]", idle ? "text-text-muted" : "text-text", selectedDay === date && selectedCard === card && "bg-[rgba(245,181,35,0.22)] ring-1 ring-inset ring-[#ffd56b]")}
+      >
+        {inner}
+      </button>
+    );
+  };
+
+  return (
+    <div>
+      <div className="overflow-x-auto rounded-xl border border-border bg-bg-surface shadow-card">
+        <table className="min-w-full border-separate border-spacing-0 text-xs">
+          <thead>
+            <tr>
+              <th scope="col" style={stickyBg} className={cn(sticky, "z-20 min-w-[7.5rem] max-w-[7.5rem] border-b border-border px-2 py-2 text-left text-[11px] font-medium text-text-muted sm:min-w-[12rem] sm:max-w-none sm:px-3")}>
+                Цех
+              </th>
+              {grid.days.map((d) => (
+                <th key={d} scope="col" className={cn("border-b border-border p-0 text-center font-normal", colTone(d))}>
+                  <button type="button" onClick={() => onDay(d)} aria-label={`${d}: бүх цех`} aria-pressed={selectedDay === d && !selectedCard} className={cn("focus-ring flex w-full flex-col items-center px-1 py-1.5 hover:bg-white/[0.06]", d === today && "text-[#ffd56b]")}>
+                    <span className={cn("ng-num text-[11px] font-semibold", d === today ? "text-[#ffd56b]" : "text-text")}>{Number(d.slice(8, 10))}</span>
+                    <span className="text-[9px] text-text-muted">{weekdayOf(d)}</span>
+                  </button>
+                </th>
+              ))}
+              <th scope="col" className="min-w-[5.5rem] border-b border-l border-border px-2 py-2 text-right text-[11px] font-medium text-text-muted">
+                Сарын нийт
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {grid.rows.map((r) => (
+              <tr key={r.name} className={cn(r.idle && "bg-white/[0.02]")}>
+                <th scope="row" style={stickyBg} className={cn(sticky, "min-w-[7.5rem] max-w-[7.5rem] border-b border-border px-2 py-1.5 text-left font-normal sm:max-w-none sm:px-3", r.idle && "text-text-muted", selectedCard === r.name && "shadow-[inset_3px_0_0_#ffd56b]")}>
+                  <button type="button" onClick={() => onCard(r.name)} aria-pressed={selectedCard === r.name} className="focus-ring block w-full text-left">
+                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span className={cn("text-xs font-medium", r.idle ? "text-text-muted" : "text-text")}>{r.name}</span>
+                      {r.semi && <span className="rounded-full border border-border px-1.5 py-px text-[9px] text-text-muted">хагас боловсруулсан</span>}
+                      {r.lagging && <LagBadge recent={r.recentReports} />}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-tight text-text-muted">
+                      Сүүлийн тайлан: <span className="ng-num">{lastReportShort(r.lastReport)}</span>
+                    </span>
+                  </button>
+                </th>
+                {grid.days.map((d, i) => (
+                  <td key={d} className={cn("border-b border-border p-0 text-center align-middle", colTone(d))}>
+                    {renderCell(r.cells[i], d, r.name, r.idle)}
+                  </td>
+                ))}
+                <td className="border-b border-l border-border px-2 py-1 text-right align-middle">
+                  {r.total.length ? (
+                    <span className={cn("inline-block text-right", r.idle && "text-text-muted")}>
+                      <QtyLines qty={r.total} />
+                    </span>
+                  ) : (
+                    <span className="text-text-muted/50">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <th scope="row" style={stickyBg} className={cn(sticky, "px-3 py-2 text-left text-[11px] font-semibold text-text")}>
+                Өдрийн нийт
+                <span className="block text-[9px] font-normal text-text-muted">нэгж тусдаа</span>
+              </th>
+              {grid.days.map((d, i) => (
+                <td key={d} className={cn("p-0 text-center align-middle", colTone(d))}>
+                  {renderCell(grid.totals.days[i], d, null)}
+                </td>
+              ))}
+              <td className="border-l border-border px-2 py-1 text-right align-middle font-semibold text-text">
+                <span className="inline-block text-right">{grid.totals.month.length ? <QtyLines qty={grid.totals.month} /> : "—"}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+        <span className="mr-1 inline-block size-1.5 rounded-full bg-[#fb923c] align-middle" /> нягтлан батлаагүй баримт орсон. «Өдрийн нийт»-д ширхэг, шоо метр тусдаа; хагас боловсруулсан цех (БАЗ, Арматур) орохгүй. Огноо = 1С-д тайлан бичсэн өдөр.
+      </p>
+    </div>
+  );
+}
+
+/** Сонгосон цехийн дэлгэрэнгүй: 1С-ийн хэлтсүүд, энэ сар, сүүлийн 7 хоног, сүүлийн тайлан */
+export function CardDetail({ card, onClear }: { card: ProductionCard; onClear: () => void }) {
+  return (
+    <div className="rounded-xl border border-[rgba(255,213,107,0.4)] bg-bg-surface p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-text">
+            {card.name}
+            {card.semi && <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-normal text-text-muted">хагас боловсруулсан</span>}
+            {card.lagging && <LagBadge recent={card.recentReports} />}
+          </h3>
+          <p className="mt-1 text-[11px] leading-snug text-text-muted">1С-ийн хэлтэс: {card.departments.join(" · ") || "—"}</p>
+        </div>
+        <button type="button" onClick={onClear} className="focus-ring min-h-9 rounded-lg border border-border px-3 text-xs text-text-muted hover:text-text">
+          Бүх цех
+        </button>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+        <div>
+          <dt className="text-[11px] text-text-muted">Энэ сар</dt>
+          <dd className="mt-0.5 text-sm font-semibold text-text">
+            <QtySum quantities={card.month} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] text-text-muted">Сүүлийн 7 хоног</dt>
+          <dd className="mt-0.5 text-sm font-semibold text-text">
+            <QtySum quantities={card.week} />
+          </dd>
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <dt className="text-[11px] text-text-muted">Сүүлийн тайлан</dt>
+          <dd className="ng-num mt-0.5 text-sm text-text">{lastReportShort(card.lastReport)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/** Бүтээгдэхүүн бүр мөр + зурвас + тоо (сарын нийт, сонгосон цехийн дэлгэрэнгүйд) */
+export function ProductList({ products }: { products: ProductRow[] }) {
+  if (products.length === 0) return <p className="px-4 py-8 text-center text-sm text-text-muted">Энэ сард гарц бүртгэгдээгүй</p>;
   const max = Math.max(1, ...products.filter((p) => !p.defect).map((p) => p.qty));
   return (
     <ul className="divide-y divide-border">
-      {products.map((p) => {
-        const isOpen = open === p.id;
-        return (
-          <li key={p.id}>
-            <button
-              type="button"
-              aria-expanded={isOpen}
-              onClick={() => {
-                setOpen(isOpen ? null : p.id);
-                if (!isOpen) onOpen(p.id);
-              }}
-              className={cn("focus-ring flex min-h-14 w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left hover:bg-white/[0.03] sm:flex-nowrap", p.defect && "bg-danger/[0.04]")}
-            >
-              <ChevronRight aria-hidden className={cn("size-4 shrink-0 text-text-muted transition-transform", isOpen && "rotate-90")} />
-              <span className="min-w-0 flex-1 max-sm:basis-[calc(100%-2rem)]">
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text">
-                  <span className={cn("min-w-0 max-sm:whitespace-normal", p.defect && "text-danger")}>{p.name}</span>
-                  {p.stage === "semi" && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">Хагас боловсруулсан</span>}
-                  {p.repairQty > 0 && <span className="shrink-0 text-[11px] text-text-muted">үүнээс засвар {fmt(p.repairQty)}</span>}
-                  {p.unconfirmedQty > 0 && <UnconfirmedBadge>Нягтлан батлаагүй {fmt(p.unconfirmedQty)}</UnconfirmedBadge>}
-                </span>
-                {!p.defect && (
-                  <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-white/5" aria-hidden>
-                    <span className={cn("block h-full rounded-full", p.stage === "crusher" ? "bg-[#60a5fa]" : p.stage === "semi" ? "bg-[#a78bfa]" : "bg-[linear-gradient(90deg,#f5b523,#ffd56b)]")} style={{ width: `${Math.max(2, (p.qty / max) * 100)}%` }} />
-                  </span>
-                )}
+      {products.map((p) => (
+        <li key={p.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5", p.defect && "bg-danger/[0.04]")}>
+          <span className="min-w-0 flex-1 max-sm:basis-full">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text">
+              <span className={cn(p.defect && "text-danger")}>{p.name}</span>
+              {p.stage === "semi" && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">Хагас боловсруулсан</span>}
+              {p.repairQty > 0 && <span className="shrink-0 text-[11px] text-text-muted">үүнээс засвар {fmt(p.repairQty)}</span>}
+              {p.unconfirmedQty > 0 && <UnconfirmedBadge>Нягтлан батлаагүй {fmt(p.unconfirmedQty)}</UnconfirmedBadge>}
+            </span>
+            {!p.defect && (
+              <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-white/5" aria-hidden>
+                <span className={cn("block h-full rounded-full", p.stage === "crusher" ? "bg-[#60a5fa]" : p.stage === "semi" ? "bg-[#a78bfa]" : "bg-[linear-gradient(90deg,#f5b523,#ffd56b)]")} style={{ width: `${Math.max(2, (p.qty / max) * 100)}%` }} />
               </span>
-              <span className="flex shrink-0 flex-col items-end gap-0.5 max-sm:ml-7 max-sm:w-[calc(100%-2rem)] max-sm:flex-row max-sm:items-center max-sm:justify-between">
-                <Qty qty={p.qty} unit={p.unit} className={cn("text-sm font-semibold", p.defect ? "text-danger" : "text-text")} />
-                {p.cost && (
-                  <span className="text-[11px] text-text-muted">
-                    <Amount value={p.cost.amount} /> · нэгж <Amount value={p.cost.unitCost} />
-                  </span>
-                )}
-              </span>
-            </button>
-            {isOpen && (
-              <div className="border-t border-border/60 bg-black/10 pb-1 pl-8">
-                <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-text-muted">
-                  <FileText className="size-3.5 text-[#ffd56b]" aria-hidden /> Өдрөөр, баримтаар
-                </p>
-                <DocLines docs={getDocs(p.id)} />
-              </div>
             )}
-          </li>
-        );
-      })}
+          </span>
+          <Qty qty={p.qty} unit={p.unit} className={cn("shrink-0 text-sm font-semibold", p.defect ? "text-danger" : "text-text")} />
+        </li>
+      ))}
     </ul>
   );
 }
 
-function Stat({ label, quantities }: { label: string; quantities: ProductionCard["month"] }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[11px] text-text-muted">{label}</p>
-      <QtySum quantities={quantities} className="mt-0.5 block truncate text-sm font-semibold text-text" />
-    </div>
-  );
-}
+export type DayState = { day: string; sections: DaySection[] } | "loading" | "error";
 
-/** Цех бүр нэг карт: энэ сар, сүүлийн 7 хоног, сүүлийн тайлан, хоцролтын тэмдэг. Дарвал тэр цехээр шүүгдэнэ (12 сарын график). */
-export function ProductionCardView({ card, selected, onSelect }: { card: ProductionCard; selected: boolean; onSelect: () => void }) {
+/** Нүд / өдрийн толгой дарахад: өдрийн задаргаа. Цех бүрийн бүтээгдэхүүн, тоо, брак, засвар, дор нь 1С-ийн баримтын дугаар, цаг (хамгийн доод түвшин). */
+export function DayDetailView({ day, card, state, onClose }: { day: string; card: string | null; state: DayState | undefined; onClose: () => void }) {
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      aria-label={card.name}
-      className={cn(
-        "focus-ring flex min-w-0 flex-col gap-3 rounded-xl border bg-bg-surface p-4 text-left shadow-card transition-colors hover:bg-white/[0.03]",
-        selected ? "border-[rgba(255,213,107,0.7)] shadow-[0_0_0_1px_rgba(255,213,107,0.45)_inset]" : card.stale === "alert" ? "border-danger/50" : "border-border"
-      )}
-    >
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-sm font-semibold text-text">{card.name}</span>
-        {card.semi && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">хагас боловсруулсан</span>}
-        {card.unconfigured && <UnconfirmedBadge>Тохиргоогүй хэлтэс</UnconfirmedBadge>}
-        {card.stale && <StaleBadge level={card.stale} />}
-      </span>
-      {card.unconfigured && <span className="text-[11px] leading-snug text-text-muted">{card.departments.join(" · ")}</span>}
-      <span className="grid grid-cols-2 gap-3">
-        <Stat label="Энэ сар" quantities={card.month} />
-        <Stat label="Сүүлийн 7 хоног" quantities={card.week} />
-      </span>
-      <span className={cn("text-[11px]", card.stale === "alert" ? "text-danger" : card.stale === "warn" ? "text-warning" : "text-text-muted")}>{lastReportText(card.lastReport)}</span>
-    </button>
-  );
-}
-
-/** Гол хүснэгт: цех бүрийн хэсэг, дотор нь бүтээгдэхүүн × тоо × нэгж; мөрийг дарвал өдрөөр задарна */
-export function ProductTable({ cards, getDocs, onOpen }: { cards: ProductionCard[]; getDocs: (card: string, id: string) => DocState | undefined; onOpen: (card: string, id: string) => void }) {
-  const shown = cards.filter((c) => !c.empty);
-  if (shown.length === 0) return <p className="px-4 py-10 text-center text-sm text-text-muted">Сонгосон хугацаанд гарц бүртгэгдээгүй</p>;
-  return (
-    <div className="divide-y divide-border">
-      {shown.map((c) => (
-        <section key={c.name} aria-label={c.name}>
-          <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-white/[0.02] px-4 py-2.5">
-            <h4 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-text">
-              {c.name}
-              {c.semi && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal text-text-muted">хагас боловсруулсан</span>}
-              {c.unconfirmedDocs > 0 && <UnconfirmedBadge>{c.unconfirmedDocs} баримт батлаагүй</UnconfirmedBadge>}
-            </h4>
-            <QtySum quantities={c.period} className="text-sm font-semibold text-text" />
-          </header>
-          <ProductRows products={c.products} getDocs={(id) => getDocs(c.name, id)} onOpen={(id) => onOpen(c.name, id)} />
-        </section>
-      ))}
-    </div>
-  );
-}
-
-const PRESETS: { id: RangePreset; label: string }[] = [
-  { id: "today", label: "Өнөөдөр" },
-  { id: "yesterday", label: "Өчигдөр" },
-  { id: "week", label: "Энэ 7 хоног" },
-  { id: "month", label: "Энэ сар" },
-];
-
-/** Хугацаа сонгогч: [Өнөөдөр] [Өчигдөр] [Энэ 7 хоног] [Энэ сар] ◀ ▶ календарь + «Бүх цех ▾» шүүлтүүр */
-export function RangeBar({ period, today, groups, group, onRange, onGroup }: { period: DateRange; today: string; groups: string[]; group: string | null; onRange: (r: DateRange) => void; onGroup: (g: string | null) => void }) {
-  const active = activePreset(period, today);
-  const prev = shiftRange(period, -1, today);
-  const next = shiftRange(period, 1, today);
-  const arrow = "focus-ring ng-panel inline-flex size-10 items-center justify-center rounded-xl text-text-muted hover:text-text disabled:pointer-events-none disabled:opacity-30";
-  return (
-    <div className="flex flex-wrap items-center gap-2.5">
-      <div role="group" aria-label="Хугацаа" className="ng-panel inline-flex max-w-full rounded-xl p-1 text-sm max-sm:grid max-sm:w-full max-sm:grid-cols-2">
-        {PRESETS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            aria-pressed={active === p.id}
-            onClick={() => onRange(presetRange(p.id, today))}
-            className={cn("focus-ring h-8 shrink-0 whitespace-nowrap rounded-lg px-3 transition-colors", active === p.id ? "bg-[rgba(245,181,35,0.16)] text-[#ffd56b] shadow-[0_0_0_1px_rgba(255,213,107,0.5)_inset]" : "text-text-muted hover:text-text")}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <button type="button" aria-label="Өмнөх хугацаа" disabled={!prev} onClick={() => prev && onRange(prev)} className={arrow}>
-          <ChevronLeft className="size-4" />
+    <section aria-label={`${day} задаргаа`} className="rounded-xl border border-[rgba(255,213,107,0.4)] bg-bg-surface shadow-card">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold text-text">
+          <span className="ng-num">{day}</span> · {card ?? "Бүх цех"}
+        </h3>
+        <button type="button" onClick={onClose} aria-label="Хаах" className="focus-ring inline-flex size-9 items-center justify-center rounded-lg text-text-muted hover:text-text">
+          <X className="size-4" />
         </button>
-        <label className="ng-panel focus-within:ring-2 focus-within:ring-[rgba(255,213,107,0.6)] relative flex h-10 cursor-pointer items-center gap-2.5 rounded-xl pl-3.5 pr-3 text-sm text-text">
-          <CalendarDays className="size-4 text-[#ffd56b]" />
-          <span className="ng-num">{rangeLabel(period)}</span>
-          <input
-            type="date"
-            value={period.to}
-            max={today}
-            onChange={(e) => e.target.value && e.target.value <= today && onRange({ from: e.target.value, to: e.target.value })}
-            onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
-            aria-label="Өдөр сонгох"
-            className="absolute inset-0 size-full cursor-pointer opacity-0"
-          />
-        </label>
-        <button type="button" aria-label="Дараах хугацаа" disabled={!next} onClick={() => next && onRange(next)} className={arrow}>
-          <ChevronRight className="size-4" />
-        </button>
-      </div>
-      <label className="ng-panel focus-within:ring-2 focus-within:ring-[rgba(255,213,107,0.6)] relative flex h-10 min-w-0 items-center rounded-xl pl-3.5 pr-9 text-sm text-text max-sm:w-full">
-        <select value={group ?? ""} onChange={(e) => onGroup(e.target.value || null)} aria-label="Цех" className="h-full min-w-0 flex-1 cursor-pointer appearance-none bg-transparent pr-2 focus:outline-none">
-          <option value="" className="bg-bg-elevated">
-            Бүх цех
-          </option>
-          {groups.map((g) => (
-            <option key={g} value={g} className="bg-bg-elevated">
-              {g}
-            </option>
+      </header>
+      {state === undefined || state === "loading" ? (
+        <Skeleton className="m-4 h-32" />
+      ) : state === "error" ? (
+        <p className="px-4 py-6 text-sm text-danger">Задаргааг татаж чадсангүй</p>
+      ) : state.sections.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-text-muted">Энэ өдөр 1С-д тайлан алга</p>
+      ) : (
+        <div className="divide-y divide-border">
+          {state.sections.map((sec) => (
+            <div key={sec.card}>
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-white/[0.02] px-4 py-2 text-sm font-semibold text-text">
+                {sec.card}
+                {sec.semi && <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-normal text-text-muted">хагас боловсруулсан</span>}
+                {sec.unconfirmedDocs > 0 && <UnconfirmedBadge>{sec.unconfirmedDocs} баримт батлаагүй</UnconfirmedBadge>}
+              </p>
+              <ul className="divide-y divide-border/60">
+                {sec.products.map(({ row, docs }) => (
+                  <li key={row.id} className={cn("px-4 py-2.5", row.defect && "bg-danger/[0.04]")}>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text">
+                        <span className={cn(row.defect && "text-danger")}>{row.name}</span>
+                        {row.repairQty > 0 && <span className="text-[11px] text-text-muted">үүнээс засвар {fmt(row.repairQty)}</span>}
+                      </span>
+                      <Qty qty={row.qty} unit={row.unit} className={cn("text-sm font-semibold", row.defect ? "text-danger" : "text-text")} />
+                    </div>
+                    <ul className="mt-1.5 space-y-1 text-xs">
+                      {docs.map((d, i) => (
+                        <li key={`${d.docNumber}|${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-text-muted">
+                          <span className="ng-num w-11 shrink-0">{d.time || "—"}</span>
+                          {/* 1С-ийн баримтын дугаар: зөвхөн хамгийн доод түвшинд */}
+                          <span className="ng-num shrink-0" title="Нягтланд бүртгэсэн баримтын дугаар">
+                            Нягтланд: {d.docNumber}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate max-sm:basis-full">{d.department}</span>
+                          {d.repair && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px]">засвар</span>}
+                          {!d.posted && <UnconfirmedBadge />}
+                          <Qty qty={d.quantity} unit={d.unit} className="shrink-0 text-text" />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-3 size-3.5 text-text-muted" aria-hidden />
-      </label>
-    </div>
+        </div>
+      )}
+    </section>
   );
 }
