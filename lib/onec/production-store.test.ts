@@ -64,9 +64,24 @@ describe("readLastReports, readProductionLines", () => {
     });
     const r = (await readLastReports("2098-03-01")).filter((x) => x.department.endsWith("хэлтэс")).sort((a, b) => a.department.localeCompare(b.department));
     expect(r).toEqual([
-      { department: "A хэлтэс", lastDay: "2098-03-20", recent: 2 },
-      { department: "B хэлтэс", lastDay: "2098-02-28", recent: 0 },
+      { department: "A хэлтэс", lastDay: "2098-03-20", firstDay: "2098-02-10", recent: 2 },
+      { department: "B хэлтэс", lastDay: "2098-02-28", firstDay: "2098-02-28", recent: 0 },
     ]);
+  });
+
+  it("«Дараа нь брак болсон» (reclass) мөр: цех нь бүтээгдэхүүнээр тодорхойлогдож хадгалагдана, цехгүй мөр хадгалагдахгүй, сүүлийн тайланд тоологдохгүй", async () => {
+    const base = data("2098-02", { lines: 1 }).lines[0];
+    await writeProductionMonth({ month: "2098-02", lines: [{ ...base, docRef: "f1", product: "Тест бүтээгдэхүүн X1", department: "A хэлтэс", day: "2098-02-10", quantity: 50 }], ledger: [] });
+    const rc = (ref: string, product: string, day: string) => ({ ...base, docRef: ref, stage: "reclass" as const, department: "", product, day, quantity: 7 });
+    await writeProductionMonth({ month: "2098-03", lines: [rc("k1", "Тест бүтээгдэхүүн X1 Брак", "2098-03-04"), rc("k2", "Танигдаагүй бүтээгдэхүүн Брак", "2098-03-05")], ledger: [] });
+    const r = await readProductionMonth("2098-03");
+    expect(r.lines.map((l) => [l.stage, l.department, l.day])).toEqual([["reclass", "A хэлтэс", "2098-03-04"]]);
+    const last = (await readLastReports("2098-01-01")).filter((x) => x.department === "A хэлтэс");
+    expect(last).toEqual([{ department: "A хэлтэс", lastDay: "2098-02-10", firstDay: "2098-02-10", recent: 1 }]);
+    // Бракаас/Засвараас бэлэн болгосон мөр ч цехтэй хадгалагдаж, сүүлийн тайланд тоологдохгүй
+    await writeProductionMonth({ month: "2098-04", lines: [{ ...rc("k3", "Тест бүтээгдэхүүн X1", "2098-04-02"), stage: "defect_to_ready" as const }, { ...rc("k4", "Тест бүтээгдэхүүн X1", "2098-04-03"), stage: "repair_to_ready" as const }], ledger: [] });
+    expect((await readProductionMonth("2098-04")).lines.map((l) => [l.stage, l.department])).toEqual([["defect_to_ready", "A хэлтэс"], ["repair_to_ready", "A хэлтэс"]]);
+    expect((await readLastReports("2098-01-01")).filter((x) => x.department === "A хэлтэс")[0].lastDay).toBe("2098-02-10");
   });
 
   it("readProductionLines: from..to сарын мөрүүд (бичилтгүй), өдрөөр эрэмбэлэгдсэн", async () => {
