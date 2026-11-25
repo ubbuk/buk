@@ -6,7 +6,8 @@
 //    Бутлан ангилах үйлдвэрийн гарц (1401) цехийн жагсаалтад ордоггүй, тусдаа «Бутлах үйлдвэр» хэсэгт. Бэлэн гарцгүй хэлтэс (зөвхөн хагас боловсруулсан) цехийн жагсаалтад ордоггүй.
 //  * Баримтын Posted=false бол «Нягтлан батлаагүй»: нийт дүнд орно, гэхдээ тусад нь тоологдож тэмдэглэгдэнэ.
 //  * Өртөг: сар хаагдсан үед л (isCostClosed). Хаагдаагүй сард Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮) тул харуулахгүй.
-import { addDays, monthRange } from "./dates";
+import { addDays, addMonths, monthRange } from "./dates";
+import { groupFor, groupRank, isSemiGroup, OTHER_GROUP } from "./production-groups";
 import { normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
 import { sumQuantities, type Quantity } from "@/lib/units";
 
@@ -19,8 +20,6 @@ export interface ProductionLineRow {
   posted: boolean;
   stage: ProductionStage;
   department: string;
-  /** эх хэлтэс (1С Parent): «Тенсиланд хэсэг» -> «Төмөр бетон хийц эдлэлийн цех». Хоосон бол хэлтэс өөрөө */
-  group?: string;
   product: string;
   unit: string;
   quantity: number;
@@ -30,7 +29,6 @@ export interface ProductionLedgerRow {
   kind: "output" | "material";
   stage: string;
   department: string;
-  group?: string;
   product: string;
   unit: string;
   quantity: number;
@@ -71,18 +69,40 @@ export interface CrusherProduct {
   unconfirmedQty: number;
 }
 
-/** Нэг цехийн (эх хэлтэс) карт: сонгосон хугацааны бүтээгдэхүүн бүрийн гарц; гарчигт «Өнөөдөр · Сар» */
+/** Хэлтэс сүүлд тайлан бичсэн өдөр (бүх хадгалагдсан сараас): хоцролтыг мэдэхэд. prevMonth = өмнөх сард гарцтай байсан */
+export interface ReportInfo {
+  department: string;
+  lastDay: string;
+  prevMonth: boolean;
+}
+
+/** Хэд хоногт тайлан ороогүй бол анхааруулах вэ */
+export const STALE_DAYS = 3;
+
+/** Нэг цехийн карт (тохиргооны дагуу, production-groups.ts): энэ сар, сүүлийн 7 хоног, сүүлийн тайлан, хоцролт */
 export interface ProductionCard {
   name: string;
-  /** карт дотор нэгтгэгдсэн дэд хэлтсүүд (өөрөөс нь бусад) */
-  subDepartments: string[];
-  today: Quantity[];
+  /** карт дотор нэгтгэгдсэн 1С-ийн хэлтсүүд (өгөгдөлтэй) */
+  departments: string[];
+  /** гарц нь хагас боловсруулсан (м3 бетон зуурмаг г.м.) */
+  semi: boolean;
+  /** тохиргоонд байхгүй хэлтсийн «Бусад» карт */
+  unconfigured: boolean;
+  /** энэ сар (өнөөдрийн сарын эхнээс өнөөдөр хүртэл) */
   month: Quantity[];
+  /** сүүлийн 7 хоног (өнөөдөр орно) */
+  week: Quantity[];
+  /** сонгосон хугацаа */
   period: Quantity[];
   unconfirmedDocs: number;
+  /** сонгосон хугацааны бүтээгдэхүүн бүрийн гарц */
   products: ProductRow[];
   /** сонгосон хугацаанд үйлдвэрлэлгүй */
   empty: boolean;
+  /** хамгийн сүүлийн тайлан (1С-д бичсэн өдөр) */
+  lastReport: { day: string; daysAgo: number } | null;
+  /** warn: STALE_DAYS+ хоног тайлан ороогүй; alert: мөн өмнөх сард гарцтай байсан */
+  stale: "warn" | "alert" | null;
 }
 
 export interface ProductionView {
@@ -92,9 +112,11 @@ export interface ProductionView {
   period: { from: string; to: string };
   /** сонгосон цех (эх хэлтэс), үгүй бол null = бүх цех */
   group: string | null;
-  /** «Бүх цех ▾» шүүлтүүрийн сонголтууд */
+  /** «Бүх цех ▾» шүүлтүүрийн сонголтууд (картуудын нэр) */
   groups: string[];
   cards: ProductionCard[];
+  /** сүүлийн 12 сарын гарц (сонгосон цехээр, үгүй бол нийт бэлэн бүтээгдэхүүн): сар = тайлан бичсэн өдрийн сар */
+  monthly: { unit: string; months: { month: string; confirmed: number; unconfirmed: number }[] } | null;
   today: string | null;
   isCurrent: boolean;
   scopeNote: string | null;
@@ -153,10 +175,14 @@ export const PRODUCTION_EXCLUDED_DEPARTMENTS: readonly string[] = ["Цайны �
 const EXCLUDED = PRODUCTION_EXCLUDED_DEPARTMENTS.map(normalizeDepartment);
 export const isExcludedDepartment = (department: string): boolean => EXCLUDED.includes(normalizeDepartment(department));
 
-const groupOf = (r: { group?: string; department: string }): string => r.group || r.department;
+/** Хэлтэс -> картын нэр (тохиргоо, давхардсан нэр нэгдэнэ; тохиргоогүй бол «Бусад») */
+const groupOf = (r: { department: string }): string => groupFor(r.department).name;
 const variantOf = (l: ProductionLineRow) => splitProductName(l.product).variant;
 /** Карт, тоонд орох гарц: бэлэн бүтээгдэхүүний сайн гарц ба бутлуурын гарц (брак, хагас боловсруулсан орохгүй) */
 const isOutput = (l: ProductionLineRow) => l.stage === "crusher" || (l.stage === "finished" && variantOf(l) !== "defect");
+/** Картын гарц: дээрхээс гадна хагас боловсруулсан картад (бетон зуурмаг) 1431-ийн гарц ордог */
+const isCardOutput = (l: ProductionLineRow, semi: boolean) => isOutput(l) || (semi && l.stage === "semi" && variantOf(l) !== "defect");
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
 interface Acc {
   row: ProductRow;
@@ -213,15 +239,20 @@ export function buildProductionView(input: {
   /** сонгосон хугацаа (YYYY-MM-DD); өгөөгүй бол `month` бүтнээрээ. Өнөөдрийн тоо, график нь `month`-оор. */
   from?: string;
   to?: string;
-  /** сонгосон цех (эх хэлтсийн нэр); үгүй бол бүх цех */
+  /** сонгосон цех (картын нэр); үгүй бол бүх цех */
   group?: string | null;
+  /** хэлтэс бүрийн сүүлийн тайлан (бүх хадгалагдсан сараас): картын «Сүүлийн тайлан», хоцролт */
+  lastReports?: readonly ReportInfo[];
+  /** сүүлийн 12 сарын мөрүүд (12 сарын график); өгөөгүй бол `lines` */
+  history?: readonly ProductionLineRow[];
 }): ProductionView {
   const { month, current, today } = input;
   const scope = input.scope ?? { departments: null };
   const scoped = input.lines.filter((l) => inScope(scope, l.department));
   const scopedLedger = input.ledger.filter((r) => inScope(scope, r.department));
-  // Цехийн шүүлтүүрийн сонголт: бэлэн бүтээгдэхүүн эсвэл бутлуурын гарцтай эх хэлтэс (зөвхөн хагас боловсруулсантай хэлтэс орохгүй)
-  const groups = [...new Set(scoped.filter((l) => l.stage === "finished" || l.stage === "crusher").map(groupOf))].sort((a, b) => a.localeCompare(b, "mn"));
+  // Картууд: тохиргооны хэлтсүүдээс өгөгдөлтэй (энэ сарын мөр эсвэл хэзээ нэгэн тайлантай) нь, дарааллаар; тохиргоогүй хэлтэс «Бусад» картанд
+  const reports = (input.lastReports ?? []).filter((r) => inScope(scope, r.department));
+  const groups = [...new Set([...scoped.map(groupOf), ...reports.map(groupOf)])].sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b, "mn"));
   const group = input.group && groups.includes(input.group) ? input.group : null;
   const allLines = scoped.filter((l) => group === null || groupOf(l) === group);
   const ledger = scopedLedger.filter((r) => group === null || groupOf(r) === group);
@@ -340,26 +371,37 @@ export function buildProductionView(input: {
   const material = materials.length ? { amount: round2(materialTotal), departments: [...materialBy].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount) } : null;
   const costMessage = closed ? null : month < current && !outputs.length ? "Энэ сарын өртгийн бичилт татагдаагүй" : "Сар хаагдаагүй — өртөг тодорхойгүй";
 
-  // ---- цех (эх хэлтэс) бүрийн карт
-  const qtyOfRows = (rows: readonly ProductionLineRow[]) => qtyOf(rows.filter(isOutput));
-  const cards: ProductionCard[] = (group ? [group] : groups)
-    .map((name) => {
-      const mine = scoped.filter((l) => groupOf(l) === name);
-      const period = mine.filter(inRange);
-      const card: ProductionCard = {
-        name,
-        subDepartments: [...new Set(mine.map((l) => l.department))].filter((d) => d !== name).sort((a, b) => a.localeCompare(b, "mn")),
-        today: qtyOfRows(mine.filter((l) => l.day === today)),
-        month: qtyOfRows(mine.filter((l) => l.day.startsWith(month))),
-        period: qtyOfRows(period),
-        unconfirmedDocs: new Set(period.filter((l) => !l.posted).map((l) => l.docRef)).size,
-        products: orderProducts(aggregate(period, true)),
-        empty: period.length === 0,
-      };
-      return { card, raw: period.filter(isOutput).reduce((sum, l) => sum + l.quantity, 0) };
-    })
-    .sort((a, b) => Number(a.card.empty) - Number(b.card.empty) || b.raw - a.raw || a.card.name.localeCompare(b.card.name, "mn"))
-    .map((x) => x.card);
+  // ---- цех бүрийн карт (тохиргоогоор)
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const weekStart = addDays(today, -6);
+  const prevMonthKey = addMonths(current, -1);
+  const cards: ProductionCard[] = groups.map((name) => {
+    const semi = isSemiGroup(name);
+    const mine = scoped.filter((l) => groupOf(l) === name);
+    const rep = reports.filter((r) => groupOf(r) === name);
+    const period = mine.filter(inRange);
+    const out = (rows: readonly ProductionLineRow[]) => qtyOf(rows.filter((l) => isCardOutput(l, semi)));
+    const lastDay = [...rep.map((r) => r.lastDay), ...mine.map((l) => l.day)].reduce<string | null>((best, d) => (best === null || d > best ? d : best), null);
+    const daysAgo = lastDay ? Math.max(0, dayDiff(lastDay, today)) : null;
+    const hadPrev = rep.some((r) => r.prevMonth) || mine.some((l) => l.day.startsWith(prevMonthKey));
+    return {
+      name,
+      departments: [...new Set([...mine.map((l) => l.department), ...rep.map((r) => r.department)])].sort((a, b) => a.localeCompare(b, "mn")),
+      semi,
+      unconfigured: name === OTHER_GROUP,
+      month: out(mine.filter((l) => l.day >= monthStart && l.day <= today)),
+      week: out(mine.filter((l) => l.day >= weekStart && l.day <= today)),
+      period: out(period),
+      unconfirmedDocs: new Set(period.filter((l) => !l.posted).map((l) => l.docRef)).size,
+      products: orderProducts(aggregate(period, true)),
+      empty: period.length === 0,
+      lastReport: lastDay && daysAgo !== null ? { day: lastDay, daysAgo } : null,
+      stale: daysAgo !== null && daysAgo >= STALE_DAYS ? (hadPrev ? "alert" : "warn") : null,
+    };
+  });
+
+  // ---- сүүлийн 12 сарын гарц (сонгосон цехээр)
+  const monthly = monthlyOutput(input.history ?? input.lines, scope, group, month);
 
   const unconfirmedDocs = new Set(lines.filter((l) => !l.posted).map((l) => l.docRef)).size;
   return {
@@ -369,6 +411,7 @@ export function buildProductionView(input: {
     group,
     groups,
     cards,
+    monthly,
     today: isCurrent ? today : null,
     isCurrent,
     scopeNote: input.scopeNote ?? null,
@@ -408,6 +451,22 @@ export function productDocs(lines: readonly ProductionLineRow[], id: string): Do
     })
     .map((l) => ({ day: l.day, docNumber: l.docNumber, department: l.department, quantity: l.quantity, unit: l.unit, posted: l.posted, repair: splitProductName(l.product).variant === "repair", time: l.docTime ?? "" }))
     .sort((a, b) => b.day.localeCompare(a.day) || a.docNumber.localeCompare(b.docNumber, "mn"));
+}
+
+/** Сүүлийн 12 сарын (`endMonth` хүртэл) гарц: сонгосон цехийн (хагас боловсруулсан картад 1431 орно), үгүй бол бүх бэлэн бүтээгдэхүүн. Нэгж нь хамгийн их гарцтай нэгж. */
+export function monthlyOutput(lines: readonly ProductionLineRow[], scope: ProductionScope, group: string | null, endMonth: string): ProductionView["monthly"] {
+  const months = Array.from({ length: 12 }, (_, i) => addMonths(endMonth, i - 11));
+  const semi = group !== null && isSemiGroup(group);
+  const rows = lines.filter((l) => inScope(scope, l.department) && l.day.slice(0, 7) >= months[0] && l.day.slice(0, 7) <= endMonth && (group === null ? l.stage === "finished" && variantOf(l) !== "defect" : groupOf(l) === group && isCardOutput(l, semi)));
+  if (!rows.length) return null;
+  const unit = [...sumQuantities(rows.map((l) => ({ qty: l.quantity, unit: l.unit })))].sort((a, b) => b.qty - a.qty)[0].unit;
+  const inUnit = rows.filter((l) => sumQuantities([{ qty: l.quantity, unit: l.unit }])[0]?.unit === unit);
+  const by = new Map(months.map((m) => [m, { month: m, confirmed: 0, unconfirmed: 0 }]));
+  for (const l of inUnit) {
+    const m = by.get(l.day.slice(0, 7));
+    if (m) m[l.posted ? "confirmed" : "unconfirmed"] += l.quantity;
+  }
+  return { unit, months: [...by.values()].map((m) => ({ ...m, confirmed: round3(m.confirmed), unconfirmed: round3(m.unconfirmed) })) };
 }
 
 /** Эрхийн хүрээн дэх, `onOrBefore`-оос ихгүй, бэлэн бүтээгдэхүүн эсвэл бутлуурын гарцтай хамгийн сүүлийн өдөр (анхдагч өдөр) */

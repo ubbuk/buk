@@ -89,20 +89,20 @@ beforeEach(() => {
 describe("fetchProductionMonth", () => {
   it("баримтын мөр: шат нь мөрийн дансаар (1441 бэлэн, 1431 хагас, 1401 бутлуур), тоо 0 мөр алгасна, дугаар цэвэрлэгдэнэ, нэгж 1С-ийн", async () => {
     const r = await fetchProductionMonth("2098-04");
-    expect(r.lines.map((l) => [l.docNumber, l.day, l.time, l.posted, l.stage, l.department, l.group, l.product, l.unit, l.quantity])).toEqual([
-      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Үйлдвэр", "Шон 80*80", "ш", 700],
-      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Үйлдвэр", "Шон 80*80 Брак", "ш", 3],
-      ["АРМ 1102", "2098-04-03", "10:00", false, "semi", "Арматурын хэсэг", "Арматурын хэсэг", "Каркас", "ш", 12],
-      ["БУТ 1102", "2098-04-03", "17:45", true, "crusher", "Бутлан ангилах үйлдвэр", "Бутлан ангилах үйлдвэр", "Элс (0-3)", "м3", 79.18],
+    expect(r.lines.map((l) => [l.docNumber, l.day, l.time, l.posted, l.stage, l.department, l.product, l.unit, l.quantity])).toEqual([
+      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Шон 80*80", "ш", 700],
+      ["ТЕН 1102", "2098-04-02", "22:00", true, "finished", "Тенсиланд хэсэг", "Шон 80*80 Брак", "ш", 3],
+      ["АРМ 1102", "2098-04-03", "10:00", false, "semi", "Арматурын хэсэг", "Каркас", "ш", 12],
+      ["БУТ 1102", "2098-04-03", "17:45", true, "crusher", "Бутлан ангилах үйлдвэр", "Элс (0-3)", "м3", 79.18],
     ]);
   });
 
   it("бичилт: Комплектация хасагдана; гарц бүтээгдэхүүн+цех+шатаар, материал цехээр нэгтгэгдэнэ", async () => {
     const r = await fetchProductionMonth("2098-04");
     expect(r.ledger).toEqual([
-      { kind: "output", stage: "finished", department: "Тенсиланд хэсэг", group: "Үйлдвэр", productKey: P_SHON, product: "Шон 80*80", unit: "ш", quantity: 800, amount: 800 },
-      { kind: "output", stage: "semi", department: "Арматурын хэсэг", group: "Арматурын хэсэг", productKey: P_KARKAS, product: "Каркас", unit: "ш", quantity: 12, amount: 12 },
-      { kind: "material", stage: "", department: "Арматурын хэсэг", group: "Арматурын хэсэг", productKey: "", product: "", unit: "", quantity: 0, amount: 2000 },
+      { kind: "output", stage: "finished", department: "Тенсиланд хэсэг", productKey: P_SHON, product: "Шон 80*80", unit: "ш", quantity: 800, amount: 800 },
+      { kind: "output", stage: "semi", department: "Арматурын хэсэг", productKey: P_KARKAS, product: "Каркас", unit: "ш", quantity: 12, amount: 12 },
+      { kind: "material", stage: "", department: "Арматурын хэсэг", productKey: "", product: "", unit: "", quantity: 0, amount: 2000 },
     ]);
     expect(JSON.stringify(r)).not.toContain("9999999");
   });
@@ -120,9 +120,9 @@ describe("fetchProductionMonth", () => {
     expect(ledgerReq).toContain(`AccountDr_Key eq guid'${ACC.f1441}'`);
   });
 
-  it("эх хэлтэс (Parent_Key) хэлхээг дээш нь авч, хамгийн дээд эхийг бүлэг болгоно; эхгүй хэлтэс өөрөө бүлэг", async () => {
-    const r = await fetchProductionMonth("2098-04");
-    expect(Object.fromEntries(r.lines.map((l) => [l.department, l.group]))).toEqual({ "Тенсиланд хэсэг": "Үйлдвэр", "Арматурын хэсэг": "Арматурын хэсэг", "Бутлан ангилах үйлдвэр": "Бутлан ангилах үйлдвэр" });
+  it("1С-ийн хэлтсийн Parent (эх хэлтэс) татагдахгүй: картын бүтэц өөрсдийн тохиргооноос (production-groups.ts)", async () => {
+    await fetchProductionMonth("2098-04");
+    expect(state.calls.join("\n")).not.toContain("Parent_Key");
   });
 
   it("баримтгүй сар алдаа биш: хоосон", async () => {

@@ -6,6 +6,7 @@ import { withTiming } from "@/lib/api-timing";
 import { authOptions } from "@/lib/auth";
 import { requireFinanceAccess } from "@/lib/onec/access";
 import { today } from "@/lib/onec/dates";
+import { groupFor } from "@/lib/onec/production-groups";
 import { monthsOfRange, parseRange } from "@/lib/onec/production-range";
 import { resolveProductionScope } from "@/lib/onec/production-scope";
 import { readProductionMonths } from "@/lib/onec/production-store";
@@ -25,7 +26,7 @@ export const GET = withTiming("GET /api/dashboard/production/docs", async (req: 
   if (!range || !/^(finished|semi|crusher)\|/.test(id)) return NextResponse.json({ error: "Хүчингүй хүсэлт" }, { status: 400 });
 
   const rows = await readProductionMonths(monthsOfRange(range));
-  const pairs = [...new Map(rows.lines.map((l) => [`${l.department}|${l.group}`, { department: l.department, group: l.group ?? l.department }])).values()];
+  const pairs = [...new Set(rows.lines.map((l) => l.department))].map((d) => ({ department: d, group: groupFor(d).name }));
   const { scope } = await resolveProductionScope(session.user.id, session.user.role, pairs);
   const lines = visibleLines(rows.lines, scope, { group: sp.get("group")?.slice(0, 120) || null, from: range.from, to: range.to });
   return NextResponse.json({ docs: productDocs(lines, id) }, { headers: { "Cache-Control": "no-store" } });
