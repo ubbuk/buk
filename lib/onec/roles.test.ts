@@ -13,7 +13,7 @@ describe("1С самбарын табуудын эрх", () => {
 
   it("нярав зөвхөн Агуулах, Зарцуулалт табыг харна", () => {
     expect(FINANCE_TABS.filter((t) => canViewTab("STOREKEEPER", t))).toEqual(["stock", "usage"]);
-    for (const tab of ["sales", "receivables", "expenses", "cash"] as const) expect(canViewTab("STOREKEEPER", tab), tab).toBe(false);
+    for (const tab of ["sales", "receivables", "expenses", "cash", "production"] as const) expect(canViewTab("STOREKEEPER", tab), tab).toBe(false);
   });
 
   it("бусад дүр, дүргүй хэрэглэгч юу ч харахгүй", () => {
@@ -28,6 +28,14 @@ describe("1С самбарын табуудын эрх", () => {
       expect([...rolesForTab(tab)].sort(), tab).toEqual(ALL_ROLES.filter((r) => canViewTab(r, tab)).sort());
     }
     expect(FINANCE_ROLES).not.toContain("STOREKEEPER");
+  });
+});
+
+describe("«Үйлдвэрлэл» таб", () => {
+  it("ADMIN, DIRECTOR, ENGINEERING, BOSS, CHIEF_ACCOUNTANT харна; нярав, MANAGER, EMPLOYEE харахгүй", () => {
+    for (const role of ["ADMIN", "DIRECTOR", "ENGINEERING", "BOSS", "CHIEF_ACCOUNTANT"]) expect(canViewTab(role, "production"), role).toBe(true);
+    for (const role of ["STOREKEEPER", "MANAGER", "EMPLOYEE", undefined]) expect(canViewTab(role, "production"), String(role)).toBe(false);
+    expect([...rolesForTab("production")].sort()).toEqual(["ADMIN", "BOSS", "CHIEF_ACCOUNTANT", "DIRECTOR", "ENGINEERING"]);
   });
 });
 

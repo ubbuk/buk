@@ -26,6 +26,7 @@ const RULES: readonly Rule[] = [
   { prefix: "/finance/receivables", roles: FINANCE_ROLES },
   { prefix: "/finance/expenses", roles: FINANCE_ROLES },
   { prefix: "/finance/cash", roles: FINANCE_ROLES },
+  { prefix: "/finance/production", roles: FINANCE_ROLES }, // BOSS зөвхөн өөрийн цехийг харна: API бүр сервер дээр хязгаарлана (lib/onec/production-scope.ts)
   { prefix: "/finance/payroll", roles: PAYROLL_ROLES }, // дүр л шалгана; canViewPayroll-ийг API бүр DB-ээс шалгана
   { prefix: "/finance", roles: rolesForTab("stock") }, // /finance, /finance/stock, /finance/usage
   { prefix: "/onec", roles: ODATA_ROLES }, // 1С OData хөтөч: зөвхөн ADMIN (lib/onec-odata/roles.ts)

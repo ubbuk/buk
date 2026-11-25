@@ -1247,3 +1247,47 @@ model OnecExpenseCategoryRule {
   @@index([isActive, priority])
   @@map("onec_expense_category_rule")
 }
+
+// «Үйлдвэрлэл» таб: үйлдвэрлэлийн гарцын агшин зураг (Document_ОтчетПроизводстваЗаСмену, DeletionMark=false; батлагдсан БА батлагдаагүй).
+// Нэг мөр = баримтын нэг бүтээгдэхүүний мөр. stage: finished (1441 бэлэн бүтээгдэхүүн) | semi (1431 хагас боловсруулсан) | crusher (1401 бутлуурын гарц).
+// Баримтын дугаар зөвхөн хамгийн доод drill-down-д харагдана. Хүний мэдээлэл, баримтын «Комментарий» ЭНД ХАДГАЛАГДАХГҮЙ. lib/onec/production-store.ts
+model OnecProductionLine {
+  id         BigInt   @id @default(autoincrement())
+  month      String
+  day        String
+  docRef     String   @map("doc_ref")
+  docNumber  String   @map("doc_number")
+  lineNo     Int      @map("line_no")
+  posted     Boolean
+  stage      String
+  department String
+  productKey String   @map("product_key")
+  product    String
+  unit       String
+  quantity   Decimal  @db.Decimal(18, 3)
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@unique([docRef, lineNo])
+  @@index([month, day])
+  @@map("onec_production_line")
+}
+
+// Үйлдвэрлэлийн нягтлангийн бичилтийн нэгтгэл (Хозрасчетный, зөвхөн ОтчетПроизводстваЗаСмену баримтын бичилт; Комплектация орохгүй).
+//   kind = output:   Дт 1441/1431 <- Кт 142x (бүтээгдэхүүнээр, цехээр): өртөг. Сар хаагдтал amount нь төлөвлөсөн (1 ₮ x тоо), хаагдсаны дараа бодит
+//   kind = material: Дт 1423 <- Кт 1401 (цехээр): материалын зарцуулалт
+model OnecProductionLedger {
+  id         BigInt   @id @default(autoincrement())
+  month      String
+  kind       String
+  stage      String
+  department String
+  productKey String   @map("product_key")
+  product    String
+  unit       String
+  quantity   Decimal  @db.Decimal(18, 3)
+  amount     Decimal  @db.Decimal(18, 2)
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@index([month])
+  @@map("onec_production_ledger")
+}

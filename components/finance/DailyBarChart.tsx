@@ -39,6 +39,9 @@ export function DailyBarChart({
   countKey,
   countLabel = "Баримт",
   tooltipTitle = (date) => date,
+  valueFormat = money,
+  axisFormat = compact,
+  highlightDate,
 }: {
   data: Point[];
   series: BarSeries[];
@@ -49,6 +52,12 @@ export function DailyBarChart({
   countKey?: string;
   countLabel?: string;
   tooltipTitle?: (date: string) => string;
+  /** tooltip-ийн утга (анхдагч нь төгрөг); тоо хэмжээний графикт нэгжтэй нь */
+  valueFormat?: (v: number) => string;
+  /** y тэнхлэгийн шошго (анхдагч нь «сая», «тэрбум») */
+  axisFormat?: (v: number) => string;
+  /** онцлох өдөр (жишээ нь өнөөдөр): алтан дэвсгэр, тод шошго */
+  highlightDate?: string;
 }) {
   const gid = useId();
   const [hover, setHover] = useState<number | null>(null);
@@ -99,7 +108,7 @@ export function DailyBarChart({
             <g key={t}>
               <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="rgba(100,150,240,0.18)" strokeWidth={1} strokeDasharray={t === 0 ? undefined : "3 5"} />
               <text x={PAD.left - 8} y={y(t) + 4} textAnchor="end" fontSize={11} fill="rgb(var(--color-text-muted))">
-                {compact(t)}
+                {axisFormat(t)}
               </text>
             </g>
           ))}
@@ -107,6 +116,7 @@ export function DailyBarChart({
             const x0 = PAD.left + i * slot + (slot - barW * series.length) / 2;
             return (
               <g key={d.date} onMouseEnter={() => setHover(i)}>
+                {highlightDate === d.date && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} rx={4} fill="rgba(245,181,35,0.12)" stroke="rgba(255,213,107,0.55)" strokeWidth={1} />}
                 {hover === i && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} fill="rgba(80,140,240,0.1)" />}
                 {series.map((s, k) => {
                   const v = Number(d[s.key]) || 0;
@@ -127,7 +137,7 @@ export function DailyBarChart({
                 })}
                 <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} fill="transparent" />
                 {(data.length <= 16 || i % Math.ceil(data.length / 16) === 0) && (
-                  <text x={PAD.left + i * slot + slot / 2} y={H - 7} textAnchor="middle" fontSize={11} fill="rgb(var(--color-text-muted))">
+                  <text x={PAD.left + i * slot + slot / 2} y={H - 7} textAnchor="middle" fontSize={11} fontWeight={highlightDate === d.date ? 700 : 400} fill={highlightDate === d.date ? "#ffd56b" : "rgb(var(--color-text-muted))"}>
                     {label(d.date)}
                   </text>
                 )}
@@ -144,7 +154,7 @@ export function DailyBarChart({
             {series.map((s) => (
               <p key={s.key} className="mt-1 flex items-center gap-1.5 text-text-muted">
                 <span className="size-2 rounded-sm" style={{ background: isGold(s.color) ? "#f5b523" : s.color }} />
-                {s.label}: <span className="ng-num font-semibold text-text">{money(Number(h[s.key]) || 0)}</span>
+                {s.label}: <span className="ng-num font-semibold text-text">{valueFormat(Number(h[s.key]) || 0)}</span>
               </p>
             ))}
             {countKey && h[countKey] != null && (
