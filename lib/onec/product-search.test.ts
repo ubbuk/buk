@@ -164,3 +164,26 @@ describe("эцсийн үлдэгдэл: шилжүүлэг, батлагдаа�
     expect(v.detail!.months.find((m) => m.month === "2026-10")!.closing).toBe(400); // 500 - 100 (зөвхөн батлагдсан)
   });
 });
+
+describe("агуулахаар задаргаа (Ф-1000, 2026-10: нягтлангийн карт Вольтамикс 114, нийт 116)", () => {
+  const VOLTA_WH = "Вольтамискын агуулах";
+  const YARD_WH = "Гадаа талбайн бэлэн бүтээгдэхүүний агуулах";
+  const stock = [
+    { item: RING, unit: "ш", qty: 114, warehouse: VOLTA_WH },
+    { item: RING, unit: "ш", qty: 2, warehouse: YARD_WH },
+  ];
+  it("нийт нь бүх агуулахын нийлбэр (116), задаргаа нь агуулах бүр (их нь эхэнд, «агуулах» гэдэг үггүй)", () => {
+    const c = buildProductSearch({ ...base, lines: [line("2026-10-06", VOLTA, RING, 154)], stock }).products[0];
+    expect(c.stock).toBe(116);
+    expect(c.warehouses).toEqual([{ name: "Вольтамискын", qty: 114 }, { name: "Гадаа талбайн бэлэн бүтээгдэхүүний", qty: 2 }]);
+  });
+  it("нэг агуулах, 0 үлдэгдэлтэй агуулах бол задаргаа гарахгүй; агуулахын нэргүй мөр нийтэд орно", () => {
+    const one = buildProductSearch({ ...base, lines: [line("2026-10-06", VOLTA, RING, 1)], stock: [stock[0], { item: RING, unit: "ш", qty: 0, warehouse: YARD_WH }] }).products[0];
+    expect(one.warehouses).toEqual([]);
+    expect(one.stock).toBe(114);
+    expect(buildProductSearch({ ...base, lines: [line("2026-10-06", VOLTA, RING, 1)], stock: [{ item: RING, unit: "ш", qty: 5 }] }).products[0]).toMatchObject({ stock: 5, warehouses: [] });
+  });
+  it("цехийн эрхтэй хэрэглэгчид агуулахын задаргаа ирэхгүй", () => {
+    expect(buildProductSearch({ ...base, lines: [line("2026-10-06", VOLTA, RING, 1)], stock, showSales: false }).products[0]).toMatchObject({ stock: null, warehouses: [] });
+  });
+});

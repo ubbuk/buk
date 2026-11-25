@@ -49,6 +49,8 @@ export interface StockQty {
   item: string;
   unit: string;
   qty: number;
+  /** агуулахын нэр (байхгүй бол задаргаа гарахгүй) */
+  warehouse?: string;
 }
 export interface ProdLine {
   day: string;
@@ -77,6 +79,8 @@ export interface ProductCard {
   /** null = энэ хэрэглэгчид харагдахгүй (цехийн эрхтэй хэрэглэгч) */
   sold: number | null;
   stock: number | null;
+  /** агуулах бүрийн үлдэгдэл (0-ээс ялгаатай, их нь эхэнд); нэг агуулах бол хоосон */
+  warehouses: { name: string; qty: number }[];
   workshops: ProductWorkshop[];
 }
 export interface ProductDay {
@@ -122,9 +126,19 @@ interface Ent {
   sold: number;
   stock: number;
   hasStock: boolean;
+  byWarehouse: Map<string, number>;
   byShop: Map<string, number>;
   byDay: Map<string, { produced: number; sold: number; shops: Map<string, number> }>;
   byMonth: Map<string, { produced: number; confirmed: number; sold: number; other: number }>;
+}
+
+/** «Вольтамискын агуулах» -> «Вольтамискын»: богино нэр */
+const shortWarehouse = (name: string): string => name.replace(/s*агуулахs*$/iu, "").trim() || name;
+
+/** Агуулах бүрийн үлдэгдэл: 0-ийг хасна, нэг л агуулах (эсвэл задаргаа үгүй) бол хоосон */
+function warehouseSplit(by: ReadonlyMap<string, number>): { name: string; qty: number }[] {
+  const rows = [...by].map(([name, qty]) => ({ name: shortWarehouse(name), qty: round3(qty) })).filter((w) => w.qty !== 0);
+  return rows.length > 1 ? rows.sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, "mn")) : [];
 }
 
 const MAX_RESULTS = 60;
@@ -159,6 +173,7 @@ const emptyEnt = (id: string, name: string, unit: string): Ent => ({
   sold: 0,
   stock: 0,
   hasStock: false,
+  byWarehouse: new Map(),
   byShop: new Map(),
   byDay: new Map(),
   byMonth: new Map(),
@@ -247,6 +262,7 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
       const e = get(s.item, s.unit);
       e.stock += s.qty;
       e.hasStock = true;
+      if (s.warehouse) e.byWarehouse.set(s.warehouse, (e.byWarehouse.get(s.warehouse) ?? 0) + s.qty);
     }
   }
 
@@ -259,6 +275,7 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
     defect: round3(e.defect),
     sold: showSales ? round3(e.sold) : null,
     stock: showSales ? round3(e.stock) : null,
+    warehouses: showSales ? warehouseSplit(e.byWarehouse) : [],
     workshops: [...e.byShop]
       .map(([name, qty]) => ({ name, short: shortGroupName(name), slug: slugOf(name), qty: round3(qty) }))
       .filter((w) => w.qty !== 0)

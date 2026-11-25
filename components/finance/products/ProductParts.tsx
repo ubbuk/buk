@@ -125,6 +125,7 @@ function Big({ label, value, unit, color }: { label: string; value: number | nul
 export function ProductCardView({ card, period, open, onToggle, children }: { card: ProductCard; period: string; open: boolean; onToggle: () => void; children?: React.ReactNode }) {
   const small = [card.defect > 0 ? `Брак ${num(card.defect)}` : "", card.repair > 0 ? `Засвар ${num(card.repair)}` : ""].filter(Boolean).join(" · ");
   const shops = card.workshops.map((w) => `${w.short} ${num(w.qty)}`).join(", ");
+  const stores = card.warehouses.map((w) => `${w.name} ${num(w.qty)}`).join(", ");
   return (
     <li className="overflow-hidden rounded-xl border border-border bg-bg-surface shadow-card">
       <button type="button" aria-expanded={open} onClick={onToggle} className="focus-ring flex w-full flex-col gap-3 p-4 text-left hover:bg-white/[0.03]">
@@ -140,10 +141,11 @@ export function ProductCardView({ card, period, open, onToggle, children }: { ca
           <Big label="Зарсан" value={card.sold} unit={card.unit} color={card.sold === null ? undefined : COLOR_SOLD} />
           <Big label="Агуулахад одоо" value={card.stock} unit={card.unit} />
         </span>
-        {(small || shops) && (
+        {(small || shops || stores) && (
           <span className="flex flex-col gap-0.5 text-xs text-text-muted">
             {small && <span>{small}</span>}
             {shops && <span>Хийсэн: {shops}</span>}
+            {stores && <span>Агуулахад: {stores}</span>}
           </span>
         )}
       </button>

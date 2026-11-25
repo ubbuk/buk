@@ -16,6 +16,10 @@ const card: ProductCard = {
   defect: 1,
   sold: 78,
   stock: 1234,
+  warehouses: [
+    { name: "Вольтамискын", qty: 1232 },
+    { name: "Гадаа талбайн бэлэн бүтээгдэхүүний", qty: 2 },
+  ],
   workshops: [
     { name: "Вольтамиксийн хэсэг", short: "Вольтамикс", slug: "voltamix", qty: 114 },
     { name: "Төмөр бетон хийц эдлэлийн цех", short: "ТБХЭЦ", slug: "tbhets", qty: 40 },
@@ -38,8 +42,13 @@ describe("ProductCardView", () => {
     expect(out).toContain("Брак 1 · Засвар 7");
     expect(out).toContain("Хийсэн: Вольтамикс 114, ТБХЭЦ 40");
   });
+  it("олон агуулахад байвал «Агуулахад: Вольтамискын 1,232, Гадаа талбайн бэлэн бүтээгдэхүүний 2» задаргаа; нэг агуулахад задаргаа гарахгүй", () => {
+    expect(out).toContain("Агуулахад: Вольтамискын 1,232, Гадаа талбайн бэлэн бүтээгдэхүүний 2");
+    const one = html(createElement(ProductCardView, { card: { ...card, warehouses: [] }, period: "Энэ сар", open: false, onToggle: () => {} }));
+    expect(one).not.toContain("Агуулахад:");
+  });
   it("брак, засвар 0 бол жижиг мөр гарахгүй; зарсан null (цехийн эрх) бол «—»", () => {
-    const o = html(createElement(ProductCardView, { card: { ...card, repair: 0, defect: 0, sold: null, stock: null }, period: "Энэ сар", open: false, onToggle: () => {} }));
+    const o = html(createElement(ProductCardView, { card: { ...card, repair: 0, defect: 0, sold: null, stock: null, warehouses: [] }, period: "Энэ сар", open: false, onToggle: () => {} }));
     expect(o).not.toContain("Брак");
     expect(o).not.toContain("Засвар");
     expect(o).toContain(">—<");

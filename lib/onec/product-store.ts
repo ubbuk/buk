@@ -10,13 +10,13 @@ export async function readSalesQty(from: string, to: string): Promise<SaleQty[]>
      GROUP BY date, item, unit`;
 }
 
-/** Хамгийн сүүлийн агшин зургийн бүх агуулахын нийт: бараа, нэгжээр. `asOf` = агшин зургийн огноо (байхгүй бол null) */
+/** Хамгийн сүүлийн агшин зургийн агуулах бүрийн үлдэгдэл (бараа, нэгж, агуулахаар; нийт нь бүх агуулахынх). `asOf` = агшин зургийн огноо (байхгүй бол null) */
 export async function readStockNow(): Promise<{ asOf: string | null; rows: StockQty[] }> {
   const snap = await prisma.onecStock.aggregate({ _max: { snapshotDate: true } });
   const date = snap._max.snapshotDate;
   if (!date) return { asOf: null, rows: [] };
   const asOf = date.toISOString().slice(0, 10);
   const rows = await prisma.$queryRaw<StockQty[]>`
-    SELECT item, unit, SUM(qty)::float8 AS qty FROM onec_stock WHERE snapshot_date = ${asOf}::date AND item <> '' GROUP BY item, unit`;
+    SELECT item, unit, warehouse, SUM(qty)::float8 AS qty FROM onec_stock WHERE snapshot_date = ${asOf}::date AND item <> '' GROUP BY item, unit, warehouse`;
   return { asOf, rows };
 }

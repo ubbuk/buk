@@ -24,7 +24,7 @@ describe("product-store", () => {
     const rows = (await readSalesQty("2098-05-01", "2098-05-31")).filter((r) => r.item === ITEM);
     expect(rows).toEqual([{ day: "2098-05-10", item: ITEM, unit: "ш", qty: 13 }]);
   });
-  it("readStockNow: хамгийн сүүлийн агшин зургийн бүх агуулахын нийт", async () => {
+  it("readStockNow: хамгийн сүүлийн агшин зургийн агуулах бүрээр (өмнөх агшин орохгүй)", async () => {
     await prisma.onecStock.createMany({
       data: [
         { snapshotDate: DAY, warehouseCode: "A", warehouse: "А", item: ITEM, unit: "ш", account: "x", qty: 40 },
@@ -34,6 +34,9 @@ describe("product-store", () => {
     });
     const now = await readStockNow();
     expect(now.asOf).toBe("2098-05-10");
-    expect(now.rows.filter((r) => r.item === ITEM)).toEqual([{ item: ITEM, unit: "ш", qty: 42 }]);
+    expect(now.rows.filter((r) => r.item === ITEM).sort((a, b) => b.qty - a.qty)).toEqual([
+      { item: ITEM, unit: "ш", warehouse: "А", qty: 40 },
+      { item: ITEM, unit: "ш", warehouse: "Б", qty: 2 },
+    ]);
   });
 });
