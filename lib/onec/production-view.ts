@@ -8,6 +8,7 @@
 //  * Өртөг: сар хаагдсан үед л (isCostClosed). Хаагдаагүй сард Сумма нь төлөвлөсөн (нэгж үнэ 1 ₮) тул харуулахгүй.
 import { addDays, addMonths, monthRange } from "./dates";
 import { groupFor, groupRank, isSemiGroup, OTHER_GROUP } from "./production-groups";
+import { daysOfMonth } from "./production-month";
 import { normalizeDepartment, splitProductName, type ProductionStage } from "./production-names";
 import { sumQuantities, type Quantity } from "@/lib/units";
 
@@ -114,7 +115,38 @@ export interface ProductionCard {
   lagging: boolean;
 }
 
+/** «Цех × Өдөр» хүснэгтийн нүд: тухайн өдрийн бэлэн гарц (нэгж бүр тусдаа), нягтлан батлаагүй баримт орсон эсэх */
+export interface GridCell {
+  qty: Quantity[];
+  unconfirmed: boolean;
+}
+
+export interface GridRow {
+  name: string;
+  /** хагас боловсруулсан цех (БАЗ, Арматур): мөрөнд харагдана, «Өдрийн нийт»-д ордоггүй */
+  semi: boolean;
+  unconfigured: boolean;
+  lastReport: { day: string; daysAgo: number } | null;
+  lagging: boolean;
+  /** сүүлийн 30 хоногийн тайлангийн тоо */
+  recentReports: number;
+  /** сард гарцгүй (мөр доор, саарал) */
+  idle: boolean;
+  /** сарын өдөр бүр (days-тэй ижил индекс); гарцгүй өдөр null */
+  cells: (GridCell | null)[];
+  /** «Сарын нийт» */
+  total: Quantity[];
+}
+
+/** Мөр = цех (production-groups), багана = сарын өдрүүд, нүд = өдрийн бэлэн гарц. Доод мөр = өдрийн нийт: нэгж бүр тусдаа (м3-ийг ширхэгтэй нэмэхгүй), хагас боловсруулсан цех орохгүй. */
+export interface ProductionGrid {
+  days: string[];
+  rows: GridRow[];
+  totals: { days: (GridCell | null)[]; month: Quantity[] };
+}
+
 export interface ProductionView {
+  grid: ProductionGrid;
   month: string;
   /** жинхэнэ өнөөдөр (YYYY-MM-DD) */
   todayDate: string;
@@ -426,8 +458,29 @@ export function buildProductionView(input: {
   // ---- сүүлийн 12 сарын гарц (сонгосон цехээр)
   const monthly = monthlyOutput(input.history ?? input.lines, scope, group, month);
 
+  // ---- Цех × Өдөр хүснэгт (сонгосон сар бүтнээрээ; цехийн шүүлтүүрт нөлөөлөхгүй)
+  const monthDays = daysOfMonth(month);
+  const gridRows: GridRow[] = cards.map((c) => {
+    const mine = scoped.filter((l) => groupOf(l) === c.name && l.day.startsWith(month) && isCardOutput(l, c.semi));
+    const cells = monthDays.map((date) => {
+      const rows = mine.filter((l) => l.day === date);
+      return rows.length ? { qty: qtyOf(rows), unconfirmed: rows.some((l) => !l.posted) } : null;
+    });
+    return { name: c.name, semi: c.semi, unconfigured: c.unconfigured, lastReport: c.lastReport, lagging: c.lagging, recentReports: c.recentReports, idle: cells.every((x) => x === null), cells, total: qtyOf(mine) };
+  });
+  gridRows.sort((a, b) => Number(a.idle) - Number(b.idle)); // тогтвортой эрэмбэ: идэвхтэй цехүүд (тохиргооны дараалал), гарцгүй нь доор
+  const sumRows = scoped.filter((l) => l.day.startsWith(month) && !isSemiGroup(groupOf(l)) && isOutput(l));
+  const gridTotals = {
+    days: monthDays.map((date) => {
+      const rows = sumRows.filter((l) => l.day === date);
+      return rows.length ? { qty: qtyOf(rows), unconfirmed: rows.some((l) => !l.posted) } : null;
+    }),
+    month: qtyOf(sumRows),
+  };
+
   const unconfirmedDocs = new Set(lines.filter((l) => !l.posted).map((l) => l.docRef)).size;
   return {
+    grid: { days: monthDays, rows: gridRows, totals: gridTotals },
     month,
     todayDate: today,
     period: range,
@@ -505,4 +558,33 @@ export function latestOutputDay(lines: readonly ProductionLineRow[], scope: Prod
 /** Drill-down-ы шүүлтүүр: эрхийн хүрээ, хасагдсан хэлтэс, сонгосон цех, хугацаа */
 export function visibleLines(lines: readonly ProductionLineRow[], scope: ProductionScope, opts: { group?: string | null; from?: string; to?: string } = {}): ProductionLineRow[] {
   return lines.filter((l) => inScope(scope, l.department) && (!opts.group || groupOf(l) === opts.group) && (!opts.from || l.day >= opts.from) && (!opts.to || l.day <= opts.to));
+}
+
+export interface DayProduct {
+  row: ProductRow;
+  docs: DocLine[];
+}
+export interface DaySection {
+  card: string;
+  semi: boolean;
+  unconfirmedDocs: number;
+  products: DayProduct[];
+}
+
+/**
+ * Нэг өдрийн задаргаа («Цех × Өдөр» хүснэгтийн нүд, өдрийн толгой): цех бүрийн бүтээгдэхүүн, тоо, брак, засвар, дор нь 1С-ийн баримт (дугаар, цаг).
+ * `group` өгвөл зөвхөн тэр цех; үгүй бол бүх цех. Эрхийн хүрээ (BOSS), хасагдсан хэлтсийг `visibleLines`-аар хэрэглэнэ. Баримтын дугаар зөвхөн энд.
+ */
+export function dayDetail(lines: readonly ProductionLineRow[], scope: ProductionScope, opts: { day: string; group?: string | null }): DaySection[] {
+  const day = visibleLines(lines, scope, { group: opts.group ?? null, from: opts.day, to: opts.day });
+  const names = [...new Set(day.map(groupOf))].sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b, "mn"));
+  return names.map((card) => {
+    const mine = day.filter((l) => groupOf(l) === card);
+    return {
+      card,
+      semi: isSemiGroup(card),
+      unconfirmedDocs: new Set(mine.filter((l) => !l.posted).map((l) => l.docRef)).size,
+      products: orderProducts(aggregate(mine, true)).map((row) => ({ row, docs: productDocs(mine, row.id) })),
+    };
+  });
 }

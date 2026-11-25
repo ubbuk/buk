@@ -1,111 +1,82 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarClock, ChevronRight, Coins, Factory, Layers, PackageCheck, ShieldAlert, Wrench } from "lucide-react";
+import { CalendarClock, ChevronRight, Coins, Factory } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { ErrorNote, FinanceShell, connectionFrom } from "@/components/finance/FinanceShell";
-import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
 import { Amount } from "@/components/finance/cash/Amount";
-import { CardDetail, EmptyPeriod, ProductTable, RangeBar, SummaryTable, type DocState } from "@/components/finance/production/ProductionParts";
+import { CardDetail, DayDetailView, MonthBar, ProductionGridView, ProductList, type DayState } from "@/components/finance/production/ProductionParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
+import { currentMonthUb } from "@/components/finance/useOnecRefresh";
 import { isDate } from "@/lib/onec/dates";
-import { PRODUCTION_GROUPS } from "@/lib/onec/production-groups";
-import { activePreset, presetRange, rangeLabel, type DateRange } from "@/lib/onec/production-range";
-import type { ProductionView } from "@/lib/onec/production-view";
+import { resolveMonth } from "@/lib/onec/production-month";
+import type { DaySection, ProductionView } from "@/lib/onec/production-view";
 import { cn } from "@/lib/utils";
-import { formatQuantities, formatQuantity } from "@/lib/units";
+import { formatQuantity } from "@/lib/units";
 
-const MN_DAY = (date: string) => `${date.slice(0, 4)} оны ${Number(date.slice(5, 7))}-р сарын ${Number(date.slice(8, 10))}`;
 const MN_MONTH = (m: string) => `${m.slice(0, 4)} оны ${Number(m.slice(5, 7))}-р сар`;
 const axis = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v);
-
-/** Цех бүрийн өнгө (stacked график, легенд): тохиргооны дарааллаар тогтмол; «Бусад» саарал */
-const GROUP_COLORS = ["#f5b523", "#60a5fa", "#34d399", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf", "#fbbf24"];
-const groupColor = (name: string) => {
-  const i = PRODUCTION_GROUPS.findIndex((g) => g.name === name);
-  return i < 0 ? "#94a3b8" : GROUP_COLORS[i % GROUP_COLORS.length];
-};
 
 function ProductionPage() {
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const from = sp.get("from");
-  const to = sp.get("to");
-  const dept = sp.get("dept");
+  const current = currentMonthUb();
+  // URL: ?month=2026-11&day=2026-11-24&card=<цех>. month байхгүй/буруу бол ЗАВААЛ энэ сар.
+  const month = resolveMonth(sp.get("month"), current);
+  const dayRaw = sp.get("day");
+  const day = isDate(dayRaw) && dayRaw.startsWith(month) ? dayRaw : null;
+  const card = sp.get("card") || null;
 
-  // URL: ?from=&to=&dept=. from/to байхгүй (эсвэл хагас, буруу) бол сервер ЗАВААЛ «Энэ сар»-ыг (сарын 1-ээс өнөөдөр) сонгоно.
   const url = useMemo(() => {
-    const q = new URLSearchParams();
-    if (isDate(from) && isDate(to)) {
-      q.set("from", from);
-      q.set("to", to);
-    }
-    if (dept) q.set("dept", dept);
+    const q = new URLSearchParams({ month });
+    if (card) q.set("dept", card);
     return `/api/dashboard/production?${q}`;
-  }, [from, to, dept]);
+  }, [month, card]);
   const { data, error } = useFinanceData<ProductionView>(url);
 
   const update = useCallback(
-    (patch: { range?: DateRange; dept?: string | null }) => {
+    (patch: { month?: string | null; day?: string | null; card?: string | null }) => {
       const next = new URLSearchParams(sp.toString());
-      if (patch.range) {
-        next.set("from", patch.range.from);
-        next.set("to", patch.range.to);
-      }
-      if (patch.dept !== undefined) {
-        if (patch.dept) next.set("dept", patch.dept);
-        else next.delete("dept");
+      for (const [k, v] of Object.entries(patch)) {
+        if (v) next.set(k, v);
+        else next.delete(k);
       }
       router.replace(`${pathname}?${next}`, { scroll: false });
     },
     [sp, pathname, router]
   );
 
-  // Баримтыг мөрийг нээхэд л (нэг удаа) татна: баримтын дугаар, цаг зөвхөн хамгийн доод drill-down-д
-  const [docs, setDocs] = useState<Record<string, DocState>>({});
-  const asked = useRef(new Set<string>());
-  const period = data?.period;
-  const docKey = (card: string, id: string) => `${period?.from}|${period?.to}|${card}|${id}`;
-  const openDocs = useCallback(
-    (card: string, id: string) => {
-      if (!period) return;
-      const key = `${period.from}|${period.to}|${card}|${id}`;
-      if (asked.current.has(key)) return;
-      asked.current.add(key);
-      setDocs((d) => ({ ...d, [key]: "loading" }));
-      const q = new URLSearchParams({ from: period.from, to: period.to, id, group: card });
-      fetch(`/api/dashboard/production/docs?${q}`)
-        .then(async (r) => (r.ok ? ((await r.json()) as { docs: DocState }).docs : Promise.reject(new Error(String(r.status)))))
-        .then((rows) => setDocs((x) => ({ ...x, [key]: rows })))
-        .catch(() => {
-          asked.current.delete(key);
-          setDocs((x) => ({ ...x, [key]: "error" }));
-        });
-    },
-    [period]
-  );
+  // Өдрийн задаргаа (нүд / өдрийн толгой дарахад л): баримтын дугаар, цаг зөвхөн энд
+  const [detail, setDetail] = useState<Record<string, DayState>>({});
+  const detailKey = day ? `${day}|${card ?? ""}` : null;
+  useEffect(() => {
+    if (!day || !detailKey) return;
+    let live = true;
+    const q = new URLSearchParams({ day });
+    if (card) q.set("card", card);
+    setDetail((d) => (d[detailKey] ? d : { ...d, [detailKey]: "loading" }));
+    fetch(`/api/dashboard/production/day?${q}`)
+      .then(async (r) => (r.ok ? ((await r.json()) as { day: string; sections: DaySection[] }) : Promise.reject(new Error(String(r.status)))))
+      .then((body) => live && setDetail((d) => ({ ...d, [detailKey]: body })))
+      .catch(() => live && setDetail((d) => ({ ...d, [detailKey]: "error" })));
+    return () => {
+      live = false;
+    };
+  }, [day, card, detailKey]);
 
   const [moreOpen, setMoreOpen] = useState(false);
-  const label = period ? rangeLabel(period) : "";
-  const isMonthPreset = !!data && !!period && activePreset(period, data.todayDate) === "month";
-  const periodWord = isMonthPreset ? "Энэ сар" : label;
-  const chartUnit = data?.chart?.unit ?? "";
-  const monthNo = data ? `${Number(data.month.slice(5, 7))}-р сар` : "";
-  const kpi = data?.kpi;
-  const selected = data?.group ?? null;
-  const selectedCard = data && selected ? data.cards.find((c) => c.name === selected) ?? null : null;
-  const tableCards = data ? (selected ? data.cards.filter((c) => c.name === selected) : data.cards) : [];
-  const hasOutput = tableCards.some((c) => !c.empty);
-  const toggle = (name: string) => update({ dept: selected === name ? null : name });
+  const monthNo = `${Number(month.slice(5, 7))}-р сар`;
+  const selectedCard = data && card ? (data.cards.find((c) => c.name === card) ?? null) : null;
+  const changeMonth = (m: string) => update({ month: m === current ? null : m, day: null });
 
   return (
     <FinanceShell
       title="Үйлдвэрлэл"
-      subtitle="Цех бүр хэдийг үйлдвэрлэв. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
+      subtitle="Цех бүр өдөр бүр хэдийг үйлдвэрлэв. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
       icon={Factory}
       lastSyncedAt={data?.lastSyncedAt}
       connection={connectionFrom(data?.lastSyncedAt)}
@@ -114,64 +85,42 @@ function ProductionPage() {
     >
       {error && <ErrorNote message={error} />}
 
-      {data && period ? (
-        <RangeBar period={period} today={data.todayDate} groups={data.groups} group={data.group} onRange={(range) => update({ range })} onGroup={(g) => update({ dept: g })} />
-      ) : (
-        <Skeleton className="h-10 w-full max-w-xl rounded-xl" />
-      )}
+      <MonthBar month={month} current={current} onMonth={changeMonth} />
 
-      {/* Хоосон («—», 0) KPI картыг нууна */}
+      {/* Цех × Өдөр */}
       {!data ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-2xl" />
-          ))}
-        </div>
-      ) : (
-        kpi &&
-        (() => {
-          const items: React.ReactNode[] = [];
-          const featured = () => items.length === 0;
-          if (kpi.today.length > 0)
-            items.push(<KpiCard key="today" featured={featured()} label="Өнөөдөр" value={formatQuantities(kpi.today).short} valueText={formatQuantities(kpi.today).short.padEnd(14)} icon={PackageCheck} tone="accent" hint={MN_DAY(data.todayDate)} />);
-          if (kpi.month.length > 0)
-            items.push(
-              <KpiCard
-                key="total"
-                featured={featured()}
-                spark={data.chart?.days.map((d) => d.confirmed + d.unconfirmed)}
-                label={`Нийт гарц · ${periodWord}`}
-                value={formatQuantities(kpi.month).short}
-                valueText={formatQuantities(kpi.month).short.padEnd(14)}
-                icon={Layers}
-                tone="accent"
-                hint="Бэлэн бүтээгдэхүүн, бракгүй"
-              />
-            );
-          if (kpi.productTypes > 0) items.push(<KpiCard key="types" featured={featured()} label="Бүтээгдэхүүний төрөл" value={String(kpi.productTypes)} icon={Wrench} hint="Нэр төрөл (засвар нэгтгэсэн)" />);
-          if (kpi.defectPct != null)
-            items.push(<KpiCard key="defect" featured={featured()} label="Брак хувь" value={`${kpi.defectPct.toFixed(1)}%`} icon={ShieldAlert} tone={kpi.defectPct >= 3 ? "danger" : "neutral"} hint={`Брак ${formatQuantities(kpi.defect).short}`} />);
-          if (kpi.unconfirmedDocs > 0)
-            items.push(<KpiCard key="unc" featured={featured()} label="Нягтлан батлаагүй" value={`${kpi.unconfirmedDocs} баримт`} icon={AlertTriangle} tone="warning" hint={`${formatQuantities(kpi.unconfirmed).short} нийт дүнд орсон`} />);
-          return items.length ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">{items}</div> : null;
-        })()
-      )}
-
-      {/* 1. Хураангуй: Цех | Энэ сар | Гол бүтээгдэхүүн | Сүүлийн тайлан. Гарцгүй цехүүд доор нэг саарал мөрөнд. */}
-      {!data ? (
-        <Skeleton className="h-56 rounded-xl" />
-      ) : data.cards.length === 0 ? (
+        <Skeleton className="h-72 rounded-xl" />
+      ) : data.grid.rows.length === 0 ? (
         <Card>
           <CardBody className="py-10 text-center text-sm text-text-muted">{data.scopeNote ? "Харуулах цех алга" : "Үйлдвэрлэлийн баримт татагдаагүй байна. Өгөгдөл 15 минут тутам автоматаар шинэчлэгдэнэ."}</CardBody>
         </Card>
       ) : (
-        <SummaryTable cards={data.cards} periodWord={periodWord} selected={selected} onSelect={toggle} />
+        <ProductionGridView
+          grid={data.grid}
+          today={data.todayDate}
+          selectedDay={day}
+          selectedCard={card}
+          onCell={(c, d) => update({ day: day === d && card === c ? null : d, card: day === d && card === c ? null : c })}
+          onDay={(d) => update({ day: day === d && !card ? null : d, card: null })}
+          onCard={(c) => update({ card: card === c ? null : c, day: null })}
+        />
       )}
 
-      {/* 8. Цех сонгоход л: тэр цехийн дэлгэрэнгүй + 12 сарын график */}
+      {/* Нүд / өдрийн толгойн задаргаа */}
+      {day && detailKey && <DayDetailView day={day} card={card} state={detail[detailKey]} onClose={() => update({ day: null })} />}
+
+      {/* Цех сонгоход л: цехийн дэлгэрэнгүй + сарын бүтээгдэхүүн + 12 сарын график */}
       {selectedCard && (
         <>
-          <CardDetail card={selectedCard} onClear={() => update({ dept: null })} />
+          <CardDetail card={selectedCard} onClear={() => update({ card: null, day: null })} />
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Бүтээгдэхүүн · {MN_MONTH(month)} · {selectedCard.name}
+              </CardTitle>
+            </CardHeader>
+            <ProductList products={selectedCard.products} />
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Сүүлийн 12 сарын гарц · {selectedCard.name}</CardTitle>
@@ -202,60 +151,7 @@ function ProductionPage() {
         </>
       )}
 
-      {/* 5. Бүтээгдэхүүн × цех (сонгосон хугацаагаар); мөрийг дарвал өдрөөр задарна */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Бүтээгдэхүүн × цех{data ? ` · ${periodWord}` : ""}
-            {selected ? ` · ${selected}` : ""}
-          </CardTitle>
-          {hasOutput && <span className="text-[11px] text-text-muted">Мөрийг дарвал өдрөөр задарна</span>}
-        </CardHeader>
-        {!data ? (
-          <Skeleton className="m-4 h-64" />
-        ) : hasOutput ? (
-          <ProductTable cards={tableCards} getDocs={(c, id) => docs[docKey(c, id)]} onOpen={openDocs} />
-        ) : (
-          <EmptyPeriod showMonthButton={!isMonthPreset} onMonth={() => update({ range: presetRange("month", data.todayDate) })} />
-        )}
-      </Card>
-
-      {/* 6. Өдөр бүрийн график: цехээр өнгө ялгасан (stacked) */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Өдөр бүрийн гарц{chartUnit ? ` · ${formatQuantity(1, chartUnit).short.replace(/^1 /, "")}` : ""}
-            {data ? ` · ${monthNo}` : ""}
-            {selected ? ` · ${selected}` : ""}
-          </CardTitle>
-          <span className="text-[11px] text-text-muted">Сонгосон өдөр алтан хүрээтэй</span>
-        </CardHeader>
-        <CardBody className="space-y-2">
-          {!data ? (
-            <Skeleton className="h-56" />
-          ) : data.chart ? (
-            <>
-              <DailyBarChart
-                stacked
-                data={data.chart.days.map((d) => ({ date: d.date, ...Object.fromEntries(data.chart!.groups.map((g) => [g, d.byGroup[g] ?? 0])) }))}
-                series={data.chart.groups.map((g) => ({ key: g, label: g, color: groupColor(g) }))}
-                label={(d) => String(Number(d.slice(8, 10)))}
-                tooltipTitle={MN_DAY}
-                valueFormat={(v) => formatQuantity(v, chartUnit).short}
-                axisFormat={axis}
-                highlightDate={data.period.to}
-              />
-              <p className="text-[11px] text-text-muted">
-                Огноо = 1С-д тайлан бичсэн өдөр.{data.kpi.unconfirmedDocs > 0 ? " Нягтлан батлаагүй баримт ч орсон." : ""}
-              </p>
-            </>
-          ) : (
-            <p className="py-10 text-center text-sm text-text-muted">Энэ сард бэлэн бүтээгдэхүүний гарц бүртгэгдээгүй</p>
-          )}
-        </CardBody>
-      </Card>
-
-      {/* 7. Өртөг ба материал: «Дэлгэрэнгүй» (анхдагч хаалттай) */}
+      {/* Өртөг ба материал: «Дэлгэрэнгүй» (анхдагч хаалттай) */}
       <Card>
         <button
           type="button"
@@ -265,7 +161,7 @@ function ProductionPage() {
         >
           <ChevronRight aria-hidden className={cn("size-4 text-text-muted transition-transform", moreOpen && "rotate-90")} />
           Дэлгэрэнгүй
-          <span className="text-[11px] font-normal text-text-muted">· Өртөг ба материал{data ? ` · ${monthNo}` : ""}</span>
+          <span className="text-[11px] font-normal text-text-muted">· Өртөг ба материал · {monthNo}</span>
         </button>
         {moreOpen && (
           <CardBody className="space-y-4 border-t border-border">
