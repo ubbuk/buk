@@ -6,6 +6,8 @@
 //   npm run sync:1c -- receivables-odata [2026-10 | 2026-10-31] -> «Авлага» табын агшин зураг (OData Balance, ONEC_ODATA_*); сар өгвөл сарын эцэс/өнөөдөр
 //   npm run sync:1c -- snapshots               -> мониторингийн «1С · Санхүүгийн тойм»: өнөөдрийн мөнгөний үлдэгдэл (onec_cash_balance) + энэ сарын зарцуулалт (onec_usage_month)
 //   npm run sync:1c -- payroll                  -> «Цалин» табын сарын нийт дүн (onec_payroll_month): одоогийн + өмнөх сар (+ Postgres-д байхгүй сар), нийт 3 минутаас хэтрэхгүй. Зөвхөн байгууллагын нийт дүн, хүн/хэлтэс хадгалахгүй
+//   npm run sync:1c -- production-month         -> «Үйлдвэрлэл» табын агшин зураг (onec_production_line, onec_production_ledger): одоогийн сар (өнөөдөр багтсан) + өмнөх сар хаагдаагүй бол. Зөвхөн байгууллагын гарц, хүний мэдээлэл хадгалахгүй
+//   npm run sync:1c -- production-backfill 2026-01 2026-10 [--pause=15] [--force]  -> өмнөх саруудын үйлдвэрлэлийг дараалан нөхнө (татагдсан сарыг алгасна)
 //   npm run sync:1c -- closing                  -> 1-2-р сард өмнөх оны 12-р сарын (бааз, хаалтын засвар) борлуулалт, P&L, агуулах, авлага (ONEC_BASES шаардана)
 //   npm run sync:1c -- health                   -> одоогийн оны баазад сүүлийн 7 хоногт шинэ баримт орсон эсэх; хоцорсон бол ADMIN-д мэдэгдэл (exit 1)
 //   npm run sync:1c -- current                  -> энэ сарын борлуулалт + P&L
@@ -27,6 +29,7 @@ import { backfillExpenses } from "../lib/onec/expenses-backfill";
 import { backfillReceivables } from "../lib/onec/receivables-backfill";
 import { syncReceivablesSnapshotLocked } from "../lib/onec/receivables-store";
 import { syncPayroll } from "../lib/onec/payroll-store";
+import { backfillProduction, syncProduction } from "../lib/onec/production-store";
 import { syncSnapshots } from "../lib/onec/snapshots-store";
 import { describeRetention, runRetention } from "../lib/onec/retention";
 import { addMonths, currentMonth, isDate, isMonth, monthsBetween, syncMonth, syncReceivables, syncStock, today } from "../lib/onec/sync";
@@ -83,6 +86,28 @@ async function main() {
         process.exitCode = 1;
       }
     }
+    return;
+  }
+
+  if (mode === "production-month") {
+    // Сар бүр бие даасан: нэг нь унасан ч бусад үргэлжилнэ, алдаа onec_sync_log-д (ok=false); аль нэг унасан бол exit 1
+    for (const r of await syncProduction()) {
+      if (r.period === "stopped") console.warn(`[${r.kind}] ${r.message}`); // алдаа биш: дараагийн удаа үргэлжилнэ
+      else if (r.ok) console.log(`[${r.kind} ${r.period}] ${r.rows} мөр, ${r.message}`);
+      else {
+        console.error(`[${r.kind} ${r.period}] АЛДАА: ${r.message}`);
+        process.exitCode = 1;
+      }
+    }
+    return;
+  }
+
+  if (mode === "production-backfill") {
+    // Өнгөрсөн сар бүрийн үйлдвэрлэлийг дараалан, завсарлагатай нөхнө. --pause=<секунд> (анхдагч 15), --force
+    const pause = Number(flag("pause") ?? 15);
+    const r = await backfillProduction({ from: a ?? "", to: b ?? a ?? "", pauseSeconds: Number.isFinite(pause) ? pause : 15, force });
+    console.log(`[production-backfill] татсан ${r.done.length}, алгассан ${r.skipped.length}, алдаатай ${r.failed.length}`);
+    if (r.failed.length) process.exitCode = 1;
     return;
   }
 
@@ -151,7 +176,7 @@ async function main() {
   else if (mode === "range") {
     if (!isMonth(a) || !isMonth(b)) throw new Error("Жишээ: range 2026-01 2026-10");
     months = monthsBetween(a, b);
-  } else throw new Error(`Мэдэгдэхгүй горим: ${mode} (stock | receivables | receivables-odata | snapshots | payroll | closing | health | prune | import-materials | current | recent | range)`);
+  } else throw new Error(`Мэдэгдэхгүй горим: ${mode} (stock | receivables | receivables-odata | snapshots | payroll | production-month | production-backfill | closing | health | prune | import-materials | current | recent | range)`);
 
   let allOk = true;
   // 1С-д ачаалал өгөхгүйн тулд сар сараар дараалан татна

@@ -6,7 +6,7 @@
 export const FINANCE_ROLES: readonly string[] = ["ADMIN", "DIRECTOR", "CHIEF_ACCOUNTANT", "BOSS", "ENGINEERING"];
 export const STOREKEEPER_ROLE = "STOREKEEPER";
 
-export const FINANCE_TABS = ["stock", "sales", "usage", "receivables", "expenses", "cash"] as const;
+export const FINANCE_TABS = ["stock", "sales", "usage", "receivables", "expenses", "cash", "production"] as const;
 export type FinanceTab = (typeof FINANCE_TABS)[number];
 
 /** Нярав харах таб */
@@ -19,6 +19,7 @@ export const TAB_LABELS: Record<FinanceTab, string> = {
   receivables: "Авлага",
   expenses: "Зардал",
   cash: "Мөнгөн хөрөнгө",
+  production: "Үйлдвэрлэл",
 };
 
 export function canViewTab(role: string | undefined | null, tab: FinanceTab): boolean {

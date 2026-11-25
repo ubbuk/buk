@@ -85,6 +85,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/finance/receivables": "Авлага",
   "/finance/expenses": "Зардал",
   "/finance/cash": "Мөнгөн хөрөнгө",
+  "/finance/production": "Үйлдвэрлэл",
   "/archive": "Захиалгын архив",
   "/reports": "Тайлан",
   "/settings": "Тохиргоо",

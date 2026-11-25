@@ -5,6 +5,7 @@
 # Хуваарь нь UTC: Улаанбаатар = UTC+8.
 #   "*/15 1-11 * * 1-6" → 09:00–19:59 УБ, Даваа–Бямба: 15 минут тутам stock, receivables, current (sales, pl),
 #                          receivables-odata («Авлага» табын агшин зураг, OData Balance), snapshots (мониторингийн мөнгөний үлдэгдэл, сарын зарцуулалт). Мөнгөн хөрөнгө таб (cash) энд татагдахгүй: OData-аас шууд.
+#   (regular дотор) «Үйлдвэрлэл» табын агшин зураг: mode=production-month (одоогийн сар + хаагдаагүй өмнөх сар). Өмнөх саруудыг гараар mode=production-backfill (from, to).
 #   "10 4,11 * * 1-6"   → 12:10 ба 19:10 УБ, Даваа–Бямба: «Цалин» табын сарын нийт дүн (mode=payroll; одоогийн + өмнөх сар). Regular-аас тусдаа, дангаараа.
 #   "0 2 1-3 * *"       → сарын 1–3-ны 10:00 УБ: өмнөх сар + энэ сар (өмнөх сарыг эцэслэх)
 #   "30 17 * * *"       → өдөр бүр 01:30 УБ: prune (хуучин onec_stock snapshot, onec_sync_log цэвэрлэх; lib/onec/retention.ts). Анхдагч нь DRY-RUN:
@@ -29,9 +30,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
+        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудыг татах; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); production-month = «Үйлдвэрлэл» табын одоогийн сар (+ хаагдаагүй өмнөх сар); production-backfill = from..to саруудын үйлдвэрлэл (сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
         type: choice
-        options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, payroll, prune, import-materials]
+        options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, production-month, production-backfill, payroll, prune, import-materials]
         default: regular
       apply:
         description: "prune, import-materials: true бол үнэхээр устгана/бичнэ. Анхдагч (false) нь DRY-RUN: зөвхөн тайлан"
@@ -42,11 +43,11 @@ on:
         type: string
         required: false
       from:
-        description: "backfill, receivables-backfill, expenses-backfill: эхний сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill, production-backfill: эхний сар (YYYY-MM)"
         type: string
         required: false
       to:
-        description: "backfill, receivables-backfill, expenses-backfill: сүүлийн сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill, production-backfill: сүүлийн сар (YYYY-MM)"
         type: string
         required: false
 
@@ -144,6 +145,8 @@ jobs:
               if odata_ready; then run receivables-odata 900 npm run sync:1c -- receivables-odata; fi
               # Мониторингийн «1С · Санхүүгийн тойм»: мөнгөний үлдэгдэл, энэ сарын зарцуулалт (OData, зөвхөн унших). Хоёр алхам бие даасан.
               if odata_ready; then run snapshots 300 npm run sync:1c -- snapshots; fi
+              # «Үйлдвэрлэл» таб: одоогийн сар (өнөөдөр багтсан) + өмнөх сар хаагдаагүй бол (OData, зөвхөн унших; 1 сар ≈ 1 сек, ~200 бичилт)
+              if odata_ready; then run production-month 300 npm run sync:1c -- production-month; fi
               # «Цалин»-г энд ажиллуулахгүй: тусдаа хуваарьтай (mode=payroll, өдөрт 2 удаа), 1С-д ачаалал өгөхгүйн тулд бусад алхмаас тусад нь
               # 1-2-р сард өмнөх оны баазад хаалтын засвар орно: өмнөх оны 12-р сарыг мөн татна (бусад үед алгасна)
               run closing 1500 npm run sync:1c -- closing
@@ -158,6 +161,16 @@ jobs:
               # «Цалин» табын сарын нийт дүн (OData, зөвхөн унших; зөвхөн байгууллагын нийт, хүн/хэлтэс хадгалахгүй): одоогийн + өмнөх сар (+ байхгүй сар).
               # Өөр алхамгүй, дангаараа (concurrency: regular ажил дуусахыг хүлээнэ). Нийт 3 минутын дээд хязгаартай (lib/onec/payroll-store.ts), хэтэрвэл дараагийн удаа үргэлжилнэ.
               if odata_ready; then run payroll 240 npm run sync:1c -- payroll; fi
+              ;;
+            production-month)
+              if odata_ready; then run production-month 300 npm run sync:1c -- production-month; fi
+              ;;
+            production-backfill)
+              # Нэг удаагийн нөхөлт: өмнөх сар бүрийн үйлдвэрлэл. Сар бүр 1 татаалт, 15 сек завсарлагатай дараалан; татагдсан сарыг алгасна. Нэг удаад ≤ 24 сар.
+              if ! [[ "$INPUT_FROM" =~ $month_re && "$INPUT_TO" =~ $month_re ]]; then
+                echo "::error::production-backfill-д from, to нь YYYY-MM хэлбэртэй байх ёстой"; exit 1
+              fi
+              if odata_ready; then run "production-backfill $INPUT_FROM..$INPUT_TO" 1380 npm run sync:1c -- production-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15; fi
               ;;
             receivables)
               if ! [[ "$INPUT_MONTH" =~ $month_re ]]; then echo "::error::month нь YYYY-MM хэлбэртэй байх ёстой"; exit 1; fi
