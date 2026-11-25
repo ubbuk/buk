@@ -8,16 +8,15 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
 import { Amount } from "@/components/finance/cash/Amount";
-import { Bars, catDayBars, ConvDayLines, ConvProductLines, convSummary, catMonthBars, CatLegend, CatProductLines, catSummary, DayBar, dayBars, mnDate, num, ProductLines, qtyLine } from "@/components/finance/production/DirectorParts";
+import { Bars, ConvDayLines, ConvProductLines, convSummary, CatLegend, CatProductLines, catSummary, DayBar, mnDate, num, pct, ProductLegend, ProductLines, productDefectPct, productStackBars, productSummary, productTotals, shortUnit, singleProductBars, topProductNames, typesText, MAX_STACK, type ProductSeriesPoint } from "@/components/finance/production/DirectorParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
 import { resolveWorkshopParam } from "@/lib/onec/production-groups";
 import type { WorkshopView } from "@/lib/onec/production-view";
-import { unitName } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
 const mmdd = (day: string) => `${day.slice(5, 7)}-${day.slice(8, 10)}`;
-const pctText = (v: number) => `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v)}%`;
+const monthDay = (day: string) => `${Number(day.slice(5, 7))}-р сарын ${Number(day.slice(8, 10))}`;
 
 /** /finance/production/[цех]: цех бүрийн тусдаа хуудас (латин slug: tbhets, der, ...). Хуучин кирилл нэртэй URL slug руу шилжинэ. */
 function WorkshopPage() {
@@ -38,12 +37,42 @@ function WorkshopPage() {
   const { data, error } = useFinanceData<WorkshopView>(url);
   const setDay = useCallback((d: string | null) => router.replace(d ? `${pathname}?day=${d}` : pathname, { scroll: false }), [pathname, router]);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Графикт харуулах бүтээгдэхүүн (null = бүгдийг бүтээгдэхүүнээр давхарлана)
+  const [pick, setPick] = useState<string | null>(null);
+  useEffect(() => setPick(null), [ws?.slug]);
   const back = `/finance/production${dayParam ? `?day=${dayParam}` : ""}`;
   const card = data?.card ?? null;
   const unit = card?.unit ?? "";
   const title = data?.name ?? ws?.name ?? "Цех";
   const hasConv = !!card && (card.convMonth.fromDefect + card.convMonth.fromRepair > 0 || card.convDay.fromDefect + card.convDay.fromRepair > 0);
   const onDay = (d: string) => setDay(d === data?.latestDay ? null : d);
+
+  // Графикийн цуваа: өдөр бүр (сонгосон сар), сар бүр (сүүлийн 12 сар). Өнгө, сонголт хоёр графикт ижил байхын тулд нэг жагсаалтаас.
+  const daysSeries: ProductSeriesPoint[] = useMemo(() => {
+    if (!card) return [];
+    const by = new Map(card.monthDaysProducts.map((d) => [d.date, d.items]));
+    return card.monthDays.map((d) => ({ key: d.date, label: String(Number(d.date.slice(8, 10))), when: monthDay(d.date), items: by.get(d.date) ?? [] }));
+  }, [card]);
+  const monthsSeries: ProductSeriesPoint[] = useMemo(
+    () => (data?.monthsProducts ?? []).map((m) => ({ key: m.month, label: String(Number(m.month.slice(5, 7))), when: `${m.month.slice(0, 4)} оны ${Number(m.month.slice(5, 7))}-р сар`, items: m.items })),
+    [data?.monthsProducts]
+  );
+  // График бүр өөрийн цувааны хамгийн их бүтээгдэхүүнүүдийг (5 хүртэл) өнгөөр ялгана; үлдсэн нь «Бусад». Сонгосон бүтээгдэхүүн хоёр графикт нэг.
+  const dayNames = useMemo(() => topProductNames(daysSeries), [daysSeries]);
+  const monthNames = useMemo(() => topProductNames(monthsSeries), [monthsSeries]);
+  const distinct = (series: readonly ProductSeriesPoint[]) => new Set(series.flatMap((pt) => pt.items.map((p) => p.name))).size;
+  const dayKinds = useMemo(() => distinct(daysSeries), [daysSeries]);
+  const monthKinds = useMemo(() => distinct(monthsSeries), [monthsSeries]);
+  const allNames = useMemo(() => [...new Set([...dayNames, ...monthNames])], [dayNames, monthNames]);
+  // Нэг л бүтээгдэхүүнтэй цех: тэр бүтээгдэхүүнийг (бетон хийцийн цехэд Бэлэн/Засвар/Брак-аар) шууд харуулна
+  const only = dayKinds <= 1 && monthKinds <= 1 ? (allNames[0] ?? null) : null;
+  const shown = pick && allNames.includes(pick) ? pick : only;
+  const dayItems = shown ? singleProductBars(daysSeries, shown, !!card?.concrete, unit) : productStackBars(daysSeries, dayNames, unit);
+  const monthItems = shown ? singleProductBars(monthsSeries, shown, !!card?.concrete, unit) : productStackBars(monthsSeries, monthNames, unit);
+  const shownTotals = shown ? productTotals(monthsSeries, shown) : null;
+  const shownDefectPct = shownTotals && card?.concrete ? productDefectPct({ qty: shownTotals.ready, repair: shownTotals.repair, defect: shownTotals.defect }) : null;
+  const daySum = card ? productSummary(card.products) : null;
+  const monthSum = card ? productSummary(card.monthProducts) : null;
 
   return (
     <FinanceShell title={title} subtitle="Цехийн өдөр, сарын гарц" icon={Factory} lastSyncedAt={data?.lastSyncedAt} notice={data?.scopeNote ? <ErrorNote message={data.scopeNote} /> : undefined} hideYm>
@@ -73,15 +102,21 @@ function WorkshopPage() {
               {card.day.length > 0 ? (
                 <>
                   <div className="px-5 py-4">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      {card.day.map((qt) => (
-                        <span key={qt.unit} className="whitespace-nowrap">
-                          <span className="ng-num text-4xl font-semibold leading-none text-text">{num(qt.qty)}</span>
-                          <span className="ml-2 text-sm text-text-muted">{card.concrete ? `${unitName(qt.unit)} бэлэн` : unitName(qt.unit)}</span>
-                        </span>
-                      ))}
-                    </div>
-                    {card.dayCats && <p className="mt-2 text-sm text-text-muted">{catSummary(card.dayCats, card.defectPct)}</p>}
+                    {daySum?.kind === "single" ? (
+                      <>
+                        <p className="whitespace-nowrap">
+                          <span className="ng-num text-4xl font-semibold leading-none text-text">{num(daySum.product.qty)}</span>
+                          <span className="ml-2 text-sm text-text-muted">
+                            {shortUnit(daySum.product.unit)}
+                            {card.concrete ? " бэлэн" : ""}
+                          </span>
+                        </p>
+                        <p className="mt-1.5 text-sm text-text-muted">{daySum.product.name}</p>
+                        {card.dayCats && <p className="mt-1 text-sm text-text-muted">{catSummary(card.dayCats, card.defectPct)}</p>}
+                      </>
+                    ) : (
+                      <p className="text-3xl font-semibold leading-tight text-text">{typesText(card.products.length)}</p>
+                    )}
                     {card.lateDefectDay > 0 && <p className="mt-1 text-sm text-text-muted">Дараа нь брак болсон: {num(card.lateDefectDay)}</p>}
                   </div>
                   <div className="border-t border-border">{card.concrete ? <CatProductLines products={card.products} /> : <ProductLines products={card.products} />}</div>
@@ -100,59 +135,63 @@ function WorkshopPage() {
               )}
             </section>
 
-            {/* Энэ сар */}
+            {/* Энэ сар: бүтээгдэхүүний жагсаалт ДЭЭР, график доор */}
             <Card>
               <CardHeader>
                 <CardTitle>
-                  {Number(data.day.slice(5, 7))}-р сар · {card.concrete ? "бэлэн" : "нийт"} <span className="ng-num ml-1 text-text">{qtyLine(card.month)}</span>
+                  {Number(data.day.slice(5, 7))}-р сар ·{" "}
+                  {monthSum?.kind === "single" ? (
+                    <span className="ng-num ml-1 text-text">
+                      {monthSum.product.name} {num(monthSum.product.qty)} {shortUnit(monthSum.product.unit)}
+                    </span>
+                  ) : monthSum?.kind === "many" ? (
+                    <span className="ml-1 text-text">{typesText(monthSum.count)}</span>
+                  ) : (
+                    <span className="ml-1 text-text-muted">мэдээ ороогүй</span>
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardBody className="space-y-4">
-                {card.monthCats && (
+              {card.monthProducts.length > 0 && <div className="border-t border-border">{card.concrete ? <CatProductLines products={card.monthProducts} /> : <ProductLines products={card.monthProducts} />}</div>}
+              <CardBody className="space-y-3 border-t border-border">
+                {monthSum?.kind === "single" && card.monthCats && (
                   <p className="text-sm text-text-muted">
                     {catSummary(card.monthCats, card.monthDefectPct)}
                     {card.lateDefectMonth > 0 && <span> · Дараа нь брак болсон: {num(card.lateDefectMonth)}</span>}
                   </p>
                 )}
-                {card.monthQty > 0 || card.monthDaysCats.some((d) => d.repair + d.defect > 0) ? (
+                {monthSum?.kind === "many" && card.lateDefectMonth > 0 && <p className="text-sm text-text-muted">Дараа нь брак болсон: {num(card.lateDefectMonth)}</p>}
+                {daysSeries.some((pt) => pt.items.length > 0) ? (
                   <>
-                    {card.concrete && <CatLegend />}
-                    <Bars items={card.concrete ? catDayBars(card.monthDaysCats, unit) : dayBars(card.monthDays, unit)} selected={data.day} onSelect={onDay} height={120} />
-                    <p className="text-[11px] text-text-muted">Өдрийн баганыг дарвал тэр өдрийн гарц дээр гарна.</p>
+                    {dayKinds > 1 && <ProductLegend names={dayNames} hasOther={dayKinds > MAX_STACK} selected={shown} onSelect={setPick} />}
+                    {shown && card.concrete && <CatLegend />}
+                    <Bars items={dayItems} selected={data.day} onSelect={onDay} height={120} />
+                    <p className="text-[11px] text-text-muted">Өдрийн баганыг дарвал тэр өдрийн гарц дээр гарна.{dayKinds > 1 && !shown ? " Өнгө бүр нэг бүтээгдэхүүн." : ""}</p>
                   </>
                 ) : (
                   <p className="text-sm text-text-muted">{data.notLoaded ? "Энэ сарын мэдээ татагдаагүй байна" : "Энэ сард мэдээ ороогүй"}</p>
                 )}
               </CardBody>
-              {card.monthProducts.length > 0 && (
-                <div className="border-t border-border">
-                  <p className="px-4 pt-3 text-xs text-text-muted">Бүтээгдэхүүнээр</p>
-                  {card.concrete ? <CatProductLines products={card.monthProducts} /> : <ProductLines products={card.monthProducts} />}
-                </div>
-              )}
             </Card>
 
-            {/* Сүүлийн 12 сар (өнөөдрөөс хойш; сонгосон өдрөөс үл хамаарна) */}
+            {/* Сүүлийн 12 сар (өнөөдрөөс хойш; сонгосон өдрөөс үл хамаарна). Брак хувь зөвхөн сонгосон бүтээгдэхүүнээр */}
             <Card>
               <CardHeader>
                 <CardTitle>
-                  Сүүлийн 12 сар{unit ? ` · ${unitName(unit)}` : ""}
-                  {data.defectPct12 !== null && <span className="ml-2 text-xs font-normal text-text-muted">12 сарын брак {pctText(data.defectPct12)}</span>}
+                  Сүүлийн 12 сар{unit ? ` · ${shortUnit(unit)}` : ""}
+                  {shown && shownDefectPct !== null && (
+                    <span className="ml-2 text-xs font-normal text-text-muted">
+                      {shown}: 12 сарын брак {pct(shownDefectPct)}
+                    </span>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardBody className="space-y-3">
-                {data.monthsCats && data.monthsCats.some((m) => m.ready + m.repair + m.defect > 0) ? (
+                {monthsSeries.some((pt) => pt.items.length > 0) ? (
                   <>
-                    <CatLegend />
-                    <Bars items={catMonthBars(data.monthsCats, data.monthsUnit)} selected={data.day.slice(0, 7)} labelEvery={1} height={120} />
+                    {monthKinds > 1 && <ProductLegend names={monthNames} hasOther={monthKinds > MAX_STACK} selected={shown} onSelect={setPick} />}
+                    {shown && card.concrete && <CatLegend />}
+                    <Bars items={monthItems} selected={data.day.slice(0, 7)} labelEvery={1} height={120} />
                   </>
-                ) : data.months.some((m) => m.qty > 0) ? (
-                  <Bars
-                    items={data.months.map((m) => ({ key: m.month, label: String(Number(m.month.slice(5, 7))), value: m.qty, title: `${m.month.slice(0, 4)} оны ${Number(m.month.slice(5, 7))}-р сар: ${num(m.qty)} ${unitName(data.monthsUnit)}` }))}
-                    selected={data.day.slice(0, 7)}
-                    labelEvery={1}
-                    height={120}
-                  />
                 ) : (
                   <p className="text-sm text-text-muted">Сүүлийн 12 сард мэдээ ороогүй</p>
                 )}

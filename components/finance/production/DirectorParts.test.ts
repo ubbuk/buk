@@ -20,6 +20,7 @@ const card = (name: string, over: Partial<DirectorCard> = {}): DirectorCard => (
   monthCats: null,
   defectPct: null,
   monthDefectPct: null,
+  monthDaysProducts: [],
   lateDefectDay: 0,
   lateDefectMonth: 0,
   monthDaysCats: [],
