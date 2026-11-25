@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FileText, Search } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import { Amount } from "@/components/finance/cash/Amount";
 import { Qty, QtySum } from "@/components/finance/Qty";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -24,37 +24,73 @@ export function UnconfirmedBadge({ children = "Нягтлан батлаагүй
   );
 }
 
-/** Хамгийн доод түвшин: баримтын дугаар, огноо, цаг */
+/** «1С-д тайлан ороогүй»: шар = 3+ хоног тайлан ороогүй; улаан = мөн өмнөх сард гарцтай байсан */
+export function StaleBadge({ level }: { level: "warn" | "alert" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        level === "alert" ? "border-danger/50 bg-danger/10 text-danger" : "border-warning/40 bg-warning/10 text-warning"
+      )}
+      title={level === "alert" ? "Өмнөх сард гарцтай байсан цех, одоо тайлан ороогүй байна" : "Хэд хоног тайлан ороогүй байна"}
+    >
+      <AlertTriangle className="size-3" aria-hidden />1С-д тайлан ороогүй
+    </span>
+  );
+}
+
+/** «Сүүлийн тайлан: 10-29 (27 хоногийн өмнө)» */
+export function lastReportText(lr: { day: string; daysAgo: number } | null): string {
+  if (!lr) return "Сүүлийн тайлан: алга";
+  const ago = lr.daysAgo === 0 ? "өнөөдөр" : lr.daysAgo === 1 ? "өчигдөр" : `${lr.daysAgo} хоногийн өмнө`;
+  return `Сүүлийн тайлан: ${mmdd(lr.day)} (${ago})`;
+}
+
+/** Хамгийн доод түвшин: өдрөөр задарсан баримтууд (өдрийн нийт, дугаар, цаг) */
 function DocLines({ docs }: { docs: DocState | undefined }) {
   if (docs === "loading" || docs === undefined) return <Skeleton className="m-2 h-16" />;
   if (docs === "error") return <p className="px-3 py-3 text-xs text-danger">Баримтыг татаж чадсангүй</p>;
   if (docs.length === 0) return <p className="px-3 py-3 text-xs text-text-muted">Баримт олдсонгүй</p>;
+  const days: { day: string; unit: string; total: number; docs: DocLine[] }[] = [];
+  for (const d of docs) {
+    let g = days.find((x) => x.day === d.day);
+    if (!g) days.push((g = { day: d.day, unit: d.unit, total: 0, docs: [] }));
+    g.total += d.quantity;
+    g.docs.push(d);
+  }
   return (
-    <ul className="divide-y divide-border/60 text-xs">
-      {docs.map((d, i) => (
-        <li key={`${d.docNumber}|${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-          <span className="ng-num shrink-0 text-text-muted">
-            {mmdd(d.day)}
-            {d.time && <span className="ml-1.5">{d.time}</span>}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-text-muted max-sm:basis-full">{d.department}</span>
-          {d.repair && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">засвар</span>}
-          {!d.posted && <UnconfirmedBadge />}
-          <Qty qty={d.quantity} unit={d.unit} className="shrink-0 text-text" />
-          {/* 1С-ийн баримтын дугаар: зөвхөн хамгийн доод түвшинд */}
-          <span className="ng-num shrink-0 text-[11px] text-text-muted" title="Нягтланд бүртгэсэн баримтын дугаар">
-            Нягтланд: {d.docNumber}
-          </span>
-        </li>
+    <div className="text-xs">
+      {days.map((g) => (
+        <div key={g.day} className="border-b border-border/60 last:border-b-0">
+          <p className="flex items-center justify-between gap-3 bg-white/[0.02] px-3 py-1.5 font-medium text-text">
+            <span className="ng-num">{mmdd(g.day)}</span>
+            <Qty qty={Math.round(g.total * 1000) / 1000} unit={g.unit} className="text-text" />
+          </p>
+          <ul className="divide-y divide-border/40">
+            {g.docs.map((d, i) => (
+              <li key={`${d.docNumber}|${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 pl-6">
+                <span className="ng-num shrink-0 text-text-muted">{d.time || "—"}</span>
+                <span className="min-w-0 flex-1 truncate text-text-muted max-sm:basis-full">{d.department}</span>
+                {d.repair && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">засвар</span>}
+                {!d.posted && <UnconfirmedBadge />}
+                <Qty qty={d.quantity} unit={d.unit} className="shrink-0 text-text" />
+                {/* 1С-ийн баримтын дугаар: зөвхөн хамгийн доод түвшинд */}
+                <span className="ng-num shrink-0 text-[11px] text-text-muted" title="Нягтланд бүртгэсэн баримтын дугаар">
+                  Нягтланд: {d.docNumber}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
-/** Бүтээгдэхүүн бүр мөр + зурвас + тоо. Мөрийг дарвал тэр бүтээгдэхүүний баримтууд (дугаар, огноо, цаг). */
-export function ProductRows({ products, costClosed = false, getDocs, onOpen }: { products: ProductRow[]; costClosed?: boolean; getDocs: (id: string) => DocState | undefined; onOpen: (id: string) => void }) {
+/** Бүтээгдэхүүн бүр мөр + зурвас + тоо. Мөрийг дарвал өдрөөр задарна (өдөр бүрийн тоо, баримтын дугаар, цаг). */
+export function ProductRows({ products, getDocs, onOpen }: { products: ProductRow[]; getDocs: (id: string) => DocState | undefined; onOpen: (id: string) => void }) {
   const [open, setOpen] = useState<string | null>(null);
-  const max = Math.max(1, ...products.filter((p) => !p.defect && p.stage !== "semi").map((p) => p.qty));
+  const max = Math.max(1, ...products.filter((p) => !p.defect).map((p) => p.qty));
   return (
     <ul className="divide-y divide-border">
       {products.map((p) => {
@@ -78,15 +114,15 @@ export function ProductRows({ products, costClosed = false, getDocs, onOpen }: {
                   {p.repairQty > 0 && <span className="shrink-0 text-[11px] text-text-muted">үүнээс засвар {fmt(p.repairQty)}</span>}
                   {p.unconfirmedQty > 0 && <UnconfirmedBadge>Нягтлан батлаагүй {fmt(p.unconfirmedQty)}</UnconfirmedBadge>}
                 </span>
-                {!p.defect && p.stage !== "semi" && (
+                {!p.defect && (
                   <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-white/5" aria-hidden>
-                    <span className={cn("block h-full rounded-full", p.stage === "crusher" ? "bg-[#60a5fa]" : "bg-[linear-gradient(90deg,#f5b523,#ffd56b)]")} style={{ width: `${Math.max(2, (p.qty / max) * 100)}%` }} />
+                    <span className={cn("block h-full rounded-full", p.stage === "crusher" ? "bg-[#60a5fa]" : p.stage === "semi" ? "bg-[#a78bfa]" : "bg-[linear-gradient(90deg,#f5b523,#ffd56b)]")} style={{ width: `${Math.max(2, (p.qty / max) * 100)}%` }} />
                   </span>
                 )}
               </span>
               <span className="flex shrink-0 flex-col items-end gap-0.5 max-sm:ml-7 max-sm:w-[calc(100%-2rem)] max-sm:flex-row max-sm:items-center max-sm:justify-between">
                 <Qty qty={p.qty} unit={p.unit} className={cn("text-sm font-semibold", p.defect ? "text-danger" : "text-text")} />
-                {costClosed && p.cost && (
+                {p.cost && (
                   <span className="text-[11px] text-text-muted">
                     <Amount value={p.cost.amount} /> · нэгж <Amount value={p.cost.unitCost} />
                   </span>
@@ -96,7 +132,7 @@ export function ProductRows({ products, costClosed = false, getDocs, onOpen }: {
             {isOpen && (
               <div className="border-t border-border/60 bg-black/10 pb-1 pl-8">
                 <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-text-muted">
-                  <FileText className="size-3.5 text-[#ffd56b]" aria-hidden /> Энэ бүтээгдэхүүний баримтууд
+                  <FileText className="size-3.5 text-[#ffd56b]" aria-hidden /> Өдрөөр, баримтаар
                 </p>
                 <DocLines docs={getDocs(p.id)} />
               </div>
@@ -108,67 +144,63 @@ export function ProductRows({ products, costClosed = false, getDocs, onOpen }: {
   );
 }
 
-/** Цех бүр нэг карт: гарчигт нэр + сонгосон хугацаа, баруун дээд буланд «Өнөөдөр · Сар», доор бүтээгдэхүүн бүр. Дэд хэлтсүүд эх цехийнхээ картанд. */
-export function ProductionCardView({ card, label, getDocs, onOpen }: { card: ProductionCard; label: string; getDocs: (id: string) => DocState | undefined; onOpen: (id: string) => void }) {
+function Stat({ label, quantities }: { label: string; quantities: ProductionCard["month"] }) {
   return (
-    <section className="rounded-xl border border-border bg-bg-surface shadow-card" aria-label={card.name}>
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-border p-4">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-text">
-            {card.name} <span className="ng-num ml-1 text-[11px] font-normal text-text-muted">· {label}</span>
-          </h3>
-          {card.subDepartments.length > 0 && <p className="mt-1 text-[11px] leading-snug text-text-muted">{card.subDepartments.join(" · ")}</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-          {card.unconfirmedDocs > 0 && <UnconfirmedBadge>{card.unconfirmedDocs} баримт батлаагүй</UnconfirmedBadge>}
-          <span>
-            Өнөөдөр <QtySum quantities={card.today} className="font-semibold text-text" />
-          </span>
-          <span>
-            Сар <QtySum quantities={card.month} className="font-semibold text-text" />
-          </span>
-        </div>
-      </header>
-      {card.empty ? <p className="px-4 py-3 text-[11px] text-text-muted">— үйлдвэрлэлгүй</p> : <ProductRows products={card.products} getDocs={getDocs} onOpen={onOpen} />}
-    </section>
+    <div className="min-w-0">
+      <p className="text-[11px] text-text-muted">{label}</p>
+      <QtySum quantities={quantities} className="mt-0.5 block truncate text-sm font-semibold text-text" />
+    </div>
   );
 }
 
-/** Бүтээгдэхүүнээр нэгдсэн жагсаалт: хайлттай, хагас боловсруулсан нь нуугдсан */
-export function ProductList({ products, costClosed, getDocs, onOpen }: { products: ProductRow[]; costClosed: boolean; getDocs: (id: string) => DocState | undefined; onOpen: (id: string) => void }) {
-  const [q, setQ] = useState("");
-  const [showSemi, setShowSemi] = useState(false);
-  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const list = useMemo(() => products.filter((p) => words.every((w) => p.name.toLowerCase().includes(w))), [products, q]); // eslint-disable-line react-hooks/exhaustive-deps
-  const semiCount = list.filter((p) => p.stage === "semi").length;
-  const shown = list.filter((p) => p.stage !== "semi" || showSemi || words.length > 0);
-
+/** Цех бүр нэг карт: энэ сар, сүүлийн 7 хоног, сүүлийн тайлан, хоцролтын тэмдэг. Дарвал тэр цехээр шүүгдэнэ (12 сарын график). */
+export function ProductionCardView({ card, selected, onSelect }: { card: ProductionCard; selected: boolean; onSelect: () => void }) {
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-end gap-3 border-b border-border p-4">
-        <label className="relative block min-w-0 flex-1 basis-60 sm:max-w-sm">
-          <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Бүтээгдэхүүний нэр хайх"
-            aria-label="Бүтээгдэхүүн хайх"
-            className="focus-ring h-11 w-full rounded-xl border border-border bg-bg-elevated pl-10 pr-3 text-sm text-text placeholder:text-text-muted"
-          />
-        </label>
-      </div>
-      {shown.length === 0 && semiCount === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-text-muted">{products.length ? "Хайлтад тохирох бүтээгдэхүүн олдсонгүй" : "Сонгосон хугацаанд гарц бүртгэгдээгүй"}</p>
-      ) : (
-        <ProductRows products={shown} costClosed={costClosed} getDocs={getDocs} onOpen={onOpen} />
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      aria-label={card.name}
+      className={cn(
+        "focus-ring flex min-w-0 flex-col gap-3 rounded-xl border bg-bg-surface p-4 text-left shadow-card transition-colors hover:bg-white/[0.03]",
+        selected ? "border-[rgba(255,213,107,0.7)] shadow-[0_0_0_1px_rgba(255,213,107,0.45)_inset]" : card.stale === "alert" ? "border-danger/50" : "border-border"
       )}
-      {semiCount > 0 && words.length === 0 && (
-        <button type="button" onClick={() => setShowSemi((v) => !v)} aria-expanded={showSemi} className="focus-ring flex min-h-11 w-full items-center gap-2 border-t border-border px-4 text-xs text-text-muted hover:text-text">
-          <ChevronRight aria-hidden className={cn("size-4 transition-transform", showSemi && "rotate-90")} />
-          {showSemi ? "Хагас боловсруулсанг нуух" : `Хагас боловсруулсан (${semiCount}) харуулах`}
-        </button>
-      )}
+    >
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-sm font-semibold text-text">{card.name}</span>
+        {card.semi && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">хагас боловсруулсан</span>}
+        {card.unconfigured && <UnconfirmedBadge>Тохиргоогүй хэлтэс</UnconfirmedBadge>}
+        {card.stale && <StaleBadge level={card.stale} />}
+      </span>
+      {card.unconfigured && <span className="text-[11px] leading-snug text-text-muted">{card.departments.join(" · ")}</span>}
+      <span className="grid grid-cols-2 gap-3">
+        <Stat label="Энэ сар" quantities={card.month} />
+        <Stat label="Сүүлийн 7 хоног" quantities={card.week} />
+      </span>
+      <span className={cn("text-[11px]", card.stale === "alert" ? "text-danger" : card.stale === "warn" ? "text-warning" : "text-text-muted")}>{lastReportText(card.lastReport)}</span>
+    </button>
+  );
+}
+
+/** Гол хүснэгт: цех бүрийн хэсэг, дотор нь бүтээгдэхүүн × тоо × нэгж; мөрийг дарвал өдрөөр задарна */
+export function ProductTable({ cards, getDocs, onOpen }: { cards: ProductionCard[]; getDocs: (card: string, id: string) => DocState | undefined; onOpen: (card: string, id: string) => void }) {
+  const shown = cards.filter((c) => !c.empty);
+  if (shown.length === 0) return <p className="px-4 py-10 text-center text-sm text-text-muted">Сонгосон хугацаанд гарц бүртгэгдээгүй</p>;
+  return (
+    <div className="divide-y divide-border">
+      {shown.map((c) => (
+        <section key={c.name} aria-label={c.name}>
+          <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-white/[0.02] px-4 py-2.5">
+            <h4 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-text">
+              {c.name}
+              {c.semi && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal text-text-muted">хагас боловсруулсан</span>}
+              {c.unconfirmedDocs > 0 && <UnconfirmedBadge>{c.unconfirmedDocs} баримт батлаагүй</UnconfirmedBadge>}
+            </h4>
+            <QtySum quantities={c.period} className="text-sm font-semibold text-text" />
+          </header>
+          <ProductRows products={c.products} getDocs={(id) => getDocs(c.name, id)} onOpen={(id) => onOpen(c.name, id)} />
+        </section>
+      ))}
     </div>
   );
 }

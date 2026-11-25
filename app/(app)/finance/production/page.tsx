@@ -2,22 +2,23 @@
 
 import { Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarClock, ChevronRight, Coins, Factory, Layers, PackageCheck, ShieldAlert, Wrench } from "lucide-react";
+import { AlertTriangle, CalendarClock, Coins, Factory, Layers, PackageCheck, ShieldAlert, Wrench } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { DailyBarChart } from "@/components/finance/DailyBarChart";
 import { ErrorNote, FinanceShell, connectionFrom } from "@/components/finance/FinanceShell";
 import { FinanceKpi as KpiCard } from "@/components/finance/NgParts";
 import { Amount } from "@/components/finance/cash/Amount";
-import { ProductionCardView, ProductList, RangeBar, type DocState } from "@/components/finance/production/ProductionParts";
+import { ProductionCardView, ProductTable, RangeBar, type DocState } from "@/components/finance/production/ProductionParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate } from "@/lib/onec/dates";
 import { rangeLabel, type DateRange } from "@/lib/onec/production-range";
 import type { ProductionView } from "@/lib/onec/production-view";
-import { cn } from "@/lib/utils";
 import { formatQuantities, formatQuantity } from "@/lib/units";
 
 const MN_DAY = (date: string) => `${date.slice(0, 4)} оны ${Number(date.slice(5, 7))}-р сарын ${Number(date.slice(8, 10))}`;
+const MN_MONTH = (m: string) => `${m.slice(0, 4)} оны ${Number(m.slice(5, 7))}-р сар`;
+const axis = (v: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v);
 
 function ProductionPage() {
   const sp = useSearchParams();
@@ -27,7 +28,7 @@ function ProductionPage() {
   const to = sp.get("to");
   const dept = sp.get("dept");
 
-  // URL: ?from=&to=&dept=. Хугацаа өгөөгүй бол сервер хамгийн сүүлд үйлдвэрлэлтэй өдрийг сонгоно.
+  // URL: ?from=&to=&dept=. Хугацаа өгөөгүй бол «Энэ сар» (сарын 1-ээс өнөөдөр).
   const url = useMemo(() => {
     const q = new URLSearchParams();
     if (isDate(from) && isDate(to)) {
@@ -57,18 +58,17 @@ function ProductionPage() {
 
   // Баримтыг мөрийг нээхэд л (нэг удаа) татна: баримтын дугаар, цаг зөвхөн хамгийн доод drill-down-д
   const [docs, setDocs] = useState<Record<string, DocState>>({});
-  const period = data?.period;
-  const docKey = (group: string | null, id: string) => `${period?.from}|${period?.to}|${group ?? ""}|${id}`;
   const asked = useRef(new Set<string>());
+  const period = data?.period;
+  const docKey = (card: string, id: string) => `${period?.from}|${period?.to}|${card}|${id}`;
   const openDocs = useCallback(
-    (group: string | null, id: string) => {
+    (card: string, id: string) => {
       if (!period) return;
-      const key = `${period.from}|${period.to}|${group ?? ""}|${id}`;
+      const key = `${period.from}|${period.to}|${card}|${id}`;
       if (asked.current.has(key)) return;
       asked.current.add(key);
       setDocs((d) => ({ ...d, [key]: "loading" }));
-      const q = new URLSearchParams({ from: period.from, to: period.to, id });
-      if (group) q.set("group", group);
+      const q = new URLSearchParams({ from: period.from, to: period.to, id, group: card });
       fetch(`/api/dashboard/production/docs?${q}`)
         .then(async (r) => (r.ok ? ((await r.json()) as { docs: DocState }).docs : Promise.reject(new Error(String(r.status)))))
         .then((rows) => setDocs((x) => ({ ...x, [key]: rows })))
@@ -80,16 +80,17 @@ function ProductionPage() {
     [period]
   );
 
-  const [listOpen, setListOpen] = useState(false);
   const label = period ? rangeLabel(period) : "";
   const chartUnit = data?.chart?.unit ?? "";
-  const unitFmt = (v: number) => formatQuantity(v, chartUnit).short;
   const monthNo = data ? `${Number(data.month.slice(5, 7))}-р сар` : "";
+  const kpi = data?.kpi;
+  const defectShown = kpi?.defectPct != null;
+  const tableCards = data ? (data.group ? data.cards.filter((c) => c.name === data.group) : data.cards) : [];
 
   return (
     <FinanceShell
       title="Үйлдвэрлэл"
-      subtitle="Цех бүр хэдийг үйлдвэрлэв: өдөр, долоо хоног, сараар. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
+      subtitle="Цех бүр хэдийг үйлдвэрлэв: сар, долоо хоног, өдөр. Өгөгдөл 15 минут тутам шинэчлэгдэнэ"
       icon={Factory}
       lastSyncedAt={data?.lastSyncedAt}
       connection={connectionFrom(data?.lastSyncedAt)}
@@ -104,92 +105,138 @@ function ProductionPage() {
         <Skeleton className="h-10 w-full max-w-xl rounded-xl" />
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {!data ? (
-          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
-        ) : (
-          <>
-            <KpiCard
-              featured
-              label="Өнөөдөр"
-              value={formatQuantities(data.kpi.today).short}
-              valueText={formatQuantities(data.kpi.today).short.padEnd(14)}
-              icon={PackageCheck}
-              tone="accent"
-              hint={MN_DAY(data.todayDate)}
-            />
-            <KpiCard
-              spark={data.chart?.days.map((d) => d.confirmed + d.unconfirmed)}
-              label={`Нийт гарц · ${label}`}
-              value={formatQuantities(data.kpi.month).short}
-              valueText={formatQuantities(data.kpi.month).short.padEnd(14)}
-              icon={Layers}
-              tone="accent"
-              hint="Бэлэн бүтээгдэхүүн, бракгүй"
-            />
-            <KpiCard label="Бүтээгдэхүүний төрөл" value={String(data.kpi.productTypes)} icon={Wrench} hint="Нэр төрөл (засвар нэгтгэсэн)" />
-            <KpiCard
-              label="Брак хувь"
-              value={data.kpi.defectPct === null ? "—" : `${data.kpi.defectPct.toFixed(1)}%`}
-              icon={ShieldAlert}
-              tone={data.kpi.defectPct !== null && data.kpi.defectPct >= 3 ? "danger" : "neutral"}
-              hint={data.kpi.defectPct === null ? "Брак бүртгэгдээгүй" : `Брак ${formatQuantities(data.kpi.defect).short}`}
-            />
-            <KpiCard
-              label="Нягтлан батлаагүй"
-              value={`${data.kpi.unconfirmedDocs} баримт`}
-              icon={AlertTriangle}
-              tone={data.kpi.unconfirmedDocs > 0 ? "warning" : "success"}
-              hint={data.kpi.unconfirmedDocs > 0 ? `${formatQuantities(data.kpi.unconfirmed).short} нийт дүнд орсон` : "Бүх баримт батлагдсан"}
-            />
-          </>
-        )}
-      </div>
-
-      {/* Цех бүр нэг карт */}
+      {/* Хоосон («—», 0) KPI картыг нууна */}
       {!data ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-56 rounded-xl" />
-          <Skeleton className="h-56 rounded-xl" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-2xl" />
+          ))}
+        </div>
+      ) : (
+        kpi &&
+        (() => {
+          const items: React.ReactNode[] = [];
+          const featured = () => items.length === 0;
+          if (kpi.today.length > 0)
+            items.push(<KpiCard key="today" featured={featured()} label="Өнөөдөр" value={formatQuantities(kpi.today).short} valueText={formatQuantities(kpi.today).short.padEnd(14)} icon={PackageCheck} tone="accent" hint={MN_DAY(data.todayDate)} />);
+          if (kpi.month.length > 0)
+            items.push(
+              <KpiCard
+                key="total"
+                featured={featured()}
+                spark={data.chart?.days.map((d) => d.confirmed + d.unconfirmed)}
+                label={`Нийт гарц · ${label}`}
+                value={formatQuantities(kpi.month).short}
+                valueText={formatQuantities(kpi.month).short.padEnd(14)}
+                icon={Layers}
+                tone="accent"
+                hint="Бэлэн бүтээгдэхүүн, бракгүй"
+              />
+            );
+          if (kpi.productTypes > 0) items.push(<KpiCard key="types" featured={featured()} label="Бүтээгдэхүүний төрөл" value={String(kpi.productTypes)} icon={Wrench} hint="Нэр төрөл (засвар нэгтгэсэн)" />);
+          if (defectShown)
+            items.push(<KpiCard key="defect" featured={featured()} label="Брак хувь" value={`${kpi.defectPct!.toFixed(1)}%`} icon={ShieldAlert} tone={kpi.defectPct! >= 3 ? "danger" : "neutral"} hint={`Брак ${formatQuantities(kpi.defect).short}`} />);
+          if (kpi.unconfirmedDocs > 0)
+            items.push(<KpiCard key="unc" featured={featured()} label="Нягтлан батлаагүй" value={`${kpi.unconfirmedDocs} баримт`} icon={AlertTriangle} tone="warning" hint={`${formatQuantities(kpi.unconfirmed).short} нийт дүнд орсон`} />);
+          return items.length ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">{items}</div> : null;
+        })()
+      )}
+
+      {/* Цех бүр нэг карт (тохиргооны дагуу). Дарвал тэр цехээр шүүгдэнэ. */}
+      {!data ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-36 rounded-xl" />
+          ))}
         </div>
       ) : data.cards.length === 0 ? (
         <Card>
           <CardBody className="py-10 text-center text-sm text-text-muted">{data.scopeNote ? "Харуулах цех алга" : "Үйлдвэрлэлийн баримт татагдаагүй байна. Өгөгдөл 15 минут тутам автоматаар шинэчлэгдэнэ."}</CardBody>
         </Card>
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {data.cards.map((c) => (
-            <ProductionCardView key={c.name} card={c} label={label} getDocs={(id) => docs[docKey(c.name, id)]} onOpen={(id) => openDocs(c.name, id)} />
+            <ProductionCardView key={c.name} card={c} selected={data.group === c.name} onSelect={() => update({ dept: data.group === c.name ? null : c.name })} />
           ))}
         </div>
       )}
 
+      {/* Гол хүснэгт: бүтээгдэхүүн × цех */}
       <Card>
         <CardHeader>
-          <CardTitle>Өдөр бүрийн гарц{chartUnit ? ` · ${formatQuantity(1, chartUnit).short.replace(/^1 /, "")}` : ""}{data ? ` · ${monthNo}` : ""}</CardTitle>
+          <CardTitle>
+            Бүтээгдэхүүн × цех{data ? ` · ${label}` : ""}
+            {data?.group ? ` · ${data.group}` : ""}
+          </CardTitle>
+          <span className="text-[11px] text-text-muted">Мөрийг дарвал өдрөөр задарна</span>
+        </CardHeader>
+        {!data ? <Skeleton className="m-4 h-64" /> : <ProductTable cards={tableCards} getDocs={(c, id) => docs[docKey(c, id)]} onOpen={openDocs} />}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Өдөр бүрийн гарц{chartUnit ? ` · ${formatQuantity(1, chartUnit).short.replace(/^1 /, "")}` : ""}
+            {data ? ` · ${monthNo}` : ""}
+            {data?.group ? ` · ${data.group}` : ""}
+          </CardTitle>
           <span className="text-[11px] text-text-muted">Сонгосон өдөр алтан хүрээтэй</span>
         </CardHeader>
-        <CardBody>
+        <CardBody className="space-y-2">
           {!data ? (
             <Skeleton className="h-56" />
           ) : data.chart ? (
-            <DailyBarChart
-              data={data.chart.days.map((d) => ({ date: d.date, confirmed: d.confirmed, unconfirmed: d.unconfirmed }))}
-              series={[
-                { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
-                { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
-              ]}
-              label={(d) => String(Number(d.slice(8, 10)))}
-              tooltipTitle={MN_DAY}
-              valueFormat={unitFmt}
-              axisFormat={(v) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v)}
-              highlightDate={data.period.to}
-            />
+            <>
+              <DailyBarChart
+                data={data.chart.days.map((d) => ({ date: d.date, confirmed: d.confirmed, unconfirmed: d.unconfirmed }))}
+                series={[
+                  { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
+                  { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
+                ]}
+                label={(d) => String(Number(d.slice(8, 10)))}
+                tooltipTitle={MN_DAY}
+                valueFormat={(v) => formatQuantity(v, chartUnit).short}
+                axisFormat={axis}
+                highlightDate={data.period.to}
+              />
+              <p className="text-[11px] text-text-muted">Огноо = 1С-д тайлан бичсэн өдөр.</p>
+            </>
           ) : (
             <p className="py-10 text-center text-sm text-text-muted">Энэ сард бэлэн бүтээгдэхүүний гарц бүртгэгдээгүй</p>
           )}
         </CardBody>
       </Card>
+
+      {/* Цех сонгоход: сүүлийн 12 сарын гарц */}
+      {data?.group && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Сүүлийн 12 сарын гарц · {data.group}</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-2">
+            {data.monthly ? (
+              <>
+                <DailyBarChart
+                  data={data.monthly.months.map((m) => ({ date: m.month, confirmed: m.confirmed, unconfirmed: m.unconfirmed }))}
+                  series={[
+                    { key: "confirmed", label: "Батлагдсан", color: "rgb(var(--color-accent))" },
+                    { key: "unconfirmed", label: "Нягтлан батлаагүй", color: "#fb923c" },
+                  ]}
+                  label={(m) => `${m.slice(2, 4)}.${m.slice(5, 7)}`}
+                  tooltipTitle={MN_MONTH}
+                  unit="сараар"
+                  valueFormat={(v) => formatQuantity(v, data.monthly!.unit).short}
+                  axisFormat={axis}
+                  highlightDate={data.month}
+                />
+                <p className="text-[11px] text-text-muted">Огноо = 1С-д тайлан бичсэн өдөр (сар нь тайлангийн өдрийн сар). Татагдаагүй сар хоосон харагдана.</p>
+              </>
+            ) : (
+              <p className="py-10 text-center text-sm text-text-muted">Сүүлийн 12 сард энэ цехийн гарц бүртгэгдээгүй</p>
+            )}
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -239,21 +286,6 @@ function ProductionPage() {
             </>
           )}
         </CardBody>
-      </Card>
-
-      {/* Нэгдсэн жагсаалт: доор, хураасан */}
-      <Card>
-        <button
-          type="button"
-          aria-expanded={listOpen}
-          onClick={() => setListOpen((v) => !v)}
-          className="focus-ring flex min-h-14 w-full items-center gap-2 px-5 py-3 text-left text-sm font-semibold text-text hover:bg-white/[0.03]"
-        >
-          <ChevronRight aria-hidden className={cn("size-4 text-text-muted transition-transform", listOpen && "rotate-90")} />
-          Бүтээгдэхүүнээр нэгдсэн жагсаалт
-          {data && <span className="text-[11px] font-normal text-text-muted">· {data.products.length} · {label}</span>}
-        </button>
-        {listOpen && data && <ProductList products={data.products} costClosed={data.cost.closed} getDocs={(id) => docs[docKey(data.group, id)]} onOpen={(id) => openDocs(data.group, id)} />}
       </Card>
     </FinanceShell>
   );
