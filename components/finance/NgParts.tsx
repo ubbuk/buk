@@ -61,6 +61,13 @@ const TONE_ICON: Record<string, string> = {
  * KPI карт. `featured`: алтан хүрээтэй гол карт (дотор нь `spark` хуримтлагдсан дүнгийн sparkline); бусад нь хөх, баруун доод буланд
  * бүдэг outline дүрс. `delta`-г зөвхөн бодит харьцуулах өгөгдөлтэй үед өгнө.
  */
+/** Картын тооны хэмжээ: утсан дээр (≥140px өргөн) «8.15 тэрбум₮» зэрэг урт дүн тасрахгүй багтана; өргөн дэлгэц дээр хуучин хэмжээ. */
+export function kpiValueSize(len: number): string {
+  if (len > 13) return "text-[13px] sm:text-[19px]";
+  if (len > 8) return "text-[15px] sm:text-[25px]";
+  return "text-lg sm:text-[25px]";
+}
+
 export function FinanceKpi({
   label,
   value,
@@ -113,7 +120,7 @@ export function FinanceKpi({
         </div>
         <div className="min-w-0">
           <p className="line-clamp-2 text-xs font-medium leading-tight text-text-muted">{label}</p>
-          <p className={cn("ng-num mt-1 break-all font-semibold leading-tight", (valueText ?? String(value)).length > 13 ? "text-sm sm:text-[19px]" : "text-lg sm:text-[25px]", featured ? "ng-gold-text" : "text-text")}>{value}</p>
+          <p className={cn("ng-num mt-1 break-all font-semibold leading-tight", kpiValueSize((valueText ?? String(value)).length), featured ? "ng-gold-text" : "text-text")}>{value}</p>
         </div>
       </div>
       <div className="relative mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1">

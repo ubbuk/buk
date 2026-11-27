@@ -248,6 +248,9 @@
   background-size: 26px 26px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.25) 70%, rgba(0, 0, 0, 0.7));
 }
+/* Утас: grid-ийн нүд агуулгынхаа өргөнөөр томрохгүй (карт, мөрийн дүн баруун ирмэгээс тасрахаас сэргийлнэ) */
+.ng .grid > *,
+.ng .flex > .flex-1 { min-width: 0; }
 .ng-num {
   font-family: var(--font-mono-num), ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-variant-numeric: tabular-nums;

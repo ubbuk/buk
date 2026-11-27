@@ -115,7 +115,7 @@ export function OnecBrowser() {
   };
 
   return (
-    <div className="mx-auto grid max-w-[1600px] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className="mx-auto grid max-w-[1600px] grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <Card className="h-fit lg:sticky lg:top-4">
         <div className="space-y-3 p-3">
           <div className="relative">
