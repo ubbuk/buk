@@ -35,6 +35,7 @@ export const matchesTokens = (name: string, tokens: readonly string[]): boolean 
 };
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 const KEY_SEP = "|";
 /** Бүтээгдэхүүний тулгуур: үндсэн нэр (Зас/Брак-гүй, жигдэрсэн) + нэгж */
 const keyOf = (name: string, unit: string): string => `${compactText(splitProductName(name).base)}${KEY_SEP}${unitName(unit)}`;
@@ -44,6 +45,8 @@ export interface SaleQty {
   item: string;
   unit: string;
   qty: number;
+  /** борлуулалтын дүн, ₮, НӨАТ-гүй (onec_sales.amount: Борлуулалт табын «Орлого»-той ижил; буцаалт сөрөг). Байхгүй бол 0 */
+  amount?: number;
 }
 export interface StockQty {
   item: string;
@@ -69,6 +72,10 @@ export interface ProductWorkshop {
   slug: string;
   qty: number;
 }
+export interface SoldVariant {
+  qty: number;
+  amount: number;
+}
 export interface ProductCard {
   id: string;
   name: string;
@@ -78,6 +85,11 @@ export interface ProductCard {
   defect: number;
   /** null = энэ хэрэглэгчид харагдахгүй (цехийн эрхтэй хэрэглэгч) */
   sold: number | null;
+  /** сонгосон хугацаанд зарсан дүн, ₮, НӨАТ-гүй (нэгж харгалзахгүй) */
+  soldAmount: number | null;
+  /** «… Брак», «… Зас» нэртэй борлуулалт: үндсэн «зарсан» тоо, дүнд НЭМЭГДЭХГҮЙ, тусад нь (>0 бол) */
+  soldDefect: SoldVariant | null;
+  soldRepair: SoldVariant | null;
   stock: number | null;
   /** агуулах бүрийн үлдэгдэл (0-ээс ялгаатай, их нь эхэнд); нэг агуулах бол хоосон */
   warehouses: { name: string; qty: number }[];
@@ -110,7 +122,8 @@ export interface ProductSearchView {
   products: ProductCard[];
   truncated: boolean;
   /** хайлтгүй үед: хамгийн их үйлдвэрлэсэн, зарсан */
-  top: { produced: ProductCard[]; sold: ProductCard[] } | null;
+  /** хайлтгүй үед: хамгийн их үйлдвэрлэсэн 10 (ширхгээр), хамгийн их зарсан 10 — дүнгээр (бүх бүтээгдэхүүн, нэгж харгалзахгүй) ба тоогоор (ширхэг) */
+  top: { produced: ProductCard[]; soldByAmount: ProductCard[]; soldByQty: ProductCard[] } | null;
   detail: ProductDetail | null;
   showSales: boolean;
 }
@@ -124,6 +137,9 @@ interface Ent {
   repair: number;
   defect: number;
   sold: number;
+  soldAmount: number;
+  soldDefect: SoldVariant;
+  soldRepair: SoldVariant;
   stock: number;
   hasStock: boolean;
   byWarehouse: Map<string, number>;
@@ -171,6 +187,9 @@ const emptyEnt = (id: string, name: string, unit: string): Ent => ({
   repair: 0,
   defect: 0,
   sold: 0,
+  soldAmount: 0,
+  soldDefect: { qty: 0, amount: 0 },
+  soldRepair: { qty: 0, amount: 0 },
   stock: 0,
   hasStock: false,
   byWarehouse: new Map(),
@@ -249,10 +268,21 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
 
   if (showSales) {
     for (const s of input.sales) {
-      if (splitProductName(s.item).variant !== "main" || !wanted(s.item)) continue;
+      if (!wanted(s.item)) continue;
+      const variant = splitProductName(s.item).variant;
+      if (variant !== "main") {
+        // Брак, Засвар зарсан: үндсэн тоонд нэмэхгүй, тусад нь (зөвхөн сонгосон хугацаанд)
+        if (s.day >= from && s.day <= to) {
+          const v = get(s.item, s.unit)[variant === "defect" ? "soldDefect" : "soldRepair"];
+          v.qty += s.qty;
+          v.amount += s.amount ?? 0;
+        }
+        continue;
+      }
       const e = get(s.item, s.unit);
       if (s.day >= from && s.day <= to) {
         e.sold += s.qty;
+        e.soldAmount += s.amount ?? 0;
         day(e, s.day).sold += s.qty;
       }
       if (s.day.slice(0, 7) >= m12first) month(e, s.day.slice(0, 7)).sold += s.qty;
@@ -274,6 +304,9 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
     repair: round3(e.repair),
     defect: round3(e.defect),
     sold: showSales ? round3(e.sold) : null,
+    soldAmount: showSales ? round2(e.soldAmount) : null,
+    soldDefect: showSales && (e.soldDefect.qty !== 0 || e.soldDefect.amount !== 0) ? { qty: round3(e.soldDefect.qty), amount: round2(e.soldDefect.amount) } : null,
+    soldRepair: showSales && (e.soldRepair.qty !== 0 || e.soldRepair.amount !== 0) ? { qty: round3(e.soldRepair.qty), amount: round2(e.soldRepair.amount) } : null,
     stock: showSales ? round3(e.stock) : null,
     warehouses: showSales ? warehouseSplit(e.byWarehouse) : [],
     workshops: [...e.byShop]
@@ -281,7 +314,7 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
       .filter((w) => w.qty !== 0)
       .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, "mn")),
   });
-  const active = (e: Ent) => e.ready + e.repair + e.defect !== 0 || e.sold !== 0 || (searching && e.hasStock && e.stock !== 0);
+  const active = (e: Ent) => e.ready + e.repair + e.defect !== 0 || e.sold !== 0 || e.soldDefect.qty !== 0 || e.soldRepair.qty !== 0 || (searching && e.hasStock && e.stock !== 0);
 
   let products: ProductCard[] = [];
   let truncated = false;
@@ -297,7 +330,9 @@ export function buildProductSearch(input: SearchInput): ProductSearchView {
     const pool = primary.length > 0 ? primary : list;
     top = {
       produced: pool.filter((e) => e.ready > 0).sort((a, b) => b.ready - a.ready).slice(0, TOP_N).map(card),
-      sold: showSales ? pool.filter((e) => e.sold > 0).sort((a, b) => b.sold - a.sold).slice(0, TOP_N).map(card) : [],
+      // Зарсан: дүнгээр бол нэгж харгалзахгүй (м³, тонн ч орно); тоогоор бол зөвхөн ширхэг
+      soldByAmount: showSales ? list.filter((e) => e.soldAmount > 0).sort((a, b) => b.soldAmount - a.soldAmount || a.name.localeCompare(b.name, "mn")).slice(0, TOP_N).map(card) : [],
+      soldByQty: showSales ? pool.filter((e) => e.sold > 0).sort((a, b) => b.sold - a.sold).slice(0, TOP_N).map(card) : [],
     };
   }
 

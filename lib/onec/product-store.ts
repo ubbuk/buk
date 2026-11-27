@@ -2,11 +2,11 @@
 import { prisma } from "@/lib/prisma";
 import type { SaleQty, StockQty } from "./product-search";
 
-/** Өдөр, бараа, нэгжээр нэгтгэсэн борлуулалтын тоо (буцаалт сөрөг тоогоор орно) */
+/** Өдөр, бараа, нэгжээр нэгтгэсэн борлуулалтын тоо, дүн (₮, НӨАТ-гүй; буцаалт сөрөг). Цехээс шууд зарцуулсан материалын мөр (cost_only) борлуулалт биш тул орохгүй */
 export async function readSalesQty(from: string, to: string): Promise<SaleQty[]> {
   return prisma.$queryRaw<SaleQty[]>`
-    SELECT to_char(date, 'YYYY-MM-DD') AS day, item, unit, SUM(qty)::float8 AS qty
-      FROM onec_sales WHERE date >= ${from}::date AND date <= ${to}::date AND item <> ''
+    SELECT to_char(date, 'YYYY-MM-DD') AS day, item, unit, SUM(qty)::float8 AS qty, SUM(amount)::float8 AS amount
+      FROM onec_sales WHERE date >= ${from}::date AND date <= ${to}::date AND item <> '' AND row_type <> 'cost_only'
      GROUP BY date, item, unit`;
 }
 

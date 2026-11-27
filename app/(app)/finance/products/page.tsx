@@ -6,7 +6,7 @@ import { Boxes } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorNote, FinanceShell } from "@/components/finance/FinanceShell";
-import { PeriodBar, ProductCardView, ProductDetailView, ProductSearchBox, TopList, periodLabel, type PeriodKey } from "@/components/finance/products/ProductParts";
+import { PeriodBar, ProductCardView, ProductDetailView, ProductSearchBox, SoldTopList, TopList, periodLabel, type PeriodKey, type SoldSort } from "@/components/finance/products/ProductParts";
 import { useFinanceData } from "@/components/finance/useFinanceData";
 import { isDate, isMonth, monthRange, today as todayUb } from "@/lib/onec/dates";
 import { periodRange, type ProductCard, type ProductSearchView } from "@/lib/onec/product-search";
@@ -37,13 +37,14 @@ function ProductsPage() {
   const from = isDate(sp.get("from")) ? sp.get("from")! : def.from;
   const to = isDate(sp.get("to")) ? sp.get("to")! : def.to;
   const p = sp.get("p") ?? "";
+  const sort: SoldSort = sp.get("sort") === "qty" ? "qty" : "amount"; // «Зарсан 10»: анхдагч дүнгээр
 
   const apiUrl = `/api/dashboard/products?${new URLSearchParams({ q, from, to, ...(p ? { p } : {}) }).toString()}`;
   const { data, error } = useFinanceData<Data>(apiUrl);
 
   const go = useCallback(
-    (next: { q?: string; from?: string; to?: string; p?: string | null }) => {
-      const n = { q, from, to, p: p || null, ...next };
+    (next: { q?: string; from?: string; to?: string; p?: string | null; sort?: SoldSort }) => {
+      const n = { q, from, to, p: p || null, sort, ...next };
       const params = new URLSearchParams();
       if (n.q) params.set("q", n.q);
       if (n.from !== def.from || n.to !== def.to) {
@@ -51,10 +52,11 @@ function ProductsPage() {
         params.set("to", n.to);
       }
       if (n.p) params.set("p", n.p);
+      if (n.sort === "qty") params.set("sort", "qty");
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [q, from, to, p, def.from, def.to, pathname, router]
+    [q, from, to, p, sort, def.from, def.to, pathname, router]
   );
 
   const key = periodKey(from, to, today);
@@ -76,7 +78,7 @@ function ProductsPage() {
       ) : data.top ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <TopList title={`${label} хамгийн их үйлдвэрлэсэн 10`} items={data.top.produced} kind="produced" onPick={pick} />
-          {data.showSales && <TopList title={`${label} хамгийн их зарсан 10`} items={data.top.sold} kind="sold" onPick={pick} />}
+          {data.showSales && <SoldTopList title={`${label} хамгийн их зарсан 10`} byAmount={data.top.soldByAmount} byQty={data.top.soldByQty} sort={sort} onSort={(s) => go({ sort: s })} onPick={pick} />}
         </div>
       ) : data.products.length === 0 ? (
         <Card>
