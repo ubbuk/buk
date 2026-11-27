@@ -1244,6 +1244,20 @@ model OnecCashAccountSetting {
   @@map("onec_cash_account_setting")
 }
 
+// «Мөнгөн хөрөнгө» табын «Хөдөлгөөнгүй данс»: данс бүрийн сар бүрийн СҮҮЛИЙН бодит гүйлгээ (огноо, дансны талаас тэмдэгтэй дүн). Хуудас зөвхөн эндээс уншина (1С руу хандахгүй);
+// sync (cash-last-moves, regular дотор) одоогийн + өмнөх сарыг, cash-last-moves-backfill өмнөх саруудыг (≤ 24) бичнэ. Зөвхөн харагдац: үлдэгдэл, гүйлгээнд нөлөөгүй. key = `bank:<guid>` | `acct:<код>`, month = YYYY-MM.
+model OnecCashLastMove {
+  key      String
+  month    String   @db.Char(7)
+  lastDate String   @map("last_date") @db.Char(10)
+  amount   Decimal  @default(0) @db.Decimal(18, 2)
+  syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz
+
+  @@id([key, month])
+  @@index([month])
+  @@map("onec_cash_last_move")
+}
+
 model OnecExpenseCategoryRule {
   id          String   @id @default(cuid())
   field       String

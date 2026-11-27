@@ -8,6 +8,7 @@ import { requireFinanceAccess } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
 import { buildAccountCards } from "@/lib/onec/cash-accounts";
 import { loadAccountSettings } from "@/lib/onec/cash-accounts-store";
+import { isLastMoveBackfilled, readLatestMoves } from "@/lib/onec/cash-last-store";
 import { asOfDate, currentMonth, today } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
 
@@ -23,8 +24,9 @@ export const GET = withTiming("GET /api/dashboard/cash/accounts", async (req: Re
 
   try {
     const month = currentMonth();
-    const [{ value: cash, meta }, settings] = await Promise.all([loadCash(month, new URL(req.url).searchParams.get("refresh") === "1"), loadAccountSettings()]);
-    const cards = buildAccountCards(cash, settings, { today: today(), isAdmin });
+    // Сүүлийн гүйлгээг зөвхөн DB-ээс (sync бичсэн) уншина: хуудас нээх бүрт 1С руу нэмэлт хүсэлт явахгүй
+    const [{ value: cash, meta }, settings, latest, backfilled] = await Promise.all([loadCash(month, new URL(req.url).searchParams.get("refresh") === "1"), loadAccountSettings(), readLatestMoves(), isLastMoveBackfilled()]);
+    const cards = buildAccountCards(cash, settings, { today: today(), isAdmin, lastMoves: { latest, backfilled } });
     return NextResponse.json(
       { ...cards, today: today(), asOf: asOfDate(month), canManage: isAdmin, meta: { fetchedAt: new Date(meta.fetchedAt).toISOString(), cached: meta.cached, stale: meta.stale, retryAfterSeconds: meta.retryAfterSeconds ?? null } },
       { headers: NO_STORE }

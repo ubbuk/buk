@@ -8,6 +8,8 @@ import { authOptions } from "@/lib/auth";
 import { requireFinanceAccess } from "@/lib/onec/access";
 import { loadCash } from "@/lib/onec/cash";
 import { accountPeriod, accountTitles, findAccount, last4, publicId } from "@/lib/onec/cash-accounts";
+import { hasMoves, lastMoveIn, type LastMove } from "@/lib/onec/cash-activity";
+import { isLastMoveBackfilled, readMoveBefore } from "@/lib/onec/cash-last-store";
 import { loadAccountSettings } from "@/lib/onec/cash-accounts-store";
 import { asOfDate, currentMonth, isDate, isMonth, monthRange, today } from "@/lib/onec/dates";
 import { OdataError } from "@/lib/onec/odata-read";
@@ -49,11 +51,17 @@ export const GET = withTiming("GET /api/dashboard/cash/account", async (req: Req
     if (!acc) return bad("Данс олдсонгүй", 404);
     const period = accountPeriod(cash, acc.key, from, to);
     if (!period) return bad("Данс олдсонгүй", 404);
+    // Сонгосон хугацаанд бодит гүйлгээгүй бол сүүлийн гүйлгээ: энэ сарын мэдээнээс (уншчихсан), үгүй бол DB-ээс (sync бичсэн өмнөх саруудын): 1С руу нэмэлт хүсэлт явахгүй.
+    // null = нөхөлт хийгдсэн, олдсонгүй; байхгүй = гүйлгээтэй хугацаа эсвэл хараахан тооцоогүй
+    const moved = hasMoves(cash, acc.key, from, to);
+    let lastMove: LastMove | null | undefined;
+    if (!moved) lastMove = lastMoveIn(cash, acc.key, to) ?? (await readMoveBefore(acc.key, month)) ?? ((await isLastMoveBackfilled()) ? null : undefined);
     const { title, subtitle } = accountTitles(acc, settings.get(acc.key));
     return NextResponse.json(
       {
         account: { id: publicId(acc.key), title, subtitle, kind: acc.kind, bank: acc.bank, last4: last4(acc.number), ...(isAdmin && acc.number ? { number: acc.number } : {}), currency: acc.currency },
         period,
+        lastMove,
         month,
         today: now,
         asOf: asOfDate(month),

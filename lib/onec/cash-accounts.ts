@@ -4,6 +4,7 @@
 //  * Орсон = орлого + бусад данснаас шилжүүлж ирсэн; Гарсан = зарлага + бусад данс руу шилжүүлсэн. Тиймээс эхний + орсон − гарсан = эцсийн.
 //  * Шилжүүлэг (компанийн дотоод) нь «Мөнгөн хөрөнгө» табын нийт орлого/зарлагад ОРОХГҮЙ: тэр нь cash.totals-д өөрчлөгдөөгүй.
 import { createHash } from "node:crypto";
+import { activeKeys, type LastMove } from "./cash-activity";
 import { parseBankAccountName, type CashAccount, type CashEntry, type CashFx, type CashResult } from "./cash";
 
 export interface AccountSetting {
@@ -69,6 +70,10 @@ export interface AccountCard {
   closingFx: number | null;
   /** өнөөдөр орсон (орлого + шилжүүлж ирсэн), гарсан (зарлага + шилжүүлсэн), ₮ */
   today: { inflow: number; outflow: number };
+  /** энэ сард (өнөөдрийг хүртэл) бодит гүйлгээтэй юу; үгүй бол «Хөдөлгөөнгүй данс» хэсэгт */
+  active: boolean;
+  /** хөдөлгөөнгүй данс: сүүлийн гүйлгээ (sync-ээр DB-д бичигдсэн). null = хайсан, олдсонгүй; байхгүй = хараахан тооцоогүй / идэвхтэй */
+  lastMove?: LastMove | null;
   hidden: boolean;
 }
 
@@ -115,6 +120,12 @@ function flowsOn(cash: CashResult, key: string, from: string, to: string) {
   return { inflow, outflow, transfersIn, transfersOut, fxIn, fxOut, fxTransfersIn, fxTransfersOut };
 }
 
+/** Хөдөлгөөнгүй дансны сүүлийн гүйлгээ: DB-д байвал тэр; байхгүй ба нөхөлт хийгдсэн бол null (олдсонгүй); нөхөлт хийгдээгүй бол хараахан мэдэгдэхгүй */
+const idleLastMove = (key: string, lm: { latest: ReadonlyMap<string, LastMove>; backfilled: boolean }): { lastMove?: LastMove | null } => {
+  const m = lm.latest.get(key);
+  return m ? { lastMove: m } : lm.backfilled ? { lastMove: null } : {};
+};
+
 const orderCards = (a: AccountCard, b: AccountCard, order: Map<string, number | null>, idToKey: Map<string, string>) => {
   const oa = order.get(idToKey.get(a.id) ?? "") ?? null;
   const ob = order.get(idToKey.get(b.id) ?? "") ?? null;
@@ -125,10 +136,11 @@ const orderCards = (a: AccountCard, b: AccountCard, order: Map<string, number | 
 };
 
 /** «Данснууд» хэсгийн картууд: нуусан данс гарахгүй (нийт үлдэгдэлд орно); админы дараалал, үгүй бол үлдэгдлээр. */
-export function buildAccountCards(cash: CashResult, settings: ReadonlyMap<string, AccountSetting>, opts: { today: string; isAdmin: boolean }): AccountCards {
+export function buildAccountCards(cash: CashResult, settings: ReadonlyMap<string, AccountSetting>, opts: { today: string; isAdmin: boolean; lastMoves?: { latest: ReadonlyMap<string, LastMove>; backfilled: boolean } }): AccountCards {
   const idToKey = new Map<string, string>();
   const order = new Map<string, number | null>();
   const cards: AccountCard[] = [];
+  const active = activeKeys(cash, opts.today);
   let hiddenCount = 0;
   for (const a of cash.accounts) {
     const s = settings.get(a.key);
@@ -152,6 +164,8 @@ export function buildAccountCards(cash: CashResult, settings: ReadonlyMap<string
       closing: a.closing,
       closingFx: a.fx ? a.fx.closing : null,
       today: { inflow: round2(f.inflow + f.transfersIn), outflow: round2(f.outflow + f.transfersOut) },
+      active: active.has(a.key),
+      ...(!active.has(a.key) && opts.lastMoves ? idleLastMove(a.key, opts.lastMoves) : {}),
       hidden: false,
     });
   }

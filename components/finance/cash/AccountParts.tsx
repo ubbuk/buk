@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Landmark, Wallet } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, Landmark, Wallet } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
 import type { AccountCard, AccountCards, AccountPeriod } from "@/lib/onec/cash-accounts";
+import type { LastMove } from "@/lib/onec/cash-activity";
 import { cn } from "@/lib/utils";
 
 // «Данснууд»: данс бүр нэг карт. Захирлын харагдац: дансны код, «1С», Комментарий байхгүй. Дансны бүтэн дугаар зөвхөн ADMIN-д (API өгнө), бусдад сүүлийн 4 орон.
@@ -49,11 +51,20 @@ export function Balance({ value, fx, currency, big = true }: { value: number; fx
   );
 }
 
+/** «Хөдөлгөөнгүй · сүүлд 08-14» (сүүлийн гүйлгээ олдоогүй/хайж байгаа бол «Хөдөлгөөнгүй») */
+export function idleLine(last: LastMove | null | undefined): string {
+  return last ? `Хөдөлгөөнгүй · сүүлд ${last.date.slice(5)}` : "Хөдөлгөөнгүй";
+}
+
+/** «+12.4 сая₮» / «−361.1 мянга₮» (дансны талаас) */
+export const signedMoney = (v: number): string => `${v > 0 ? "+" : ""}${formatMoneyShort(v)}`;
+
 export function accountHref(id: string): string {
   return `/finance/cash/account?id=${encodeURIComponent(id)}`;
 }
 
-export function AccountCardView({ card }: { card: AccountCard }) {
+/** `idle`: энэ сард хөдөлгөөнгүй данс: «Өнөөдөр: …» мөрийн оронд саарал «Хөдөлгөөнгүй · сүүлд 08-14» (`last` = сүүлийн гүйлгээ, хайж дуустал undefined) */
+export function AccountCardView({ card, idle = false, last }: { card: AccountCard; idle?: boolean; last?: LastMove | null }) {
   const Icon = card.kind === "cash" ? Wallet : Landmark;
   return (
     <li>
@@ -67,14 +78,17 @@ export function AccountCardView({ card }: { card: AccountCard }) {
           </span>
         </span>
         <Balance value={card.closing} fx={card.closingFx} currency={card.currency} />
-        <span className="mt-auto text-xs text-text-muted">{todayLine(card.today)}</span>
+        <span className={cn("mt-auto text-xs", idle ? "text-text-muted/70" : "text-text-muted")}>{idle ? idleLine(last) : todayLine(card.today)}</span>
       </Link>
     </li>
   );
 }
 
 /** Табын дээд хэсэг: бүх дансны нийт үлдэгдэл (₮) ба данс бүрийн карт */
-export function AccountsSection({ data, loading, error, manageHref }: { data: AccountCards | null; loading: boolean; error: string | null; manageHref?: string }) {
+export function AccountsSection({ data, loading, error, manageHref, initiallyOpen = false }: { data: AccountCards | null; loading: boolean; error: string | null; manageHref?: string; /** «Хөдөлгөөнгүй данс» нээлттэй эхлэх (анхдагч хаалттай; тестэд) */ initiallyOpen?: boolean }) {
+  const [idleOpen, setIdleOpen] = useState(initiallyOpen);
+  const active = data?.accounts.filter((c) => c.active) ?? [];
+  const idle = data?.accounts.filter((c) => !c.active) ?? [];
   return (
     <section aria-label="Данснууд" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
@@ -108,11 +122,30 @@ export function AccountsSection({ data, loading, error, manageHref }: { data: Ac
           ))}
         </div>
       ) : data ? (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {data.accounts.map((c) => (
-            <AccountCardView key={c.id} card={c} />
-          ))}
-        </ul>
+        <>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {active.map((c) => (
+              <AccountCardView key={c.id} card={c} />
+            ))}
+          </ul>
+          {active.length === 0 && <p className="text-sm text-text-muted">Энэ сард гүйлгээтэй данс алга</p>}
+          {idle.length > 0 && (
+            <div className="space-y-3">
+              <button type="button" aria-expanded={idleOpen} onClick={() => setIdleOpen((v) => !v)} className="focus-ring flex min-h-11 w-full items-center gap-2 rounded-xl border border-border px-4 text-left text-sm font-medium text-text hover:bg-white/[0.03]">
+                <ChevronRight aria-hidden className={cn("size-4 text-text-muted transition-transform", idleOpen && "rotate-90")} />
+                Хөдөлгөөнгүй данс ({idle.length})
+                <span className="ml-auto text-xs font-normal text-text-muted">энэ сард гүйлгээгүй, нийт үлдэгдэлд орсон</span>
+              </button>
+              {idleOpen && (
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {idle.map((c) => (
+                    <AccountCardView key={c.id} card={c} idle last={c.lastMove} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </>
       ) : null}
     </section>
   );
