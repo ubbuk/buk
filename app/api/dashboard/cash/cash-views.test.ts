@@ -169,6 +169,40 @@ describe("/api/dashboard/cash/entries", () => {
     expect((await list("q=Дорж")).total).toBe(1);
   });
 
+  it("?dir=in|out|transfer: тоо, нийлбэр; шилжүүлэг орсон/гарсанд ордоггүй; хайлттай хамт ажиллана; буруу утга = Бүгд", async () => {
+    as("director");
+    expect(await list("dir=in")).toMatchObject({ total: 1, amountTotal: 5000, netTotal: 5000, dir: "in" });
+    expect(await list("dir=out")).toMatchObject({ total: 2, amountTotal: 2700, netTotal: -2700, dir: "out" });
+    const tr = await list("dir=transfer");
+    expect(tr).toMatchObject({ total: 1, amountTotal: 900, dir: "transfer" });
+    expect(tr.items[0]).toMatchObject({ type: "internal", categoryLabel: "Шилжүүлэг", amount: 900 });
+    expect(tr.items[0].counterpart).toContain("→");
+    // «Бүгд»-д шилжүүлэг ороогүй (өмнөх шиг 3 мөр)
+    expect(await list("")).toMatchObject({ total: 3, dir: null });
+    expect(await list("dir=bogus")).toMatchObject({ total: 3, dir: null });
+    // хайлттай хамт: нийт нь хайлтад тохирсон мөрийн нийлбэр
+    expect(await list("dir=in&q=альфа")).toMatchObject({ total: 1, amountTotal: 5000 });
+    expect(await list("dir=out&q=альфа")).toMatchObject({ total: 0, amountTotal: 0 });
+    expect(await list("dir=out&q=бета")).toMatchObject({ total: 1, amountTotal: 2000 });
+    expect(await list("dir=transfer&q=банк")).toMatchObject({ total: 1, amountTotal: 900 });
+    expect(await list("dir=transfer&q=2000")).toMatchObject({ total: 0 });
+    expect(await list("dir=transfer&q=альфа")).toMatchObject({ total: 0 });
+    // ангилалтай хамт (ангиллын мөрийг дарахад flow = in)
+    expect(await list("dir=out&category=suppliers")).toMatchObject({ total: 1, amountTotal: 2000 });
+  });
+
+  it("шилжүүлгийн дансны нэр ADMIN биш хүнд далдлагдана", async () => {
+    const cash = makeCash();
+    cash.transfers = [entry({ type: "internal", account: "5003636128, ХААН банк, MNT", counterpart: "5001234567, ХААН банк, MNT", amount: 900, counterAccount: "" })];
+    fixture.current = cash;
+    as("director");
+    const json = JSON.stringify(await list("dir=transfer"));
+    expect(json).not.toContain("5003636128");
+    expect(json).not.toContain("5001234567");
+    as("admin");
+    expect(JSON.stringify(await list("dir=transfer"))).toContain("5003636128");
+  });
+
   it("«Комментарий» хариунд хэзээ ч байхгүй", async () => {
     as("payrollDirector");
     const json = JSON.stringify(await list(""));

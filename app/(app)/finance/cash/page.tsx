@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Landmark, Settings2, Wallet } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -17,6 +17,7 @@ import { useOdataData, type OdataMeta } from "@/components/finance/useOdataData"
 import { RefreshButton } from "@/components/finance/useOnecRefresh";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
+import { dirOfFlow, flowOfDir, parseDir } from "@/lib/onec/cash-dir";
 import type { AccountCards } from "@/lib/onec/cash-accounts";
 import type { CashReport, CategoryRow } from "@/lib/onec/cash-report";
 
@@ -66,7 +67,24 @@ export default function CashPage() {
   const diff = data ? Math.abs(data.totals.difference) : 0;
 
   // сар солигдоход шүүлт арилна
-  useEffect(() => setFilter(NO_FILTER), [ym]);
+  // (чиглэлийн шүүлт ?dir= сар солигдоход хэвээр үлдэнэ)
+  useEffect(() => setFilter((f) => ({ ...NO_FILTER, flow: f.flow })), [ym]);
+
+  // ?dir=in|out|transfer ↔ шүүлт: нээхэд URL-аас уншина, товч дарахад URL-д (түүхгүйгээр) бичнэ
+  const dirReady = useRef(false);
+  useEffect(() => {
+    const dir = parseDir(new URLSearchParams(window.location.search).get("dir"));
+    if (dir) setFilter((f) => ({ ...f, flow: flowOfDir(dir) }));
+    dirReady.current = true;
+  }, []);
+  useEffect(() => {
+    if (!dirReady.current) return;
+    const u = new URL(window.location.href);
+    const dir = dirOfFlow(filter.flow);
+    if (dir) u.searchParams.set("dir", dir);
+    else u.searchParams.delete("dir");
+    if (u.href !== window.location.href) window.history.replaceState(window.history.state, "", u);
+  }, [filter.flow]);
 
   const jump = () => requestAnimationFrame(() => document.getElementById("cash-entries")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const pickCategory = (flow: "inflow" | "outflow") => (c: CategoryRow) => {
@@ -277,7 +295,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {!empty && <CashEntries month={ym} filter={filter} onFilter={setFilter} version={data?.meta.fetchedAt ?? ""} />}
+      {!empty && <CashEntries dirChips month={ym} filter={filter} onFilter={setFilter} version={data?.meta.fetchedAt ?? ""} />}
     </FinanceShell>
   );
 }
