@@ -25,6 +25,7 @@
     "onec:cash-check": "tsx --env-file=.env scripts/onec-cash-check.ts",
     "onec:reconcile": "tsx --env-file=.env scripts/onec-reconcile.ts",
     "onec:warehouse-mapping": "tsx --env-file=.env scripts/onec-warehouse-mapping.ts",
+    "cleanup:test-orders": "tsx --env-file-if-exists=.env scripts/cleanup-test-orders.ts",
     "check:multi-warehouse": "tsx --env-file=.env scripts/check-multi-warehouse-balances.ts"
   },
   "dependencies": {
