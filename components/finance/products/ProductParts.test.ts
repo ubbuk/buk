@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ProductCard, ProductDetail } from "@/lib/onec/product-search";
 import { shortUnit } from "./ProductParts";
-import { PeriodBar, ProductCardView, ProductDetailView, SoldTopList, TopList, periodLabel } from "./ProductParts";
+import { PeriodBar, ProductCardView, ProductDetailView, SoldTopList, TopList, periodLabel, soldVariantText } from "./ProductParts";
 
 const card: ProductCard = {
   id: "x|ширхэг",
@@ -16,6 +16,8 @@ const card: ProductCard = {
   defect: 1,
   sold: 78,
   soldAmount: 33_610_909.09,
+  soldDefect: null,
+  soldRepair: null,
   stock: 1234,
   warehouses: [
     { name: "Вольтамискын", qty: 1232 },
@@ -49,7 +51,7 @@ describe("ProductCardView", () => {
     expect(one).not.toContain("Агуулахад:");
   });
   it("брак, засвар 0 бол жижиг мөр гарахгүй; зарсан null (цехийн эрх) бол «—»", () => {
-    const o = html(createElement(ProductCardView, { card: { ...card, repair: 0, defect: 0, sold: null, soldAmount: null, stock: null, warehouses: [] }, period: "Энэ сар", open: false, onToggle: () => {} }));
+    const o = html(createElement(ProductCardView, { card: { ...card, repair: 0, defect: 0, sold: null, soldAmount: null, soldDefect: null, soldRepair: null, stock: null, warehouses: [] }, period: "Энэ сар", open: false, onToggle: () => {} }));
     expect(o).not.toContain("Брак");
     expect(o).not.toContain("Засвар");
     expect(o).toContain(">—<");
@@ -155,5 +157,26 @@ describe("SoldTopList: «Дүнгээр | Тоогоор» сэлгэгч", () =
     expect(src).toContain('sp.get("sort") === "qty" ? "qty" : "amount"');
     expect(src).toContain('params.set("sort", "qty")');
     expect(src).toContain("<SoldTopList");
+  });
+});
+
+describe("Брак, Засвар зарсан: үндсэн тоонд нэмэгдэхгүй, жижгээр тусад нь", () => {
+  it("soldVariantText: «Брак зарсан: 120 ш · 14.2 сая₮»; 0 эсвэл сөрөг бол хоосон", () => {
+    expect(soldVariantText("Брак", { qty: 120, amount: 14_200_000 }, "ширхэг")).toBe("Брак зарсан: 120 ш · 14.2 сая₮");
+    expect(soldVariantText("Засвар", { qty: 3, amount: 450_000 }, "ш")).toBe("Засвар зарсан: 3 ш · 450.0 мянга₮");
+    expect(soldVariantText("Брак", { qty: 0, amount: 0 }, "ш")).toBe("");
+    expect(soldVariantText("Брак", { qty: -2, amount: -100 }, "ш")).toBe("");
+    expect(soldVariantText("Брак", null, "ш")).toBe("");
+  });
+  it("картанд жижиг мөр, үндсэн «Зарсан» тоо өөрчлөгдөхгүй", () => {
+    const o = html(createElement(ProductCardView, { card: { ...card, soldDefect: { qty: 120, amount: 14_200_000 }, soldRepair: { qty: 8, amount: 900_000 } }, period: "Энэ сар", open: false, onToggle: () => {} }));
+    expect(o).toContain("Брак зарсан: 120 ш · 14.2 сая₮");
+    expect(o).toContain("Засвар зарсан: 8 ш · 900.0 мянга₮");
+    expect(o).toContain(">78<"); // үндсэн зарсан
+    expect(o).not.toContain(">198<"); // 78 + 120 нэмэгдээгүй
+  });
+  it("байхгүй бол мөр гарахгүй", () => {
+    const o = html(createElement(ProductCardView, { card: { ...card, repair: 0, defect: 0, warehouses: [], workshops: [] }, period: "Энэ сар", open: false, onToggle: () => {} }));
+    expect(o).not.toContain("зарсан:");
   });
 });

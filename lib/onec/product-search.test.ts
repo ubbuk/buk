@@ -243,3 +243,32 @@ describe("«Зарсан 10»: борлуулалтын ДҮНгээр (₮, Н�
     expect(old.top!.soldByQty[0].sold).toBe(5);
   });
 });
+
+describe("«… Брак», «… Зас» нэртэй борлуулалт: үндсэн зарсанд нэмэгдэхгүй, тусдаа", () => {
+  const NAME = "Төмөр бетон цагираг Ф-1000 Хүчитгэсэн";
+  const s = (item: string, qty: number, amount: number, day = "2026-10-10"): SaleQty => ({ day, item, unit: "ш", qty, amount });
+  const sales: SaleQty[] = [s(NAME, 78, 33_610_909.09), s(`${NAME} Брак`, 120, 14_200_000), s(`${NAME} брак`, 5, 100_000, "2026-10-20"), s(`${NAME} Зас`, 8, 900_000), s(`${NAME} Брак`, 99, 1, "2026-09-01")];
+  const lines = [line("2026-10-06", TBHETS, NAME, 40)];
+  const c = () => buildProductSearch({ ...base, lines, sales }).products[0];
+  it("үндсэн зарсан тоо, дүн өөрчлөгдөхгүй; Брак, Засвар тусдаа (хугацааны дотор)", () => {
+    expect(c()).toMatchObject({ sold: 78, soldAmount: 33_610_909.09, soldDefect: { qty: 125, amount: 14_300_000 }, soldRepair: { qty: 8, amount: 900_000 } });
+  });
+  it("зөвхөн Брак зарагдсан бүтээгдэхүүн ч карттай (үндсэн зарсан 0)", () => {
+    const only = buildProductSearch({ ...base, lines: [], sales: [s("Лотки Л-9 Брак", 10, 500_000)], q: "лотки" }).products[0];
+    expect(only).toMatchObject({ name: "Лотки Л-9", sold: 0, soldDefect: { qty: 10, amount: 500_000 }, soldRepair: null });
+  });
+  it("брак зарсан байхгүй бол null; «Зарсан 10» жагсаалтад брак дүн нэмэгдэхгүй", () => {
+    const none = buildProductSearch({ ...base, lines, sales: [s(NAME, 78, 100)] }).products[0];
+    expect(none.soldDefect).toBeNull();
+    expect(none.soldRepair).toBeNull();
+    const top = buildProductSearch({ ...base, q: "", lines: [], sales }).top!;
+    expect(top.soldByAmount[0]).toMatchObject({ name: NAME, soldAmount: 33_610_909.09 });
+  });
+  it("сөрөг (буцаалтаар нийт хасагдсан) брак нь картад гарахгүй талбар: утга хэвээр, UI нуудаг", () => {
+    const neg = buildProductSearch({ ...base, lines, sales: [s(NAME, 1, 10), s(`${NAME} Брак`, -2, -100)] }).products[0];
+    expect(neg.soldDefect).toEqual({ qty: -2, amount: -100 });
+  });
+  it("цехийн эрхтэй хэрэглэгчид null", () => {
+    expect(buildProductSearch({ ...base, lines, sales, showSales: false }).products[0]).toMatchObject({ soldDefect: null, soldRepair: null });
+  });
+});

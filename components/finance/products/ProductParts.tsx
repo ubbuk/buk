@@ -105,6 +105,12 @@ export function PeriodBar({ active, month, today, onPreset, onMonth }: { active:
   );
 }
 
+/** «Брак зарсан: 120 ш · 14.2 сая₮» (хоосон бол "") */
+export function soldVariantText(label: string, v: { qty: number; amount: number } | null | undefined, unit: string): string {
+  if (!v || (v.qty <= 0 && v.amount <= 0)) return "";
+  return `${label} зарсан: ${num(v.qty)} ${shortUnit(unit)} · ${formatMoneyShort(v.amount)}`;
+}
+
 const qtyText = (v: number | null, unit: string) => (v === null ? "—" : `${num(v)} ${shortUnit(unit)}`);
 
 function Big({ label, value, unit, color }: { label: string; value: number | null; unit: string; color?: string }) {
@@ -124,6 +130,8 @@ function Big({ label, value, unit, color }: { label: string; value: number | nul
 /** Хайлтын үр дүнгийн нэг карт: нэр · хугацаа; Үйлдвэрлэсэн | Зарсан | Агуулахад одоо; жижгээр Брак, Засвар, Хийсэн цехүүд */
 export function ProductCardView({ card, period, open, onToggle, children }: { card: ProductCard; period: string; open: boolean; onToggle: () => void; children?: React.ReactNode }) {
   const small = [card.defect > 0 ? `Брак ${num(card.defect)}` : "", card.repair > 0 ? `Засвар ${num(card.repair)}` : ""].filter(Boolean).join(" · ");
+  // Брак, Засвар зарсан: үндсэн «Зарсан»-д нэмэгдэхгүй, жижгээр тусад нь
+  const soldVariants = [soldVariantText("Брак", card.soldDefect, card.unit), soldVariantText("Засвар", card.soldRepair, card.unit)].filter(Boolean);
   const shops = card.workshops.map((w) => `${w.short} ${num(w.qty)}`).join(", ");
   const stores = card.warehouses.map((w) => `${w.name} ${num(w.qty)}`).join(", ");
   return (
@@ -141,9 +149,12 @@ export function ProductCardView({ card, period, open, onToggle, children }: { ca
           <Big label="Зарсан" value={card.sold} unit={card.unit} color={card.sold === null ? undefined : COLOR_SOLD} />
           <Big label="Агуулахад одоо" value={card.stock} unit={card.unit} />
         </span>
-        {(small || shops || stores) && (
+        {(small || shops || stores || soldVariants.length > 0) && (
           <span className="flex flex-col gap-0.5 text-xs text-text-muted">
             {small && <span>{small}</span>}
+            {soldVariants.map((t) => (
+              <span key={t}>{t}</span>
+            ))}
             {shops && <span>Хийсэн: {shops}</span>}
             {stores && <span>Агуулахад: {stores}</span>}
           </span>
