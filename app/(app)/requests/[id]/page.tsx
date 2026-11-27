@@ -18,6 +18,7 @@ import { AllocationBar } from "@/components/workflow/AllocationBar";
 import { AttachmentsPanel } from "@/components/workflow/AttachmentsPanel";
 import { MaterialDetailModal } from "@/components/workflow/MaterialDetailModal";
 import { PinModal } from "@/components/workflow/PinModal";
+import { DeleteRequestDialog } from "@/components/workflow/DeleteRequestDialog";
 import { PurchaseReceiptsPanel } from "@/components/procurement/PurchaseReceiptsPanel";
 import { ReturnToProcurement } from "@/components/procurement/ReturnToProcurement";
 import { ExecutiveApprovalPanel } from "@/components/workflow/ExecutiveApprovalPanel";
@@ -253,6 +254,9 @@ export default function RequestDetailPage() {
         </div>
         <div className="no-print flex flex-wrap items-start gap-2">
         <PrintButton />
+        {session?.user?.role === "ADMIN" && (
+          <DeleteRequestDialog requestId={request.id} requestNumber={request.requestNumber} financeRecorded={!!request.accountingRecord || request.status === "ACCOUNTING_COMPLETED"} onDeleted={() => void loadRequests()} />
+        )}
         {pendingStep && pendingStep.type === "WAREHOUSE_CHECK" && isAuthorizedApprover && (
           <Link href={`/warehouse/${request.id}`}>
             <Button>
