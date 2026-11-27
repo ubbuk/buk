@@ -105,8 +105,8 @@ describe("хайлтгүй үед: хамгийн их үйлдвэрлэсэн,
     expect(v.products).toEqual([]);
     expect(v.top!.produced).toHaveLength(10);
     expect(v.top!.produced[0]).toMatchObject({ name: "Бараа 12", produced: 120 });
-    expect(v.top!.sold[0]).toMatchObject({ name: "Бараа 1", sold: 100 });
-    expect(v.top!.sold).toHaveLength(10);
+    expect(v.top!.soldByQty[0]).toMatchObject({ name: "Бараа 1", sold: 100 });
+    expect(v.top!.soldByQty).toHaveLength(10);
   });
   it("зөвхөн ширхгээр эрэмбэлнэ: шоо метр, тонн өөр нэгжтэй харьцуулагдахгүй", () => {
     const v = buildProductSearch({ ...base, q: "", lines: [...lines, { ...line("2026-10-05", TBHETS, "Бетон зуурмаг", 9999), unit: "м3" }], sales: [] });
@@ -185,5 +185,61 @@ describe("агуулахаар задаргаа (Ф-1000, 2026-10: нягтла�
   });
   it("цехийн эрхтэй хэрэглэгчид агуулахын задаргаа ирэхгүй", () => {
     expect(buildProductSearch({ ...base, lines: [line("2026-10-06", VOLTA, RING, 1)], stock, showSales: false }).products[0]).toMatchObject({ stock: null, warehouses: [] });
+  });
+});
+
+describe("«Зарсан 10»: борлуулалтын ДҮНгээр (₮, НӨАТ-гүй), нэгж харгалзахгүй", () => {
+  const sale = (item: string, unit: string, qty: number, amount: number, day = "2026-10-06"): SaleQty => ({ day, item, unit, qty, amount });
+  const sales: SaleQty[] = [
+    sale("Төмөр замын бетон дэр", "ш", 30_370, 8_425_510_909),
+    sale("Элс-угаасан (0-5)", "м3", 706.4, 16_054_545), // шоо метр: ширхэгтэй хамт дүнгээр эрэмбэлэгдэнэ
+    sale("Хаягдал төмрийн үнэ", "тн", 113_350, 32_009_545),
+    sale("L panel", "ш", 5, 94_690_909),
+    sale("Төмөр бетон цагираг Ф-1000 Хүчитгэсэн", "ш", 78, 33_610_909.09),
+    sale("Төмөр бетон цагираг Ф-1000 Хүчитгэсэн", "ш", -3, -1_000_000, "2026-10-20"), // буцаалт: дүн, тоо хасагдана
+    sale("Төмөр бетон цагираг Ф-1000 Хүчитгэсэн Брак", "ш", 9, 999_999_999), // брак хувилбар: үндсэн бүтээгдэхүүнд орохгүй
+    sale("Өөр сарын бараа", "ш", 1, 777, "2026-09-30"), // хугацааны гадна
+  ];
+  const v = buildProductSearch({ ...base, q: "", lines: [], sales });
+  it("дүнгээр буурахаар; м³, тонн ч орно; үндсэн бүтээгдэхүүн бүрд нэг мөр (буцаалт хасагдсан)", () => {
+    expect(v.top!.soldByAmount.map((c) => [c.name, c.soldAmount])).toEqual([
+      ["Төмөр замын бетон дэр", 8_425_510_909],
+      ["Төмөр бетон цагираг Ф-1000 Хүчитгэсэн", 32_610_909.09],
+      ["Хаягдал төмрийн үнэ", 32_009_545],
+      ["L panel", 94_690_909 > 32_610_909.09 ? 94_690_909 : 0],
+      ["Элс-угаасан (0-5)", 16_054_545],
+    ].sort((a, b) => (b[1] as number) - (a[1] as number)));
+  });
+  it("мөр бүр: нэр, дүн, тоо хэмжээ ба нэгж (9,027 ш гэх мэт)", () => {
+    const sand = v.top!.soldByAmount.find((c) => c.name.startsWith("Элс"))!;
+    expect(sand).toMatchObject({ sold: 706.4, soldAmount: 16_054_545, unit: "шоо метр" });
+    const ring = v.top!.soldByAmount.find((c) => c.name.includes("Ф-1000"))!;
+    expect(ring).toMatchObject({ sold: 75, soldAmount: 32_610_909.09 });
+  });
+  it("«Тоогоор» жагсаалт хэвээр: зөвхөн ширхэг, тоо хэмжээгээр", () => {
+    expect(v.top!.soldByQty.map((c) => c.name)).toEqual(["Төмөр замын бетон дэр", "Төмөр бетон цагираг Ф-1000 Хүчитгэсэн", "L panel"]);
+    expect(v.top!.soldByQty[0].sold).toBe(30_370);
+  });
+  it("10 хүртэл мөр; хугацааны гадна, 0 дүнтэй бараа орохгүй", () => {
+    const many: SaleQty[] = Array.from({ length: 14 }, (_, i) => sale(`Бараа ${i + 1}`, i % 2 ? "тн" : "ш", 1, (i + 1) * 100));
+    const m = buildProductSearch({ ...base, q: "", lines: [], sales: [...many, sale("Үнэгүй", "ш", 3, 0)] });
+    expect(m.top!.soldByAmount).toHaveLength(10);
+    expect(m.top!.soldByAmount[0].name).toBe("Бараа 14");
+    expect(m.top!.soldByAmount.map((c) => c.name)).not.toContain("Үнэгүй");
+    expect(v.top!.soldByAmount.map((c) => c.name)).not.toContain("Өөр сарын бараа");
+  });
+  it("карт: soldAmount бодит дүн; цехийн эрхтэй хэрэглэгчид null (ирэхгүй)", () => {
+    const s = buildProductSearch({ ...base, q: "ф-1000 хүчитгэсэн", lines: [], sales });
+    expect(s.products[0]).toMatchObject({ sold: 75, soldAmount: 32_610_909.09 });
+    const hidden = buildProductSearch({ ...base, q: "", lines: [], sales, showSales: false });
+    expect(hidden.top!.soldByAmount).toEqual([]);
+    expect(hidden.top!.soldByQty).toEqual([]);
+    expect(JSON.stringify(hidden)).not.toContain("8425510909");
+    expect(buildProductSearch({ ...base, q: "дэр", lines: [line("2026-10-05", TBHETS, "Төмөр замын бетон дэр", 10)], sales, showSales: false }).products[0].soldAmount).toBeNull();
+  });
+  it("дүн байхгүй (хуучин мөр) бол 0 гэж тооцно", () => {
+    const old = buildProductSearch({ ...base, q: "", lines: [], sales: [{ day: "2026-10-06", item: "Х", unit: "ш", qty: 5 }] });
+    expect(old.top!.soldByAmount).toEqual([]);
+    expect(old.top!.soldByQty[0].sold).toBe(5);
   });
 });

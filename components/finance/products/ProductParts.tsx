@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { Bars, mnDate, num, shortUnit, type BarItem } from "@/components/finance/production/DirectorParts";
+import { formatMoneyShort } from "@/lib/money-short";
 import { addMonths, monthRange } from "@/lib/onec/dates";
 import type { ProductCard, ProductDetail } from "@/lib/onec/product-search";
 import { cn } from "@/lib/utils";
@@ -174,6 +175,56 @@ export function TopList({ title, items, kind, onPick }: { title: string; items: 
               </button>
             </li>
           ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+export type SoldSort = "amount" | "qty";
+
+/**
+ * «Энэ сар хамгийн их зарсан 10»: анхдагч ДҮНГЭЭР (₮, НӨАТ-гүй; нэгж харгалзахгүй тул м³, тонн ч орно), «Тоогоор» сэлгэвэл ширхгээр.
+ * Мөр бүр: нэр, дүн (сая₮), доор жижгээр тоо хэмжээ нэгжтэй («9,027 ш»). Тоогоор үед том нь тоо, жижиг нь дүн.
+ */
+export function SoldTopList({ title, byAmount, byQty, sort, onSort, onPick }: { title: string; byAmount: ProductCard[]; byQty: ProductCard[]; sort: SoldSort; onSort: (s: SoldSort) => void; onPick: (c: ProductCard) => void }) {
+  const items = sort === "amount" ? byAmount : byQty;
+  const tab = (on: boolean) => cn("focus-ring min-h-9 rounded-lg border px-3 text-xs", on ? "border-[rgba(255,213,107,0.6)] text-[#ffd56b]" : "border-border text-text-muted hover:text-text");
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-bg-surface shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold text-text">{title}</h2>
+        <div className="flex gap-1.5" role="group" aria-label="Эрэмбэ">
+          <button type="button" className={tab(sort === "amount")} aria-pressed={sort === "amount"} onClick={() => onSort("amount")}>
+            Дүнгээр
+          </button>
+          <button type="button" className={tab(sort === "qty")} aria-pressed={sort === "qty"} onClick={() => onSort("qty")}>
+            Тоогоор
+          </button>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-text-muted">Мэдээ ороогүй</p>
+      ) : (
+        <ol className="divide-y divide-border">
+          {items.map((c, i) => {
+            const amount = formatMoneyShort(c.soldAmount ?? 0);
+            const qty = `${num(c.sold ?? 0)} ${shortUnit(c.unit)}`;
+            return (
+              <li key={c.id}>
+                <button type="button" onClick={() => onPick(c)} className="focus-ring flex min-h-12 w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-white/[0.04]">
+                  <span className="w-5 shrink-0 pt-0.5 text-xs text-text-muted">{i + 1}</span>
+                  <span className="min-w-0 flex-1 text-sm text-text">
+                    {c.name}
+                    <span className="mt-0.5 block text-xs text-text-muted">{sort === "amount" ? qty : amount}</span>
+                  </span>
+                  <span className="ng-num shrink-0 text-base font-semibold" style={{ color: COLOR_SOLD }}>
+                    {sort === "amount" ? amount : qty}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>

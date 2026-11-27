@@ -15,14 +15,15 @@ describe("product-store", () => {
   it("readSalesQty: өдөр, бараа, нэгжээр нэгтгэнэ (буцаалт сөрөг тоогоор хасагдана); хугацааны гаднах мөр орохгүй", async () => {
     await prisma.onecSales.createMany({
       data: [
-        { date: DAY, item: ITEM, unit: "ш", qty: 10 },
-        { date: DAY, item: ITEM, unit: "ш", qty: 5 },
-        { date: DAY, item: ITEM, unit: "ш", qty: -2 },
+        { date: DAY, item: ITEM, unit: "ш", qty: 10, amount: 1000.5 },
+        { date: DAY, item: ITEM, unit: "ш", qty: 5, amount: 500.25 },
+        { date: DAY, item: ITEM, unit: "ш", qty: -2, amount: -200 }, // буцаалт: тоо, дүн хоёулаа сөрөг
+        { date: DAY, item: ITEM, unit: "ш", qty: 0, amount: 0, cost: 9999, rowType: "cost_only" }, // цехээс шууд зарцуулсан материал: борлуулалт биш
         { date: new Date("2098-06-01T00:00:00Z"), item: ITEM, unit: "ш", qty: 99 },
       ],
     });
     const rows = (await readSalesQty("2098-05-01", "2098-05-31")).filter((r) => r.item === ITEM);
-    expect(rows).toEqual([{ day: "2098-05-10", item: ITEM, unit: "ш", qty: 13 }]);
+    expect(rows).toEqual([{ day: "2098-05-10", item: ITEM, unit: "ш", qty: 13, amount: 1300.75 }]);
   });
   it("readStockNow: хамгийн сүүлийн агшин зургийн агуулах бүрээр (өмнөх агшин орохгүй)", async () => {
     await prisma.onecStock.createMany({
