@@ -18,6 +18,7 @@ import { RefreshButton } from "@/components/finance/useOnecRefresh";
 import { useIsAdmin, useYm } from "@/components/finance/useYm";
 import { formatMoneyFull, formatMoneyShort } from "@/lib/money-short";
 import type { AccountCards } from "@/lib/onec/cash-accounts";
+import type { LastMove } from "@/lib/onec/cash-activity";
 import type { CashReport, CategoryRow } from "@/lib/onec/cash-report";
 
 type ReportResponse = CashReport & { meta: OdataMeta };
@@ -53,6 +54,26 @@ function useTrend(year: string, version: string) {
   return state;
 }
 
+/** Хөдөлгөөнгүй дансуудын сүүлийн гүйлгээ: картууд гарсны дараа тусдаа ачаална (сараар ухарч хайдаг тул удаан байж болно) */
+function useLastMoves(enabled: boolean, version: string) {
+  const [moves, setMoves] = useState<Record<string, LastMove | null> | undefined>(undefined);
+  useEffect(() => {
+    if (!enabled) return;
+    const c = new AbortController();
+    // хайж дуусаагүй бол (complete=false) дахин дуудна: үргэлжилнэ (дээд тал нь 4 удаа)
+    const run = async (attempt: number) => {
+      const res = await fetch("/api/dashboard/cash/accounts/last-moves", { signal: c.signal });
+      const body = await res.json().catch(() => null);
+      if (c.signal.aborted || !res.ok || !body?.moves) return;
+      setMoves((prev) => ({ ...prev, ...(body.moves as Record<string, LastMove | null>) }));
+      if (body.complete === false && attempt < 4) await run(attempt + 1);
+    };
+    run(1).catch(() => {});
+    return () => c.abort();
+  }, [enabled, version]);
+  return moves;
+}
+
 export default function CashPage() {
   const { ym } = useYm();
   const isAdmin = useIsAdmin();
@@ -60,6 +81,7 @@ export default function CashPage() {
   const trend = useTrend(ym.slice(0, 4), data?.meta.fetchedAt ?? "");
   // «Данснууд»: одоогийн байдлаар (сонгосон сараас үл хамаарна): данс бүрийн үлдэгдэл, өнөөдрийн орсон/гарсан
   const accounts = useOdataData<AccountCards & { canManage: boolean; meta: OdataMeta }>("/api/dashboard/cash/accounts");
+  const lastMoves = useLastMoves(!!accounts.data?.accounts.some((a) => !a.active), accounts.data?.meta.fetchedAt ?? "");
   const [filter, setFilter] = useState<CashEntryFilter>(NO_FILTER);
   const [showTransfers, setShowTransfers] = useState(false);
   const empty = data && data.totals.entries === 0;
@@ -160,7 +182,7 @@ export default function CashPage() {
       {error && <ErrorNote message={data ? `${error}. Сүүлд татсан өгөгдлийг харуулж байна.` : error} />}
       {data?.meta.stale && <ErrorNote message="Мэдээлэл түр шинэчлэгдэхгүй байна. Сүүлд татсан өгөгдлийг харуулж байна." />}
 
-      <AccountsSection data={accounts.data} loading={accounts.loading} error={accounts.error} manageHref={isAdmin ? "/admin/cash-accounts" : undefined} />
+      <AccountsSection data={accounts.data} loading={accounts.loading} error={accounts.error} manageHref={isAdmin ? "/admin/cash-accounts" : undefined} lastMoves={lastMoves} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {loading && !data ? (

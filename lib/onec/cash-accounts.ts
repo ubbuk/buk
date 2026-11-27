@@ -4,6 +4,7 @@
 //  * Орсон = орлого + бусад данснаас шилжүүлж ирсэн; Гарсан = зарлага + бусад данс руу шилжүүлсэн. Тиймээс эхний + орсон − гарсан = эцсийн.
 //  * Шилжүүлэг (компанийн дотоод) нь «Мөнгөн хөрөнгө» табын нийт орлого/зарлагад ОРОХГҮЙ: тэр нь cash.totals-д өөрчлөгдөөгүй.
 import { createHash } from "node:crypto";
+import { activeKeys } from "./cash-activity";
 import { parseBankAccountName, type CashAccount, type CashEntry, type CashFx, type CashResult } from "./cash";
 
 export interface AccountSetting {
@@ -69,6 +70,8 @@ export interface AccountCard {
   closingFx: number | null;
   /** өнөөдөр орсон (орлого + шилжүүлж ирсэн), гарсан (зарлага + шилжүүлсэн), ₮ */
   today: { inflow: number; outflow: number };
+  /** энэ сард (өнөөдрийг хүртэл) бодит гүйлгээтэй юу; үгүй бол «Хөдөлгөөнгүй данс» хэсэгт */
+  active: boolean;
   hidden: boolean;
 }
 
@@ -129,6 +132,7 @@ export function buildAccountCards(cash: CashResult, settings: ReadonlyMap<string
   const idToKey = new Map<string, string>();
   const order = new Map<string, number | null>();
   const cards: AccountCard[] = [];
+  const active = activeKeys(cash, opts.today);
   let hiddenCount = 0;
   for (const a of cash.accounts) {
     const s = settings.get(a.key);
@@ -152,6 +156,7 @@ export function buildAccountCards(cash: CashResult, settings: ReadonlyMap<string
       closing: a.closing,
       closingFx: a.fx ? a.fx.closing : null,
       today: { inflow: round2(f.inflow + f.transfersIn), outflow: round2(f.outflow + f.transfersOut) },
+      active: active.has(a.key),
       hidden: false,
     });
   }

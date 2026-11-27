@@ -12,6 +12,13 @@ vi.mock("@/lib/onec/cash", async (importOriginal) => {
   const cash = real.buildCash(fixtureInputs());
   return { ...real, loadCash: async () => ({ value: cash as CashResult, meta: { fetchedAt: Date.now(), cached: true, stale: false } }) };
 });
+// Сүүлийн гүйлгээг хайх 1С-ийн хөнгөн хүсэлт: тестэд 1С байхгүй. 2026-09 сард л бүх данс хөдөлгөөнтэй гэж үзнэ.
+vi.mock("@/lib/onec/cash-last-store", async () => {
+  const real = await vi.importActual<typeof import("@/lib/onec/cash")>("@/lib/onec/cash");
+  const { fixtureInputs } = await import("@/lib/onec/cash-accounts.fixture");
+  const cash = real.buildCash(fixtureInputs());
+  return { defaultLastMoveDeps: { turnoverKeys: async (m: string) => new Set(m === "2026-09" ? cash.accounts.map((a) => a.key) : []), loadMonth: async () => cash } };
+});
 vi.mock("@/lib/onec/odata-read", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/onec/odata-read")>();
   return { ...real, lookupRows: async (_c: string, keys: string[]) => new Map(keys.map((k) => [k, { Number: `УБ00-${k.slice(-4)}` }])) };
@@ -19,6 +26,7 @@ vi.mock("@/lib/onec/odata-read", async (importOriginal) => {
 
 import { GET as ACCOUNTS } from "./accounts/route";
 import { GET as ACCOUNT } from "./account/route";
+import { GET as LAST_MOVES } from "./accounts/last-moves/route";
 import { GET as ENTRIES } from "./entries/route";
 import { GET as REPORT } from "./report/route";
 import { GET as CASH } from "./route";
@@ -223,5 +231,40 @@ describe("PUT /admin/cash-accounts: шалгалт, хадгалалт", () => {
     const row = body.accounts.find((a: { key: string }) => a.key === K.hidden);
     expect(row).toMatchObject({ number: "3096022132", name: "Нуух", hidden: true, sortOrder: 5, id: ID.hidden });
     expect(body.accounts).toHaveLength(4);
+  });
+});
+
+describe("хөдөлгөөнгүй данс: идэвхтэй эсэх, сүүлийн гүйлгээ", () => {
+  it("/accounts: энэ сард гүйлгээтэй дансууд active, гүйлгээгүй (нуусан ч) нь active=false; нийт үлдэгдэлд бүгд орно", async () => {
+    as("admin");
+    await ADMIN_PUT(put({ items: [{ key: K.hidden, name: "", hidden: false, sortOrder: null }] })); // нуугаагүй
+    as("director");
+    const body = await (await ACCOUNTS(get("/x"))).json();
+    const byClosing = Object.fromEntries(body.accounts.map((c: { closing: number; active: boolean }) => [c.closing, c.active]));
+    expect(byClosing).toEqual({ 1000: true, 600: true, 150: true, 7: false });
+    expect(body.total).toBe(1757);
+  });
+  it("/account: гүйлгээтэй хугацаанд lastMove байхгүй", async () => {
+    const body = await (await ACCOUNT(get(`/x?id=${ID.main}&month=2026-09`))).json();
+    expect(body.lastMove).toBeUndefined();
+  });
+  it("/account: гүйлгээгүй өдөр -> тэр өдрөөс өмнөх сүүлийн гүйлгээ (өдөр, тэмдэгтэй дүн)", async () => {
+    const body = await (await ACCOUNT(get(`/x?id=${ID.main}&day=2026-09-10`))).json();
+    expect(body.lastMove.date).toBe("2026-09-07");
+    expect(body.lastMove.amount).toBeLessThan(0); // зарлага, шилжүүлсэн: дансны талаас −
+    expect(body.period).toMatchObject({ inflow: 0, outflow: 0, opening: 1000, closing: 1000 });
+  });
+  it("/account: хэзээ ч гүйлгээгүй данс -> lastMove: null", async () => {
+    const body = await (await ACCOUNT(get(`/x?id=${ID.hidden}&month=2026-09`))).json();
+    expect(body.lastMove).toBeNull();
+  });
+  it("/accounts/last-moves: зөвхөн хөдөлгөөнгүй дансууд (ID-аар), олдохгүй бол null; эрхгүй хүнд 403", async () => {
+    const body = await (await LAST_MOVES()).json();
+    expect(body.moves).toEqual({ [ID.hidden]: null });
+    expect(body.complete).toBe(true);
+    as("storekeeper");
+    expect((await LAST_MOVES()).status).toBe(403);
+    as(null);
+    expect((await LAST_MOVES()).status).toBe(401);
   });
 });

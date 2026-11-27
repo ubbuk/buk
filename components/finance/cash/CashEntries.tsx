@@ -49,6 +49,9 @@ interface EntriesPage {
   netTotal: number;
 }
 
+/** «Хайлтад тохирох гүйлгээ олдсонгүй» зөвхөн хайлт бичсэн эсвэл шүүлт сонгосон үед; үгүй бол (өөрийн `emptyState`-тэй бол) тэрийг харуулна */
+export const showSearchEmpty = (q: string, filterCount: number, hasEmptyState: boolean): boolean => q.trim().length > 0 || filterCount > 0 || !hasEmptyState;
+
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -62,7 +65,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * Сарын БҮХ гүйлгээ: хайлт (харилцагч, утга, дүн «84 сая» / 84073015, огноо 11-17), ангилал, харилцагчийн шүүлт, хуудаслалт.
  * Мөрийг дарвал хамгийн доод drill-down: «Нягтланд: баримтын төрөл, дугаар, данс» (удирдлагад шаардлагагүй, нягтланд хэрэгтэй).
  */
-export function CashEntries({ month, filter, onFilter, version, accountId, from, to }: { month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string; accountId?: string; from?: string; to?: string }) {
+export function CashEntries({ month, filter, onFilter, version, accountId, from, to, emptyState }: { month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string; accountId?: string; from?: string; to?: string; /** хайлт, шүүлтгүйгээр жагсаалт хоосон үед «Хайлтад тохирох…»-ын оронд харуулах (дансны хуудас: «гүйлгээ хийгдээгүй · сүүлийн гүйлгээ») */ emptyState?: React.ReactNode }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<EntriesPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +159,7 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
           ))}
         </div>
       ) : data && data.items.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-text-muted">Хайлтад тохирох гүйлгээ олдсонгүй</p>
+        showSearchEmpty(q, chips.length, !!emptyState) ? <p className="px-4 py-10 text-center text-sm text-text-muted">Хайлтад тохирох гүйлгээ олдсонгүй</p> : emptyState
       ) : (
         <ul className={cn("divide-y divide-border", loading && "opacity-60")}>
           {data?.items.map((e) => {

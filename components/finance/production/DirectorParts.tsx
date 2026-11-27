@@ -60,7 +60,7 @@ export function qtyLine(qs: readonly Quantity[]): string {
 }
 
 /** Өдөр сонгогч: ◀ «11-р сарын 18, Лхагва» ▶, Өнөөдөр, Өчигдөр, календарь. Ирээдүй рүү шилжихгүй. */
-export function DayBar({ day, today, onDay }: { day: string; today: string; onDay: (d: string) => void }) {
+export function DayBar({ day, today, onDay, muted = false }: { day: string; today: string; onDay: (d: string) => void; /** өөр хугацаа (жишээ нь «Энэ сар») идэвхтэй үед «Өнөөдөр», «Өчигдөр» тодрохгүй */ muted?: boolean }) {
   const arrow = "focus-ring ng-panel inline-flex size-11 items-center justify-center rounded-xl text-text-muted hover:text-text disabled:pointer-events-none disabled:opacity-30";
   const chip = (active: boolean) => cn("focus-ring ng-panel h-11 rounded-xl px-3.5 text-sm", active ? "border-[rgba(255,213,107,0.6)] text-[#ffd56b]" : "text-text-muted hover:text-text");
   const yesterday = addDays(today, -1);
@@ -87,10 +87,10 @@ export function DayBar({ day, today, onDay }: { day: string; today: string; onDa
           <ChevronRight className="size-4" />
         </button>
       </div>
-      <button type="button" onClick={() => onDay(today)} className={chip(day === today)}>
+      <button type="button" onClick={() => onDay(today)} className={chip(!muted && day === today)}>
         Өнөөдөр
       </button>
-      <button type="button" onClick={() => onDay(yesterday)} className={chip(day === yesterday)}>
+      <button type="button" onClick={() => onDay(yesterday)} className={chip(!muted && day === yesterday)}>
         Өчигдөр
       </button>
     </div>

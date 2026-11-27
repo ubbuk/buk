@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AccountCard, AccountCards, AccountPeriod } from "@/lib/onec/cash-accounts";
-import { AccountCardView, AccountsSection, accountHref, fxText, PeriodNumbers, todayLine } from "./AccountParts";
+import { AccountCardView, AccountsSection, accountHref, fxText, idleLine, PeriodNumbers, signedMoney, todayLine } from "./AccountParts";
+import { showSearchEmpty } from "./CashEntries";
 
 const card = (over: Partial<AccountCard> = {}): AccountCard => ({
   id: "abc123def456",
@@ -17,6 +18,7 @@ const card = (over: Partial<AccountCard> = {}): AccountCard => ({
   closing: 896_967_410.48,
   closingFx: null,
   today: { inflow: 12_400_000, outflow: 361_100_000 },
+  active: true,
   hidden: false,
   ...over,
 });
@@ -122,5 +124,76 @@ describe("захирлын харагдацад хориотой үгс (UI-ий
     expect(acct).toContain("accountId={data.account.id}");
     expect(acct).toContain("<DayBar");
     expect(acct).toContain("Энэ сар");
+  });
+});
+
+describe("хөдөлгөөнгүй данс", () => {
+  const act = (id: string, title: string, closing: number) => card({ id, title, closing, active: true });
+  const idle = (id: string, title: string, closing: number) => card({ id, title, closing, active: false, today: { inflow: 0, outflow: 0 } });
+  const data: AccountCards = { asOf: "2026-11-27", accounts: [act("a1", "Үндсэн данс", 900), act("a2", "Капитрон ··2132", 800), idle("i1", "Хас банк ··6457", 36_661_810), idle("i2", "Голомт ··0314", 35_444_752), idle("i3", "ТХБ ··9099", 1_647_689)], total: 1000, hiddenCount: 0 };
+  const lastMoves = { i1: { date: "2026-08-14", amount: 660_000 }, i2: { date: "2026-10-05", amount: -1_035.49 }, i3: null };
+
+  it("идэвхтэй дансууд эхэнд; «Хөдөлгөөнгүй данс (3)» нугалагдах хэсэг анхдагч ХААЛТТАЙ (дотор нь карт гарахгүй)", () => {
+    const o = html(createElement(AccountsSection, { data, loading: false, error: null, lastMoves }));
+    expect(o).toContain("Хөдөлгөөнгүй данс (3)");
+    expect(o).toContain('aria-expanded="false"');
+    expect((o.match(/<li>/g) ?? []).length).toBe(2); // идэвхтэй 2 л карт
+    expect(o).toContain("Үндсэн данс");
+    expect(o).not.toContain("Хас банк");
+    expect(o.indexOf("Үндсэн данс")).toBeLessThan(o.indexOf("Хөдөлгөөнгүй данс"));
+  });
+  it("нээгдэхэд үлдэгдэлтэй хөдөлгөөнгүй картууд: «Хөдөлгөөнгүй · сүүлд 08-14», «Өнөөдөр: …» мөргүй", () => {
+    const o = html(createElement(AccountsSection, { data, loading: false, error: null, lastMoves, initiallyOpen: true }));
+    expect(o).toContain('aria-expanded="true"');
+    expect((o.match(/<li>/g) ?? []).length).toBe(5);
+    expect(o).toContain("Хөдөлгөөнгүй · сүүлд 08-14");
+    expect(o).toContain("Хөдөлгөөнгүй · сүүлд 10-05");
+    expect(o).toContain("36.7 сая₮");
+    // идэвхтэй 2 карт «Өнөөдөр:» мөртэй, хөдөлгөөнгүй 3 карт мөргүй
+    expect((o.match(/Өнөөдөр: орсон/g) ?? []).length).toBe(2);
+  });
+  it("сүүлийн гүйлгээ олдоогүй/хараахан ачаалаагүй бол зөвхөн «Хөдөлгөөнгүй»", () => {
+    const o = html(createElement(AccountsSection, { data, loading: false, error: null, initiallyOpen: true }));
+    expect(o).not.toContain("сүүлд");
+    expect(o).toContain("Хөдөлгөөнгүй<");
+    expect(idleLine(null)).toBe("Хөдөлгөөнгүй");
+    expect(idleLine(undefined)).toBe("Хөдөлгөөнгүй");
+    expect(idleLine({ date: "2026-08-14", amount: 1 })).toBe("Хөдөлгөөнгүй · сүүлд 08-14");
+  });
+  it("карт: хөдөлгөөнгүй бол саарал мөр; идэвхтэй бол «Өнөөдөр»", () => {
+    const o = html(createElement(AccountCardView, { card: idle("i1", "Хас", 5), idle: true, last: { date: "2026-08-14", amount: 1 } }));
+    expect(o).toContain("Хөдөлгөөнгүй · сүүлд 08-14");
+    expect(o).toContain("text-text-muted/70");
+    expect(o).not.toContain("Өнөөдөр");
+  });
+  it("бүх данс идэвхтэй бол хөдөлгөөнгүй хэсэг гарахгүй; бүгд хөдөлгөөнгүй бол тайлбар", () => {
+    expect(html(createElement(AccountsSection, { data: { ...data, accounts: data.accounts.filter((c) => c.active) }, loading: false, error: null }))).not.toContain("Хөдөлгөөнгүй данс");
+    expect(html(createElement(AccountsSection, { data: { ...data, accounts: data.accounts.filter((c) => !c.active) }, loading: false, error: null }))).toContain("Энэ сард гүйлгээтэй данс алга");
+  });
+  it("нийт үлдэгдэлд бүгд орно (хөдөлгөөнгүй ч): data.total-ийг картуудын нийлбэрээр биш серверийн нийтээр харуулна", () => {
+    expect(html(createElement(AccountsSection, { data: { ...data, total: 9_131_568_057.59 }, loading: false, error: null }))).toContain("9.13 тэрбум₮");
+  });
+  it("signedMoney", () => {
+    expect(signedMoney(12_400_000)).toBe("+12.4 сая₮");
+    expect(signedMoney(-361_100)).toBe("−361.1 мянга₮");
+  });
+});
+
+describe("хоосон жагсаалтын мессеж: «Хайлтад тохирох…» зөвхөн хайлттай үед", () => {
+  it("showSearchEmpty", () => {
+    expect(showSearchEmpty("", 0, true)).toBe(false); // хайлтгүй, дансны хуудас: «гүйлгээ хийгдээгүй…»
+    expect(showSearchEmpty("84 сая", 0, true)).toBe(true);
+    expect(showSearchEmpty("   ", 0, true)).toBe(false);
+    expect(showSearchEmpty("", 1, true)).toBe(true); // шүүлт сонгосон
+    expect(showSearchEmpty("", 0, false)).toBe(true); // «Бүх гүйлгээ» (emptyState-гүй) хуучнаараа
+  });
+  it("дансны хуудас: «энэ данснаас гүйлгээ хийгдээгүй», «Сүүлийн гүйлгээ», товч, горимын үг; DayBar нь бусад табтай ижил (◀ Өдөр сонгох байхгүй)", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../..", "app/(app)/finance/cash/account/page.tsx"), "utf8");
+    for (const t of ["энэ данснаас гүйлгээ хийгдээгүй", "Сүүлийн гүйлгээ:", "Сүүлийн гүйлгээ рүү очих", "Энэ сард", "Энэ өдөр", "Өмнөх гүйлгээ олдсонгүй"]) expect(src, t).toContain(t);
+    expect(src).not.toContain("Өдөр сонгох\n"); // хуучин «◀ Өдөр сонгох» товч
+    expect(src).not.toContain("◀ Өдөр сонгох");
+    expect(src).toContain("<DayBar day={pseudoDay}");
+    expect(src).toContain('muted={mode === "month"}');
+    expect(src).toContain("emptyState={<IdleNote");
   });
 });
