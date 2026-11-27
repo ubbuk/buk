@@ -5,6 +5,7 @@
 # Хуваарь нь UTC: Улаанбаатар = UTC+8.
 #   "*/15 1-11 * * 1-6" → 09:00–19:59 УБ, Даваа–Бямба: 15 минут тутам stock, receivables, current (sales, pl),
 #                          receivables-odata («Авлага» табын агшин зураг, OData Balance), snapshots (мониторингийн мөнгөний үлдэгдэл, сарын зарцуулалт). Мөнгөн хөрөнгө таб (cash) энд татагдахгүй: OData-аас шууд.
+#   (regular дотор) «Мөнгөн хөрөнгө» табын дансны сүүлийн гүйлгээ: mode=cash-last-moves. Анх нэг удаа mode=cash-last-moves-backfill (from, to ≤ 24 сар).
 #   (regular дотор) «Үйлдвэрлэл» табын агшин зураг: mode=production-month (одоогийн сар + хаагдаагүй өмнөх сар). Өмнөх саруудыг гараар mode=production-backfill (from, to).
 #   "10 4,11 * * 1-6"   → 12:10 ба 19:10 УБ, Даваа–Бямба: «Цалин» табын сарын нийт дүн (mode=payroll; одоогийн + өмнөх сар). Regular-аас тусдаа, дангаараа.
 #   "0 2 1-3 * *"       → сарын 1–3-ны 10:00 УБ: өмнөх сар + энэ сар (өмнөх сарыг эцэслэх)
@@ -30,9 +31,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудын борлуулалт, ашиг алдагдал (sales + pl) БОЛОВЧ үйлдвэрлэл БИШ: үйлдвэрлэлийг production-backfill-ээр; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); production-month = «Үйлдвэрлэл» табын одоогийн сар (+ хаагдаагүй өмнөх сар); production-backfill = from..to саруудын үйлдвэрлэл (сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна; force=true бол алгасахгүй, дахин татна); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
+        description: "regular = stock + receivables + current + авлагын агшин зураг; recent = өмнөх + энэ сар; backfill = from..to саруудын борлуулалт, ашиг алдагдал (sales + pl) БОЛОВЧ үйлдвэрлэл БИШ: үйлдвэрлэлийг production-backfill-ээр; month = нэг сар (sales+pl); receivables = нэг өдрийн авлагын агшин зураг; receivables-backfill = from..to өнгөрсөн сар бүрийн эцсийн авлагын агшин зураг (зөвхөн 1201, сар бүр 1 хүсэлт, дараалан); production-month = «Үйлдвэрлэл» табын одоогийн сар (+ хаагдаагүй өмнөх сар); production-backfill = from..to саруудын үйлдвэрлэл (сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна; force=true бол алгасахгүй, дахин татна); expenses-backfill = from..to өнгөрсөн сар бүрийн зардал (зөвхөн pl, сар бүр 1 татаалт, дараалан, татагдсан сарыг алгасна); cash-last-moves = «Мөнгөн хөрөнгө» табын «Хөдөлгөөнгүй данс»: данс бүрийн сүүлийн бодит гүйлгээ (одоогийн + өмнөх сар; regular дотор мөн ажиллана); cash-last-moves-backfill = from..to (≤ 24 сар) өмнөх саруудыг анх нэг удаа нөхнө (бичигдсэн сарыг алгасна; force=true бол дахин); prune = хуучин snapshot, лог цэвэрлэх; import-materials = onec_stock → Material + InventoryBalance"
         type: choice
-        options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, production-month, production-backfill, payroll, prune, import-materials]
+        options: [regular, recent, backfill, month, receivables, receivables-backfill, expenses-backfill, production-month, production-backfill, cash-last-moves, cash-last-moves-backfill, payroll, prune, import-materials]
         default: regular
       apply:
         description: "prune, import-materials: true бол үнэхээр устгана/бичнэ. Анхдагч (false) нь DRY-RUN: зөвхөн тайлан"
@@ -43,15 +44,15 @@ on:
         type: string
         required: false
       from:
-        description: "backfill, receivables-backfill, expenses-backfill, production-backfill: эхний сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill, production-backfill, cash-last-moves-backfill: эхний сар (YYYY-MM)"
         type: string
         required: false
       to:
-        description: "backfill, receivables-backfill, expenses-backfill, production-backfill: сүүлийн сар (YYYY-MM)"
+        description: "backfill, receivables-backfill, expenses-backfill, production-backfill, cash-last-moves-backfill: сүүлийн сар (YYYY-MM)"
         type: string
         required: false
       force:
-        description: "production-backfill: true бол from..to сарыг «татагдсан» гэж алгасахгүй: тэр сарын үйлдвэрлэлийн мөрүүдийг (дараа нь брак болсон, бракаас/засвараас бэлэн болгосон шилжүүлэг орно) устгаад 1С-ээс дахин татна. Анхдагч (false) нь татагдсан сарыг алгасна"
+        description: "production-backfill, cash-last-moves-backfill: true бол from..to сарыг «татагдсан» гэж алгасахгүй: тэр сарын үйлдвэрлэлийн мөрүүдийг (дараа нь брак болсон, бракаас/засвараас бэлэн болгосон шилжүүлэг орно) устгаад 1С-ээс дахин татна. Анхдагч (false) нь татагдсан сарыг алгасна"
         type: boolean
         default: false
 
@@ -152,6 +153,8 @@ jobs:
               if odata_ready; then run snapshots 300 npm run sync:1c -- snapshots; fi
               # «Үйлдвэрлэл» таб: одоогийн сар (өнөөдөр багтсан) + өмнөх сар хаагдаагүй бол (OData, зөвхөн унших; 1 сар ≈ 1 сек, ~200 бичилт)
               if odata_ready; then run production-month 300 npm run sync:1c -- production-month; fi
+              # «Мөнгөн хөрөнгө» таб: хөдөлгөөнгүй дансны сүүлийн гүйлгээ (одоогийн + өмнөх сар, OData зөвхөн унших). Хуудас зөвхөн DB-ээс уншина, 1С руу хандахгүй
+              if odata_ready; then run cash-last-moves 600 npm run sync:1c -- cash-last-moves; fi
               # «Цалин»-г энд ажиллуулахгүй: тусдаа хуваарьтай (mode=payroll, өдөрт 2 удаа), 1С-д ачаалал өгөхгүйн тулд бусад алхмаас тусад нь
               # 1-2-р сард өмнөх оны баазад хаалтын засвар орно: өмнөх оны 12-р сарыг мөн татна (бусад үед алгасна)
               run closing 1500 npm run sync:1c -- closing
@@ -169,6 +172,18 @@ jobs:
               ;;
             production-month)
               if odata_ready; then run production-month 300 npm run sync:1c -- production-month; fi
+              ;;
+            cash-last-moves)
+              if odata_ready; then run cash-last-moves 600 npm run sync:1c -- cash-last-moves; fi
+              ;;
+            cash-last-moves-backfill)
+              # Анх нэг удаа: өмнөх сар бүрийн дансны сүүлийн гүйлгээг дараалан (сар бүр 1С-д 3 хүсэлт), 15 сек завсарлагатай; бичигдсэн сарыг алгасна. Нэг удаад ≤ 24 сар.
+              if ! [[ "$INPUT_FROM" =~ $month_re && "$INPUT_TO" =~ $month_re ]]; then
+                echo "::error::cash-last-moves-backfill-д from, to нь YYYY-MM хэлбэртэй байх ёстой"; exit 1
+              fi
+              force_flag=""
+              if [ "$INPUT_FORCE" = "true" ]; then force_flag="--force"; fi
+              if odata_ready; then run "cash-last-moves-backfill $INPUT_FROM..$INPUT_TO${force_flag:+ force}" 1380 npm run sync:1c -- cash-last-moves-backfill "$INPUT_FROM" "$INPUT_TO" --pause=15 $force_flag; fi
               ;;
             production-backfill)
               # Нэг удаагийн нөхөлт: өмнөх сар бүрийн үйлдвэрлэл. Сар бүр 1 татаалт, 15 сек завсарлагатай дараалан; татагдсан сарыг алгасна. Нэг удаад ≤ 24 сар.

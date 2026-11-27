@@ -129,12 +129,12 @@ describe("захирлын харагдацад хориотой үгс (UI-ий
 
 describe("хөдөлгөөнгүй данс", () => {
   const act = (id: string, title: string, closing: number) => card({ id, title, closing, active: true });
-  const idle = (id: string, title: string, closing: number) => card({ id, title, closing, active: false, today: { inflow: 0, outflow: 0 } });
-  const data: AccountCards = { asOf: "2026-11-27", accounts: [act("a1", "Үндсэн данс", 900), act("a2", "Капитрон ··2132", 800), idle("i1", "Хас банк ··6457", 36_661_810), idle("i2", "Голомт ··0314", 35_444_752), idle("i3", "ТХБ ··9099", 1_647_689)], total: 1000, hiddenCount: 0 };
-  const lastMoves = { i1: { date: "2026-08-14", amount: 660_000 }, i2: { date: "2026-10-05", amount: -1_035.49 }, i3: null };
+  const idle = (id: string, title: string, closing: number, lastMove?: { date: string; amount: number } | null) => card({ id, title, closing, active: false, today: { inflow: 0, outflow: 0 }, ...(lastMove !== undefined ? { lastMove } : {}) });
+  const data: AccountCards = { asOf: "2026-11-27", accounts: [act("a1", "Үндсэн данс", 900), act("a2", "Капитрон ··2132", 800), idle("i1", "Хас банк ··6457", 36_661_810, { date: "2026-08-14", amount: 660_000 }), idle("i2", "Голомт ··0314", 35_444_752, { date: "2026-10-05", amount: -1_035.49 }), idle("i3", "ТХБ ··9099", 1_647_689, null)], total: 1000, hiddenCount: 0 };
+  const noLast: AccountCards = { ...data, accounts: data.accounts.map((c) => ({ ...c, lastMove: undefined })) };
 
   it("идэвхтэй дансууд эхэнд; «Хөдөлгөөнгүй данс (3)» нугалагдах хэсэг анхдагч ХААЛТТАЙ (дотор нь карт гарахгүй)", () => {
-    const o = html(createElement(AccountsSection, { data, loading: false, error: null, lastMoves }));
+    const o = html(createElement(AccountsSection, { data, loading: false, error: null }));
     expect(o).toContain("Хөдөлгөөнгүй данс (3)");
     expect(o).toContain('aria-expanded="false"');
     expect((o.match(/<li>/g) ?? []).length).toBe(2); // идэвхтэй 2 л карт
@@ -143,7 +143,7 @@ describe("хөдөлгөөнгүй данс", () => {
     expect(o.indexOf("Үндсэн данс")).toBeLessThan(o.indexOf("Хөдөлгөөнгүй данс"));
   });
   it("нээгдэхэд үлдэгдэлтэй хөдөлгөөнгүй картууд: «Хөдөлгөөнгүй · сүүлд 08-14», «Өнөөдөр: …» мөргүй", () => {
-    const o = html(createElement(AccountsSection, { data, loading: false, error: null, lastMoves, initiallyOpen: true }));
+    const o = html(createElement(AccountsSection, { data, loading: false, error: null, initiallyOpen: true }));
     expect(o).toContain('aria-expanded="true"');
     expect((o.match(/<li>/g) ?? []).length).toBe(5);
     expect(o).toContain("Хөдөлгөөнгүй · сүүлд 08-14");
@@ -153,7 +153,7 @@ describe("хөдөлгөөнгүй данс", () => {
     expect((o.match(/Өнөөдөр: орсон/g) ?? []).length).toBe(2);
   });
   it("сүүлийн гүйлгээ олдоогүй/хараахан ачаалаагүй бол зөвхөн «Хөдөлгөөнгүй»", () => {
-    const o = html(createElement(AccountsSection, { data, loading: false, error: null, initiallyOpen: true }));
+    const o = html(createElement(AccountsSection, { data: noLast, loading: false, error: null, initiallyOpen: true }));
     expect(o).not.toContain("сүүлд");
     expect(o).toContain("Хөдөлгөөнгүй<");
     expect(idleLine(null)).toBe("Хөдөлгөөнгүй");

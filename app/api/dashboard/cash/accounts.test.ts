@@ -12,21 +12,24 @@ vi.mock("@/lib/onec/cash", async (importOriginal) => {
   const cash = real.buildCash(fixtureInputs());
   return { ...real, loadCash: async () => ({ value: cash as CashResult, meta: { fetchedAt: Date.now(), cached: true, stale: false } }) };
 });
-// Сүүлийн гүйлгээг хайх 1С-ийн хөнгөн хүсэлт: тестэд 1С байхгүй. 2026-09 сард л бүх данс хөдөлгөөнтэй гэж үзнэ.
-vi.mock("@/lib/onec/cash-last-store", async () => {
-  const real = await vi.importActual<typeof import("@/lib/onec/cash")>("@/lib/onec/cash");
-  const { fixtureInputs } = await import("@/lib/onec/cash-accounts.fixture");
-  const cash = real.buildCash(fixtureInputs());
-  return { defaultLastMoveDeps: { turnoverKeys: async (m: string) => new Set(m === "2026-09" ? cash.accounts.map((a) => a.key) : []), loadMonth: async () => cash } };
-});
+// Сүүлийн гүйлгээ: sync-ээр бичигдсэн DB-ээс л уншина. Тестэд DB-ийн оронд санах ой (бусад тестийн мөртэй мөргөлдөхгүй).
+const lm = vi.hoisted(() => ({ latest: new Map<string, { date: string; amount: number }>(), before: new Map<string, { date: string; amount: number }>(), backfilled: false, reads: 0 }));
+vi.mock("@/lib/onec/cash-last-store", () => ({
+  readLatestMoves: async () => (lm.reads++, lm.latest),
+  readMoveBefore: async (key: string, month: string) => (lm.reads++, lm.before.get(`${key}|${month}`) ?? null),
+  isLastMoveBackfilled: async () => lm.backfilled,
+}));
 vi.mock("@/lib/onec/odata-read", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/onec/odata-read")>();
-  return { ...real, lookupRows: async (_c: string, keys: string[]) => new Map(keys.map((k) => [k, { Number: `УБ00-${k.slice(-4)}` }])) };
+  // 1С руу хандах ёстой бол тест унана: сүүлийн гүйлгээ, данс, шилжүүлэг бүгд DB / бэлэн мэдээнээс
+  const noOnec = (name: string) => async () => {
+    throw new Error(`1С руу хандаж болохгүй: ${name}`);
+  };
+  return { ...real, odataRows: noOnec("odataRows"), fetchPaged: noOnec("fetchPaged"), lookupRows: async (_c: string, keys: string[]) => new Map(keys.map((k) => [k, { Number: `УБ00-${k.slice(-4)}` }])) };
 });
 
 import { GET as ACCOUNTS } from "./accounts/route";
 import { GET as ACCOUNT } from "./account/route";
-import { GET as LAST_MOVES } from "./accounts/last-moves/route";
 import { GET as ENTRIES } from "./entries/route";
 import { GET as REPORT } from "./report/route";
 import { GET as CASH } from "./route";
@@ -51,6 +54,10 @@ beforeAll(async () => {
 });
 const clean = () => prisma.onecCashAccountSetting.deleteMany({ where: { key: { in: keys } } });
 beforeEach(async () => {
+  lm.latest = new Map();
+  lm.before = new Map();
+  lm.backfilled = false;
+  lm.reads = 0;
   as("director");
   await clean();
 });
@@ -234,37 +241,58 @@ describe("PUT /admin/cash-accounts: шалгалт, хадгалалт", () => {
   });
 });
 
-describe("хөдөлгөөнгүй данс: идэвхтэй эсэх, сүүлийн гүйлгээ", () => {
-  it("/accounts: энэ сард гүйлгээтэй дансууд active, гүйлгээгүй (нуусан ч) нь active=false; нийт үлдэгдэлд бүгд орно", async () => {
-    as("admin");
-    await ADMIN_PUT(put({ items: [{ key: K.hidden, name: "", hidden: false, sortOrder: null }] })); // нуугаагүй
-    as("director");
+describe("хөдөлгөөнгүй данс: идэвхтэй эсэх, сүүлийн гүйлгээ (зөвхөн DB-ээс)", () => {
+  const idleCard = async () => (await (await ACCOUNTS(get("/x"))).json()).accounts.find((c: { active: boolean }) => !c.active);
+
+  it("/accounts: энэ сард гүйлгээтэй дансууд active, гүйлгээгүй нь active=false; нийт үлдэгдэлд бүгд орно", async () => {
     const body = await (await ACCOUNTS(get("/x"))).json();
     const byClosing = Object.fromEntries(body.accounts.map((c: { closing: number; active: boolean }) => [c.closing, c.active]));
     expect(byClosing).toEqual({ 1000: true, 600: true, 150: true, 7: false });
     expect(body.total).toBe(1757);
   });
-  it("/account: гүйлгээтэй хугацаанд lastMove байхгүй", async () => {
+  it("/accounts: хөдөлгөөнгүй дансны сүүлийн гүйлгээг DB-ээс (sync бичсэн) авна; идэвхтэй дансанд lastMove байхгүй", async () => {
+    lm.latest.set(K.hidden, { date: "2026-08-14", amount: 660_000 });
+    const body = await (await ACCOUNTS(get("/x"))).json();
+    expect(body.accounts.find((c: { active: boolean }) => !c.active).lastMove).toEqual({ date: "2026-08-14", amount: 660_000 });
+    expect(body.accounts.filter((c: { active: boolean }) => c.active).every((c: { lastMove?: unknown }) => c.lastMove === undefined)).toBe(true);
+  });
+  it("/accounts: DB-д мөр байхгүй: нөхөлт хийгдсэн бол null («олдсонгүй»), хийгдээгүй бол хараахан мэдэгдэхгүй (талбар байхгүй)", async () => {
+    expect((await idleCard()).lastMove).toBeUndefined();
+    lm.backfilled = true;
+    expect((await idleCard()).lastMove).toBeNull();
+  });
+  it("/account: гүйлгээтэй хугацаанд lastMove байхгүй, DB уншихгүй", async () => {
     const body = await (await ACCOUNT(get(`/x?id=${ID.main}&month=2026-09`))).json();
     expect(body.lastMove).toBeUndefined();
+    expect(lm.reads).toBe(0);
   });
-  it("/account: гүйлгээгүй өдөр -> тэр өдрөөс өмнөх сүүлийн гүйлгээ (өдөр, тэмдэгтэй дүн)", async () => {
+  it("/account: гүйлгээгүй өдөр -> тэр сарын мэдээнээс сүүлийн гүйлгээ (DB-д хандахгүй)", async () => {
     const body = await (await ACCOUNT(get(`/x?id=${ID.main}&day=2026-09-10`))).json();
     expect(body.lastMove.date).toBe("2026-09-07");
     expect(body.lastMove.amount).toBeLessThan(0); // зарлага, шилжүүлсэн: дансны талаас −
     expect(body.period).toMatchObject({ inflow: 0, outflow: 0, opening: 1000, closing: 1000 });
+    expect(lm.reads).toBe(0);
   });
-  it("/account: хэзээ ч гүйлгээгүй данс -> lastMove: null", async () => {
+  it("/account: энэ сард гүйлгээгүй -> өмнөх саруудын сүүлийн гүйлгээг DB-ээс (тухайн сараас ӨМНӨХ)", async () => {
+    lm.before.set(`${K.hidden}|2026-09`, { date: "2026-08-14", amount: -1_000 });
     const body = await (await ACCOUNT(get(`/x?id=${ID.hidden}&month=2026-09`))).json();
-    expect(body.lastMove).toBeNull();
+    expect(body.lastMove).toEqual({ date: "2026-08-14", amount: -1_000 });
   });
-  it("/accounts/last-moves: зөвхөн хөдөлгөөнгүй дансууд (ID-аар), олдохгүй бол null; эрхгүй хүнд 403", async () => {
-    const body = await (await LAST_MOVES()).json();
-    expect(body.moves).toEqual({ [ID.hidden]: null });
-    expect(body.complete).toBe(true);
-    as("storekeeper");
-    expect((await LAST_MOVES()).status).toBe(403);
-    as(null);
-    expect((await LAST_MOVES()).status).toBe(401);
+  it("/account: хэзээ ч гүйлгээгүй: нөхөлт хийгдсэн бол null, үгүй бол хараахан мэдэгдэхгүй", async () => {
+    expect((await (await ACCOUNT(get(`/x?id=${ID.hidden}&month=2026-09`))).json()).lastMove).toBeUndefined();
+    lm.backfilled = true;
+    expect((await (await ACCOUNT(get(`/x?id=${ID.hidden}&month=2026-09`))).json()).lastMove).toBeNull();
+  });
+  it("хуудас нээх бүрт 1С руу нэмэлт хүсэлт явахгүй: «Сүүлийн гүйлгээ» хайх маршрут, Turnovers, findLastMoves байхгүй", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { default: path } = await import("node:path");
+    const root = path.resolve(__dirname, "../../../..");
+    for (const f of ["app/api/dashboard/cash/accounts/route.ts", "app/api/dashboard/cash/account/route.ts", "lib/onec/cash-activity.ts"]) {
+      const src = readFileSync(path.join(root, f), "utf8");
+      for (const w of ["findLastMoves", "Turnovers", "defaultLastMoveDeps", "turnoverKeys"]) expect(src, `${f}: ${w}`).not.toContain(w);
+    }
+    expect(() => readFileSync(path.join(root, "app/api/dashboard/cash/accounts/last-moves/route.ts"), "utf8")).toThrow();
+    // 1С руу хандвал (odataRows) тест унана: дээрх бүх дуудлага амжилттай болсон
+    expect((await ACCOUNTS(get("/x"))).status).toBe(200);
   });
 });

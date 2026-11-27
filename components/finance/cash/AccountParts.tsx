@@ -85,7 +85,7 @@ export function AccountCardView({ card, idle = false, last }: { card: AccountCar
 }
 
 /** Табын дээд хэсэг: бүх дансны нийт үлдэгдэл (₮) ба данс бүрийн карт */
-export function AccountsSection({ data, loading, error, manageHref, lastMoves, initiallyOpen = false }: { data: AccountCards | null; loading: boolean; error: string | null; manageHref?: string; lastMoves?: Record<string, LastMove | null>; /** «Хөдөлгөөнгүй данс» нээлттэй эхлэх (анхдагч хаалттай; тестэд) */ initiallyOpen?: boolean }) {
+export function AccountsSection({ data, loading, error, manageHref, initiallyOpen = false }: { data: AccountCards | null; loading: boolean; error: string | null; manageHref?: string; /** «Хөдөлгөөнгүй данс» нээлттэй эхлэх (анхдагч хаалттай; тестэд) */ initiallyOpen?: boolean }) {
   const [idleOpen, setIdleOpen] = useState(initiallyOpen);
   const active = data?.accounts.filter((c) => c.active) ?? [];
   const idle = data?.accounts.filter((c) => !c.active) ?? [];
@@ -139,7 +139,7 @@ export function AccountsSection({ data, loading, error, manageHref, lastMoves, i
               {idleOpen && (
                 <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {idle.map((c) => (
-                    <AccountCardView key={c.id} card={c} idle last={lastMoves?.[c.id]} />
+                    <AccountCardView key={c.id} card={c} idle last={c.lastMove} />
                   ))}
                 </ul>
               )}

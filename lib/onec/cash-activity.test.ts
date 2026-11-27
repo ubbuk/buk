@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCash, type CashEntry, type CashResult } from "./cash";
-import { activeKeys, findLastMoves, hasMoves, isRealMove, lastMoveIn, type LastMoveDeps } from "./cash-activity";
+import { activeKeys, hasMoves, isRealMove, lastMoveIn } from "./cash-activity";
 import { fixtureInputs, K } from "./cash-accounts.fixture";
 
 const cash: CashResult = buildCash(fixtureInputs());
@@ -73,56 +73,3 @@ describe("hasMoves, activeKeys", () => {
   });
 });
 
-describe("findLastMoves: сараар ухарч хайна, хөдөлгөөнтэй сарыг л бүтнээр уншина", () => {
-  const sep = withMoves([entry({ id: "s", date: "2026-08-14", type: "outflow", amount: 30 })], [], "2026-08");
-  const mk = (turn: Record<string, string[]>, months: Record<string, CashResult>) => {
-    const calls = { turnover: [] as string[], load: [] as string[] };
-    const deps: LastMoveDeps = {
-      turnoverKeys: async (m) => (calls.turnover.push(m), new Set(turn[m] ?? [])),
-      loadMonth: async (m) => (calls.load.push(m), months[m] ?? withMoves([], [], m)),
-    };
-    return { deps, calls };
-  };
-
-  it("сүүлийн гүйлгээтэй сар хүртэл ухарч олно; хоосон сарыг уншихгүй", async () => {
-    const { deps, calls } = mk({ "2026-08": ["acct:1"] }, { "2026-08": sep });
-    const r = await findLastMoves(["acct:1"], "2026-11-27", deps);
-    expect(r.get("acct:1")).toEqual({ date: "2026-08-14", amount: -30 });
-    expect(calls.turnover).toEqual(["2026-11", "2026-10", "2026-09", "2026-08"]); // олдоход зогсоно
-    expect(calls.load).toEqual(["2026-08"]); // зөвхөн хөдөлгөөнтэй сар
-  });
-  it("олон данс: тус бүрийн сүүлийн гүйлгээ өөр сард; нэг нь олдохгүй бол null", async () => {
-    const oct = withMoves([entry({ id: "o", accountKey: "acct:2", date: "2026-10-02", amount: 9 })], [], "2026-10");
-    const { deps } = mk({ "2026-10": ["acct:2"], "2026-08": ["acct:1"] }, { "2026-10": oct, "2026-08": sep });
-    const r = await findLastMoves(["acct:1", "acct:2", "acct:3"], "2026-11-27", deps, { maxMonths: 6 });
-    expect(r.get("acct:2")).toEqual({ date: "2026-10-02", amount: 9 });
-    expect(r.get("acct:1")).toEqual({ date: "2026-08-14", amount: -30 });
-    expect(r.get("acct:3")).toBeNull();
-  });
-  it("зөвхөн ханшийн тохируулгатай сар «сүүлийн гүйлгээ» болохгүй, цааш ухарна", async () => {
-    const reg = withMoves([entry({ id: "g", date: "2026-10-31", docType: "РегламентнаяОперация" })], [], "2026-10");
-    const { deps } = mk({ "2026-10": ["acct:1"], "2026-08": ["acct:1"] }, { "2026-10": reg, "2026-08": sep });
-    expect((await findLastMoves(["acct:1"], "2026-11-27", deps)).get("acct:1")).toEqual({ date: "2026-08-14", amount: -30 });
-  });
-  it("upTo-оос хойших гүйлгээг тоохгүй (өдрийн хуудас)", async () => {
-    const sepCash = withMoves([entry({ id: "a", date: "2026-09-05" }), entry({ id: "b", date: "2026-09-20" })]);
-    const { deps } = mk({ "2026-09": ["acct:1"] }, { "2026-09": sepCash });
-    expect((await findLastMoves(["acct:1"], "2026-09-10", deps)).get("acct:1")).toEqual({ date: "2026-09-05", amount: 100 });
-  });
-  it("maxMonths-д олдохгүй бол null; хугацааны төсөв дуусвал зогсоно", async () => {
-    const { deps, calls } = mk({}, {});
-    const r = await findLastMoves(["acct:1"], "2026-11-27", deps, { maxMonths: 5 });
-    expect(r.get("acct:1")).toBeNull();
-    expect(calls.turnover).toHaveLength(5);
-    let t = 0;
-    const slow = mk({}, {});
-    const r2 = await findLastMoves(["acct:1"], "2026-11-27", { ...slow.deps, now: () => (t += 20_000) }, { budgetMs: 45_000 });
-    expect(r2.has("acct:1")).toBe(false); // хайж дуусаагүй: null биш, үр дүнд оруулахгүй
-    expect(slow.calls.turnover.length).toBeLessThan(5);
-  });
-  it("хайх данс байхгүй бол 1С руу хандахгүй", async () => {
-    const { deps, calls } = mk({}, {});
-    expect((await findLastMoves([], "2026-11-27", deps)).size).toBe(0);
-    expect(calls.turnover).toHaveLength(0);
-  });
-});
