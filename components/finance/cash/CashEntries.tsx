@@ -6,11 +6,12 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoneyShort } from "@/lib/money-short";
+import { dirOfFlow } from "@/lib/onec/cash-dir";
 import { Amount } from "./Amount";
 
 export interface CashEntryFilter {
   q: string;
-  flow: "" | "inflow" | "outflow";
+  flow: "" | "inflow" | "outflow" | "transfer";
   category: string;
   categoryLabel: string;
   party: string;
@@ -27,6 +28,7 @@ interface EntryItem {
   id: string;
   date: string;
   type: "inflow" | "outflow" | "internal";
+  transfer?: boolean;
   account: string;
   counterpart: string;
   memo: string;
@@ -47,6 +49,23 @@ interface EntriesPage {
   pages: number;
   total: number;
   netTotal: number;
+  amountTotal?: number;
+}
+
+export const DIR_OPTIONS: { flow: CashEntryFilter["flow"]; label: string }[] = [
+  { flow: "", label: "Бүгд" },
+  { flow: "inflow", label: "Орсон" },
+  { flow: "outflow", label: "Гарсан" },
+  { flow: "transfer", label: "Шилжүүлэг" },
+];
+
+/** Баруун дээд талын нийт: «Орсон: 128 гүйлгээ · +4.09 тэрбум₮». Бүгд: цэвэр дүн; Орсон +, Гарсан −, Шилжүүлэг тэмдэггүй. */
+export function dirSummary(flow: CashEntryFilter["flow"], total: number, netTotal: number, amountTotal: number | undefined): { label: string; count: string; value: number; signed: boolean; tone: "success" | "danger" | "neutral" } {
+  const count = `${total} гүйлгээ`;
+  if (flow === "inflow") return { label: "Орсон", count, value: amountTotal ?? netTotal, signed: true, tone: "success" };
+  if (flow === "outflow") return { label: "Гарсан", count, value: -(amountTotal ?? Math.abs(netTotal)), signed: true, tone: "danger" };
+  if (flow === "transfer") return { label: "Шилжүүлэг", count, value: amountTotal ?? 0, signed: false, tone: "neutral" };
+  return { label: "", count, value: netTotal, signed: true, tone: "neutral" };
 }
 
 /** «Хайлтад тохирох гүйлгээ олдсонгүй» зөвхөн хайлт бичсэн эсвэл шүүлт сонгосон үед; үгүй бол (өөрийн `emptyState`-тэй бол) тэрийг харуулна */
@@ -61,11 +80,22 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
+function DirTotal({ flow, data }: { flow: CashEntryFilter["flow"]; data: EntriesPage }) {
+  const s = dirSummary(flow, data.total, data.netTotal, data.amountTotal);
+  return (
+    <span data-testid="cash-dir-total" className="ml-auto min-w-0 whitespace-nowrap text-xs text-text-muted">
+      {s.label ? `${s.label}: ` : ""}
+      {s.count} · {s.label ? "" : "цэвэр "}
+      <Amount value={s.value} signed={s.signed} className={cn("text-xs", s.tone === "success" && "text-success", s.tone === "danger" && "text-danger")} />
+    </span>
+  );
+}
+
 /**
  * Сарын БҮХ гүйлгээ: хайлт (харилцагч, утга, дүн «84 сая» / 84073015, огноо 11-17), ангилал, харилцагчийн шүүлт, хуудаслалт.
  * Мөрийг дарвал хамгийн доод drill-down: «Нягтланд: баримтын төрөл, дугаар, данс» (удирдлагад шаардлагагүй, нягтланд хэрэгтэй).
  */
-export function CashEntries({ month, filter, onFilter, version, accountId, from, to, emptyState }: { month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string; accountId?: string; from?: string; to?: string; /** хайлт, шүүлтгүйгээр жагсаалт хоосон үед «Хайлтад тохирох…»-ын оронд харуулах (дансны хуудас: «гүйлгээ хийгдээгүй · сүүлийн гүйлгээ») */ emptyState?: React.ReactNode }) {
+export function CashEntries({ month, filter, onFilter, version, accountId, from, to, emptyState, dirChips = false }: { dirChips?: boolean; month: string; filter: CashEntryFilter; onFilter: (f: CashEntryFilter) => void; version: string; accountId?: string; from?: string; to?: string; /** хайлт, шүүлтгүйгээр жагсаалт хоосон үед «Хайлтад тохирох…»-ын оронд харуулах (дансны хуудас: «гүйлгээ хийгдээгүй · сүүлийн гүйлгээ») */ emptyState?: React.ReactNode }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<EntriesPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +111,8 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
     const c = new AbortController();
     const sp = new URLSearchParams({ month, page: String(page), size: "30" });
     if (q.trim()) sp.set("q", q.trim());
-    if (filter.flow) sp.set("flow", filter.flow);
+    const dir = dirOfFlow(filter.flow);
+    if (dir) sp.set("dir", dir);
     if (filter.category) sp.set("category", filter.category);
     if (filter.party) sp.set("party", filter.party);
     if (filter.fee) sp.set("fee", filter.fee);
@@ -108,18 +139,15 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
     return () => c.abort();
   }, [month, page, q, filter.flow, filter.category, filter.party, filter.fee, filter.main, version, accountId, from, to]);
 
-  const chips = [filter.flow && (filter.flow === "inflow" ? "Орж ирсэн" : "Гарсан"), filter.categoryLabel, filter.feeLabel, filter.mainLabel, filter.party].filter(Boolean) as string[];
+  // чиглэл (Орсон/Гарсан/Шилжүүлэг) нь тусдаа товчнуудаар; «Шүүлт» чипэд зөвхөн ангилал г.м.
+  const chips = [filter.categoryLabel, filter.feeLabel, filter.mainLabel, filter.party].filter(Boolean) as string[];
 
   return (
     <Card id="cash-entries">
       <div className="space-y-3 border-b border-border p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-text">Бүх гүйлгээ</h3>
-          {data && (
-            <span className="text-xs text-text-muted">
-              {data.total} гүйлгээ · цэвэр <Amount value={data.netTotal} signed className="text-xs" />
-            </span>
-          )}
+          {data && <DirTotal flow={filter.flow} data={data} />}
         </div>
         <label className="relative block">
           <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
@@ -132,6 +160,27 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
             className="focus-ring h-11 w-full rounded-xl border border-border bg-bg-elevated pl-10 pr-3 text-sm text-text placeholder:text-text-muted"
           />
         </label>
+        {dirChips && (
+          <div role="group" aria-label="Чиглэлээр шүүх" data-testid="cash-dir-filter" className="flex w-full gap-1 rounded-xl border border-border bg-bg-elevated p-1">
+            {DIR_OPTIONS.map((o) => {
+              const on = filter.flow === o.flow;
+              return (
+                <button
+                  key={o.label}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => onFilter({ ...filter, flow: o.flow })}
+                  className={cn(
+                    "focus-ring min-h-9 min-w-0 flex-auto whitespace-nowrap rounded-lg px-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+                    on ? (o.flow === "inflow" ? "bg-success/15 text-success" : o.flow === "outflow" ? "bg-danger/15 text-danger" : "bg-white/10 text-text") : "text-text-muted hover:text-text"
+                  )}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {chips.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-text-muted">Шүүлт:</span>
@@ -159,7 +208,7 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
           ))}
         </div>
       ) : data && data.items.length === 0 ? (
-        showSearchEmpty(q, chips.length, !!emptyState) ? <p className="px-4 py-10 text-center text-sm text-text-muted">Хайлтад тохирох гүйлгээ олдсонгүй</p> : emptyState
+        showSearchEmpty(q, chips.length + (filter.flow ? 1 : 0), !!emptyState) ? <p className="px-4 py-10 text-center text-sm text-text-muted">Хайлтад тохирох гүйлгээ олдсонгүй</p> : emptyState
       ) : (
         <ul className={cn("divide-y divide-border", loading && "opacity-60")}>
           {data?.items.map((e) => {
@@ -207,7 +256,7 @@ export function CashEntries({ month, filter, onFilter, version, accountId, from,
                       </span>
                     )}
                   </span>
-                  <Amount value={e.type === "outflow" ? -e.amount : e.amount} signed className={cn("shrink-0 text-sm font-medium", e.type === "outflow" ? "text-danger" : "text-success")} />
+                  <Amount value={e.type === "outflow" ? -e.amount : e.amount} signed={e.type !== "internal"} className={cn("shrink-0 text-sm font-medium", e.type === "outflow" ? "text-danger" : e.type === "internal" ? "text-text" : "text-success")} />
                   <ChevronDown className={cn("size-4 shrink-0 text-text-muted transition-transform", isOpen && "rotate-180")} />
                 </button>
                 {e.fees && (

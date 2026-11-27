@@ -13,6 +13,7 @@ import { categoryLabel, isCategoryId } from "@/lib/onec/cash-categories";
 import { feeInfoOf, feeMatches, isFeeFilter, linkFees } from "@/lib/onec/cash-fees";
 import { filterEntries, paginate, withCategories, type ReportEntry } from "@/lib/onec/cash-report";
 import { loadCashRules } from "@/lib/onec/cash-rules-store";
+import { dirTotals, matchesDir, parseDir, transferReportEntries } from "@/lib/onec/cash-dir";
 import { currentMonth, isDate, isMonth } from "@/lib/onec/dates";
 import { lookupRows, OdataError } from "@/lib/onec/odata-read";
 import { withOneCYear, yearOf } from "@/lib/onec/year-context";
@@ -47,7 +48,9 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
   const month = sp.get("month") ?? currentMonth();
   if (!isMonth(month) || month > currentMonth()) return NextResponse.json({ error: "month нь YYYY-MM хэлбэртэй, ирээдүйн сар биш байх ёстой" }, { status: 400, headers: NO_STORE });
   const flowRaw = sp.get("flow");
-  const flow = flowRaw === "inflow" || flowRaw === "outflow" ? flowRaw : undefined;
+  // ?dir=in|out|transfer (Орсон/Гарсан/Шилжүүлэг): in/out нь шилжүүлгийг оруулахгүй. Хуучин ?flow=inflow|outflow хэвээр.
+  const dir = parseDir(sp.get("dir"));
+  const flow = dir ? undefined : flowRaw === "inflow" || flowRaw === "outflow" ? flowRaw : undefined;
   const categoryRaw = sp.get("category");
   const category = isCategoryId(categoryRaw) ? categoryRaw : undefined;
   const page = Math.max(1, Number(sp.get("page")) || 1);
@@ -66,23 +69,29 @@ export const GET = withTiming("GET /api/dashboard/cash/entries", async (req: Req
     const toRaw = sp.get("to");
     const base = withCategories(cash.entries, rules, canSeePayroll);
     const transfers = acc ? transferEntriesFor(cash, acc.key, nameOf).map((t) => ({ ...t, category: "internal" as const })) : [];
-    const all: ReportEntry[] = acc ? [...base, ...transfers].sort((a, b) => b.date.localeCompare(a.date) || b.amount - a.amount) : base;
+    // Нийт хуудас: «Шилжүүлэг» чиглэлд дотоод шилжүүлгүүд (нэг мөр = нэг шилжүүлэг); бусад үед орсон/гарсан л
+    const maskTr = (e: ReportEntry): ReportEntry => (isAdmin ? e : { ...e, account: maskAccountName(e.account), counterpart: maskAccountName(e.counterpart) });
+    const transferRows = !acc && dir === "transfer" ? transferReportEntries(cash.transfers).map(maskTr).map((e) => ({ ...e, counterpart: `${e.account} → ${e.counterpart}` })) : [];
+    const all: ReportEntry[] = acc ? [...base, ...transfers].sort((a, b) => b.date.localeCompare(a.date) || b.amount - a.amount) : dir === "transfer" ? transferRows : base;
     // шимтгэлийн холбоо БҮХ гүйлгээн дээр (шүүлтээс өмнө): шүүсэн жагсаалтад үндсэн гүйлгээ байхгүй ч шимтгэл холбоотой хэвээр
     const links = linkFees(all);
     const byId = new Map(all.map((e) => [e.id, e]));
     const feeRaw = sp.get("fee");
     const fee = isFeeFilter(feeRaw) ? feeRaw : undefined;
-    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined, accountKey: acc?.key, from: isDate(fromRaw) ? fromRaw : undefined, to: isDate(toRaw) ? toRaw : undefined }).filter((e) => !fee || feeMatches(fee, e, links, byId));
+    const filtered = filterEntries(all, { q: sp.get("q") ?? undefined, flow, category, party: sp.get("party") ?? undefined, account: sp.get("account") ?? undefined, accountKey: acc?.key, from: isDate(fromRaw) ? fromRaw : undefined, to: isDate(toRaw) ? toRaw : undefined }).filter((e) => !fee || feeMatches(fee, e, links, byId)).filter((e) => matchesDir(e, dir));
     // нэг үндсэн гүйлгээ ба түүний шимтгэлүүд (ангиллын «аль гүйлгээнд хамаарах» жагсаалтаас)
     const main = sp.get("main");
     const scoped = main ? filtered.filter((e) => e.id === main || links.mainOf.get(e.id) === main) : filtered;
     const pageOf = paginate(scoped, page, size);
     const numbers = await documentNumbers(month, pageOf.items);
-    const net = scoped.reduce((s, e) => s + (e.type === "inflow" ? e.amount : -e.amount), 0);
+    const totals = dirTotals(scoped);
     return NextResponse.json(
       {
         ...pageOf,
-        netTotal: Math.round(net * 100) / 100,
+        netTotal: totals.netTotal,
+        /** шүүсэн (хайлттай хамт) жагсаалтын дүнгийн нийлбэр: «Орсон: 128 гүйлгээ · +4.09 тэрбум₮» */
+        amountTotal: totals.amountTotal,
+        dir: dir ?? null,
         items: pageOf.items.map((e) => ({
           id: e.id,
           date: e.date,
