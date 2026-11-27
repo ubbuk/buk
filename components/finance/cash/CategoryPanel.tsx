@@ -38,8 +38,8 @@ export function CategoryPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <span className="text-xs text-text-muted">{flow.categories.length} ангилал</span>
+        <CardTitle className="min-w-0">{title}</CardTitle>
+        <span className="shrink-0 whitespace-nowrap text-xs text-text-muted">{flow.categories.length} ангилал</span>
       </CardHeader>
       <CardBody className="space-y-1.5 !p-3">
         {flow.categories.length === 0 && <p className="px-2 py-6 text-center text-sm text-text-muted">Энэ сард гүйлгээ алга</p>}
@@ -47,26 +47,27 @@ export function CategoryPanel({
           const isOpen = open === c.id;
           return (
             <div key={c.id} className="rounded-xl border border-transparent hover:border-border">
-              <div className="flex items-center gap-2 px-2 py-2">
-                <button
-                  type="button"
-                  aria-expanded={isOpen}
-                  aria-label={`${c.label}: харилцагчаар задлах`}
-                  onClick={() => setOpen(isOpen ? null : c.id)}
-                  className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg text-left"
-                >
-                  <ChevronRight className={cn("size-4 shrink-0 text-text-muted transition-transform", isOpen && "rotate-90")} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-3">
-                      <span className="truncate text-sm font-medium text-text">{c.label}</span>
-                      <span className="shrink-0 text-xs text-text-muted">{(c.share * 100).toFixed(c.share < 0.1 ? 1 : 0)}%</span>
-                    </span>
-                    <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-white/5">
-                      <span className={cn("block h-full rounded-full", bar)} style={{ width: `${Math.max(2, c.share * 100)}%` }} />
-                    </span>
+              {/* 2 давхар мөр (утсан дээр ч): 1-р мөр нэр ... дүн; 2-р мөр бар ... хувь */}
+              <div className="px-2 py-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-label={`${c.label}: харилцагчаар задлах`}
+                    onClick={() => setOpen(isOpen ? null : c.id)}
+                    className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg text-left"
+                  >
+                    <ChevronRight className={cn("size-4 shrink-0 text-text-muted transition-transform", isOpen && "rotate-90")} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{c.label}</span>
+                  </button>
+                  <Amount value={c.total} className="shrink-0 text-sm font-semibold text-text" />
+                </div>
+                <div className="mt-0.5 flex items-center gap-2 pl-6">
+                  <span className="block h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/5">
+                    <span className={cn("block h-full rounded-full", bar)} style={{ width: `${Math.max(2, c.share * 100)}%` }} />
                   </span>
-                </button>
-                <Amount value={c.total} className="shrink-0 text-sm font-semibold text-text" />
+                  <span className="w-10 shrink-0 text-right text-xs text-text-muted">{(c.share * 100).toFixed(c.share < 0.1 ? 1 : 0)}%</span>
+                </div>
               </div>
               {isOpen && (
                 <div className="mb-2 ml-8 mr-2 space-y-0.5 border-l border-border pl-3">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { formatAxisValue } from "@/lib/money-short";
+import { formatAxisShort, formatAxisValue } from "@/lib/money-short";
 import { money } from "./FinanceShell";
 
 export interface BarSeries {
@@ -15,8 +15,12 @@ type Point = { date: string } & Record<string, number | string>;
 
 const H = 230;
 const PAD = { top: 14, right: 8, bottom: 26, left: 72 };
+/** Нарийн (утас) дэлгэц: тэнхлэгийн шошго богино, зүүн зай бага */
+const NARROW = 520;
+const PAD_NARROW_LEFT = 38;
 
-function niceMax(v: number): number {
+/** Тэнхлэгийн дээд хязгаар: хамгийн өндөр баганыг ЗААВАЛ багтаана (v ≤ niceMax(v)). */
+export function niceMax(v: number): number {
   if (v <= 0) return 1;
   const p = 10 ** Math.floor(Math.log10(v));
   return Math.ceil(v / p) * p;
@@ -40,7 +44,7 @@ export function DailyBarChart({
   countLabel = "Баримт",
   tooltipTitle = (date) => date,
   valueFormat = money,
-  axisFormat = compact,
+  axisFormat,
   highlightDate,
   stacked = false,
 }: {
@@ -76,8 +80,13 @@ export function DailyBarChart({
   }, []);
   // Card-ийн өргөнийг дүүргэнэ; өдөр олонтой, нарийн дэлгэц дээр гүйлгэнэ
   const perBar = stacked ? 1 : series.length;
-  const W = Math.max(boxW, data.length * (perBar * 8 + 6) + PAD.left + PAD.right, 320);
-  const plotW = W - PAD.left - PAD.right;
+  const narrow = boxW > 0 && boxW < NARROW;
+  const padLeft = narrow ? PAD_NARROW_LEFT : PAD.left;
+  const axis = axisFormat ?? (narrow ? formatAxisShort : compact);
+  // нарийн дэлгэцэд график өргөнөөрөө багтана (сар бүр ≥ 12px); өдөр олонтой үед л гүйлгэнэ
+  const minSlot = narrow ? 12 : perBar * 8 + 6;
+  const W = Math.max(boxW, data.length * minSlot + padLeft + PAD.right, narrow ? 0 : 320);
+  const plotW = W - padLeft - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
   const max = niceMax(Math.max(0, ...(stacked ? data.map((d) => series.reduce((sum, s) => sum + (Number(d[s.key]) || 0), 0)) : data.flatMap((d) => series.map((s) => Number(d[s.key]) || 0)))));
   const slot = plotW / Math.max(data.length, 1);
@@ -110,19 +119,19 @@ export function DailyBarChart({
           </defs>
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="rgba(100,150,240,0.18)" strokeWidth={1} strokeDasharray={t === 0 ? undefined : "3 5"} />
-              <text x={PAD.left - 8} y={y(t) + 4} textAnchor="end" fontSize={11} fill="rgb(var(--color-text-muted))">
-                {axisFormat(t)}
+              <line x1={padLeft} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="rgba(100,150,240,0.18)" strokeWidth={1} strokeDasharray={t === 0 ? undefined : "3 5"} />
+              <text x={padLeft - 8} y={y(t) + 4} textAnchor="end" fontSize={11} fill="rgb(var(--color-text-muted))">
+                {axis(t)}
               </text>
             </g>
           ))}
           {data.map((d, i) => {
-            const x0 = PAD.left + i * slot + (slot - barW * perBar) / 2;
+            const x0 = padLeft + i * slot + (slot - barW * perBar) / 2;
             let cum = 0;
             return (
               <g key={d.date} onMouseEnter={() => setHover(i)}>
-                {highlightDate === d.date && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} rx={4} fill="rgba(245,181,35,0.12)" stroke="rgba(255,213,107,0.55)" strokeWidth={1} />}
-                {hover === i && <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} fill="rgba(80,140,240,0.1)" />}
+                {highlightDate === d.date && <rect x={padLeft + i * slot} y={PAD.top} width={slot} height={plotH} rx={4} fill="rgba(245,181,35,0.12)" stroke="rgba(255,213,107,0.55)" strokeWidth={1} />}
+                {hover === i && <rect x={padLeft + i * slot} y={PAD.top} width={slot} height={plotH} fill="rgba(80,140,240,0.1)" />}
                 {series.map((s, k) => {
                   const v = Number(d[s.key]) || 0;
                   const base = stacked ? cum : 0;
@@ -143,9 +152,9 @@ export function DailyBarChart({
                     />
                   );
                 })}
-                <rect x={PAD.left + i * slot} y={PAD.top} width={slot} height={plotH} fill="transparent" />
+                <rect x={padLeft + i * slot} y={PAD.top} width={slot} height={plotH} fill="transparent" />
                 {(data.length <= 16 || i % Math.ceil(data.length / 16) === 0) && (
-                  <text x={PAD.left + i * slot + slot / 2} y={H - 7} textAnchor="middle" fontSize={11} fontWeight={highlightDate === d.date ? 700 : 400} fill={highlightDate === d.date ? "#ffd56b" : "rgb(var(--color-text-muted))"}>
+                  <text x={padLeft + i * slot + slot / 2} y={H - 7} textAnchor="middle" fontSize={11} fontWeight={highlightDate === d.date ? 700 : 400} fill={highlightDate === d.date ? "#ffd56b" : "rgb(var(--color-text-muted))"}>
                     {label(d.date)}
                   </text>
                 )}
@@ -156,7 +165,7 @@ export function DailyBarChart({
         {h && hover != null && (
           <div
             className="pointer-events-none absolute top-2 z-10 rounded-xl border border-[rgba(255,213,107,0.35)] bg-[#081733]/95 px-3 py-2 text-xs shadow-[0_8px_30px_-8px_rgba(40,110,240,0.7)] backdrop-blur"
-            style={{ left: Math.min(PAD.left + hover * slot + slot, W - 190) }}
+            style={{ left: Math.max(0, Math.min(padLeft + hover * slot + slot, W - 190)) }}
           >
             <p className="font-medium text-text">{tooltipTitle(h.date)}</p>
             {series.filter((s) => !stacked || (Number(h[s.key]) || 0) > 0).map((s) => (

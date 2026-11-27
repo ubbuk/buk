@@ -22,6 +22,7 @@
     "onec:labels-doc": "tsx scripts/gen-onec-labels-doc.ts",
     "onec:product-check": "tsx --env-file=.env scripts/onec-product-check.ts",
     "onec:cash-accounts-check": "tsx --env-file=.env scripts/onec-cash-accounts-check.ts",
+    "onec:cash-trend-check": "tsx --env-file=.env scripts/onec-cash-trend-check.ts",
     "onec:cash-check": "tsx --env-file=.env scripts/onec-cash-check.ts",
     "onec:reconcile": "tsx --env-file=.env scripts/onec-reconcile.ts",
     "onec:warehouse-mapping": "tsx --env-file=.env scripts/onec-warehouse-mapping.ts",
